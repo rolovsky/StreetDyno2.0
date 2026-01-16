@@ -1,0 +1,5 @@
+luma.oled
+pillow
+pynmea2
+pyserial
+RPi.GPIO
