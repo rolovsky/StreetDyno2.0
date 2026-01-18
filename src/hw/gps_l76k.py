@@ -11,10 +11,10 @@ class GPS_L76K:
     def __init__(self, port='/dev/ttyS0', baudrate=9600):
         try:
             self.ser = serial.Serial(port, baudrate, timeout=0.1)
-            print(f"🛰 GPS UART aktiv auf {port}")
+            print(f" GPS UART aktiv auf {port}")
         except:
             self.ser = None
-            print("⚠️ GPS UART nicht gefunden!")
+            print(" GPS UART nicht gefunden!")
 
     def start(self): pass
     def stop(self):

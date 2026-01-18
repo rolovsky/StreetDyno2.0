@@ -20,9 +20,9 @@ class RPMInput:  # <--- Dieser Name MUSS exakt so hier stehen!
 
     def start(self):
         if IS_PI:
-            print(f"✅ [Hardware] RPM an Pin {self.pin} gestartet.")
+            print(f"[OK] [Hardware] RPM an Pin {self.pin} gestartet.")
         else:
-            print(f"🛠 [Mock] RPM Simulation gestartet.")
+            print(f"[Mock] RPM Simulation gestartet.")
 
     def stop(self):
         pass

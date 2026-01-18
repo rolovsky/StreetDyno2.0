@@ -17,9 +17,9 @@ class OLEDDisplay:
                 # SPI Setup für Waveshare HAT
                 self.serial = spi(device=0, port=0, gpio_DC=24, gpio_RST=25)
                 self.device = sh1106(self.serial)
-                print("✅ OLED SPI Hardware gestartet.")
+                print("[OK] OLED SPI Hardware gestartet.")
             except Exception as e:
-                print(f"❌ OLED Hardware Fehler: {e}")
+                print(f"[X] OLED Hardware Fehler: {e}")
         else:
             print("🛠 [MOCK] OLED Simulation aktiv.")
 

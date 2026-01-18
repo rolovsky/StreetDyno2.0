@@ -23,21 +23,21 @@ def main():
     # RPM Check
     rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
     rpm_sensor.start()
-    status_info += "RPM OK "
+    status_info += "RPM [OK]"
     
     # GPS Check
     gps = GPS_L76K()
     if gps.ser:
-        status_info += "GPS OK"
+        status_info += "GPS [OK]"
     else:
-        status_info += "GPS X"
+        status_info += "GPS [X]"
     
     # Logger Check
     try:
         logger = CSVLogger(filename_prefix="VMC177_Run")
-        status_info += " LOG OK"
+        status_info += " LOG [OK]"
     except:
-        status_info += "GPS X"
+        status_info += "GPS [X]"
         status_info += " LOG "
 
     print(status_info)
