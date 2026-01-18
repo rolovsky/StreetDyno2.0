@@ -14,9 +14,9 @@ class GPS_L76K:
             # Verbindung herstellen
             self.ser = serial.Serial(port, baudrate, timeout=0.1)
             self.ser.flushInput()
-            print(f"🛰 GPS UART aktiv auf {port}")
+            print(f"GPS UART aktiv auf {port}")
         except Exception as e:
-            print(f"⚠️ GPS UART Fehler: {e}")
+            print(f"GPS UART Fehler: {e}")
 
     def start(self):
         pass
