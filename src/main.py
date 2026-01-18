@@ -9,7 +9,7 @@ from hw.display_oled import OLEDDisplay
 from data.logger import CSVLogger
 
 def main():
-    print("🚀 StreetDyno 2.0 - Booting...")
+    print("StreetDyno 2.0 - Booting...")
     
     # 1. OLED initialisieren & Start-Logo
     display = OLEDDisplay()
@@ -23,21 +23,22 @@ def main():
     # RPM Check
     rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
     rpm_sensor.start()
-    status_info += "RPM ✅ "
+    status_info += "RPM OK "
     
     # GPS Check
     gps = GPS_L76K()
     if gps.ser:
-        status_info += "GPS ✅"
+        status_info += "GPS OK"
     else:
-        status_info += "GPS ❌"
+        status_info += "GPS X"
     
     # Logger Check
     try:
         logger = CSVLogger(filename_prefix="VMC177_Run")
-        status_info += " LOG ✅"
+        status_info += " LOG OK"
     except:
-        status_info += " LOG ❌"
+        status_info += "GPS X"
+        status_info += " LOG "
 
     print(status_info)
     if display.device:
@@ -45,7 +46,7 @@ def main():
         time.sleep(1.5)
 
     # 3. Hauptschleife (10 Hz)
-    print("🔴 Logging aktiv...")
+    print("Logging aktiv...")
     try:
         while True:
             loop_start = time.time()
