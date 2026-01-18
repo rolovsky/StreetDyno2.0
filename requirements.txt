@@ -2,4 +2,3 @@ RPi.GPIO
 smbus2
 spidev
 luma.oled
-numpy
