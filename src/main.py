@@ -24,13 +24,17 @@ def main():
     rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
     rpm_sensor.start()
     status_info += "RPM [OK]"
-    
+   
     # GPS Check
     gps = GPS_L76K()
-    if gps.ser:
+    gps.start()  # Versucht die Verbindung zu gpsd aufzubauen
+    
+    if gps._connected:
         status_info += "GPS [OK]"
+        print("[OK] GPS via gpsd verbunden.")
     else:
         status_info += "GPS [X]"
+        print("[!] GPS konnte nicht mit gpsd verbinden.")
     
     # Logger Check
     try:
