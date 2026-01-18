@@ -1,5 +1,5 @@
-luma.oled
-pillow
-pynmea2
-pyserial
 RPi.GPIO
+smbus2
+spidev
+luma.oled
+numpy
