@@ -1,4 +1,5 @@
 import serial
+import time
 
 class GPSData:
     def __init__(self, fix=False, speed_kmh=0.0, sats=0):

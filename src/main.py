@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from config import *
 
 # Hardware Importe
@@ -53,7 +53,7 @@ def main():
             # Daten sammeln
             rpm_val = rpm_sensor.get_data().rpm
             gps_data = gps.get_data()
-            ts = datetime.utcnow().isoformat()
+            ts = datetime.now(timezone.utc).isoformat()
 
             # Display Update
             display.show_status(
