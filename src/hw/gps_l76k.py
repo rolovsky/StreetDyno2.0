@@ -1,52 +1,116 @@
-import serial
-import time
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Optional
+import json
+import socket
 
+@dataclass
 class GPSData:
-    def __init__(self, fix=False, speed_kmh=0.0, sats=0):
-        self.fix = fix
-        self.speed_kmh = speed_kmh
-        self.sats = sats
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    speed_kmh: float = 0.0
+    sats: Optional[int] = 0
+    fix: bool = False
 
 class GPS_L76K:
-    def __init__(self, port='/dev/ttyS0', baudrate=9600):
-        self.ser = None
+    """
+    GPS-Leser für den L76K-HAT über gpsd (JSON-Stream).
+    Erwartet einen laufenden gpsd auf localhost:2947.
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 2947, timeout: float = 0.5) -> None:
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self._sock: Optional[socket.socket] = None
+        self._buffer = b""
+        self._connected = False
+        self._data = GPSData()
+
+    def start(self) -> None:
+        """Verbindung zu gpsd herstellen und WATCH aktivieren."""
+        if self._connected:
+            return
+
         try:
-            # Verbindung herstellen
-            self.ser = serial.Serial(port, baudrate, timeout=0.1)
-            self.ser.flushInput()
-            print(f"GPS UART aktiv auf {port}")
-        except Exception as e:
-            print(f"GPS UART Fehler: {e}")
+            sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            sock.settimeout(self.timeout)
+            # WATCH-Command: JSON-Ausgabe von gpsd anfordern
+            sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
+            self._sock = sock
+            self._connected = True
+            print("🛰️ [GPS] Verbunden mit gpsd (JSON Mode).")
+        except OSError as e:
+            print(f"⚠️ [GPS] Verbindung zu gpsd fehlgeschlagen: {e}")
+            self._sock = None
+            self._connected = False
 
-    def start(self):
-        pass
+    def stop(self) -> None:
+        """Verbindung zu gpsd schließen."""
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+        self._sock = None
+        self._connected = False
+        print("[GPS] Verbindung zu gpsd geschlossen.")
 
-    def stop(self):
-        if self.ser:
-            self.ser.close()
+    def _read_message(self) -> Optional[dict]:
+        """Liest eine JSON-Zeile aus dem gpsd-Stream."""
+        if not self._connected or self._sock is None:
+            return None
 
-    def get_data(self):
-        if not self.ser:
-            return GPSData()
-        
         try:
-            if self.ser.in_waiting > 0:
-                line = self.ser.readline().decode('ascii', errors='replace').strip()
-                
-                # Diagnose: Antennen-Warnung
-                if "ANTENNA OPEN" in line:
-                    # Wir geben trotzdem ein Objekt zurück, damit das Programm nicht abstürzt
-                    return GPSData(fix=False, speed_kmh=0.0, sats=0)
+            chunk = self._sock.recv(4096)
+            if not chunk:
+                self._connected = False
+                return None
 
-                # Parsing der RMC-Sätze (Geschwindigkeit)
-                if "RMC" in line:
-                    parts = line.split(',')
-                    # $GNRMC,123456.00,A,LAT,N,LON,E,SPEED_KNOTS,...
-                    if len(parts) > 7 and parts[2] == 'A':
-                        speed_knots = float(parts[7]) if parts[7] else 0.0
-                        return GPSData(fix=True, speed_kmh=round(speed_knots * 1.852, 1), sats=8)
-        except Exception as e:
-            # Falls ein Byte-Fehler auftritt, einfach weitermachen
-            pass
-            
-        return GPSData()
+            self._buffer += chunk
+            if b"\n" in self._buffer:
+                line, self._buffer = self._buffer.split(b"\n", 1)
+                line = line.strip()
+                if not line:
+                    return None
+                try:
+                    return json.loads(line.decode("ascii", "ignore"))
+                except json.JSONDecodeError:
+                    return None
+        except socket.timeout:
+            return None
+        except OSError:
+            self._connected = False
+            return None
+        return None
+
+    def get_data(self) -> GPSData:
+        """Wird zyklisch von main.py aufgerufen."""
+        if not self._connected:
+            self.start()
+            if not self._connected:
+                return self._data
+
+        # Wir lesen bis zu 10 Nachrichten, um den Puffer aktuell zu halten
+        for _ in range(10):
+            msg = self._read_message()
+            if msg is None:
+                break
+
+            cls = msg.get("class")
+            # TPV = Time Position Velocity (Koordinaten & Speed)
+            if cls == "TPV":
+                self._data.lat = msg.get("lat")
+                self._data.lon = msg.get("lon")
+                speed = msg.get("speed") or 0.0 # speed ist in m/s bei gpsd
+                self._data.speed_kmh = float(speed) * 3.6
+                mode = msg.get("mode") or 0
+                self._data.fix = mode >= 2
+
+            # SKY = Satellite Information
+            elif cls == "SKY":
+                sats = msg.get("satellites") or []
+                used = [s for s in sats if s.get("used")]
+                self._data.sats = len(used)
+
+        return self._data
