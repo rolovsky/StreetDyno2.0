@@ -41,7 +41,7 @@ class GPS_L76K:
             self._connected = True
             print("🛰️ [GPS] Verbunden mit gpsd (JSON Mode).")
         except OSError as e:
-            print(f"⚠️ [GPS] Verbindung zu gpsd fehlgeschlagen: {e}")
+            print(f"[GPS] Verbindung zu gpsd fehlgeschlagen: {e}")
             self._sock = None
             self._connected = False
 
