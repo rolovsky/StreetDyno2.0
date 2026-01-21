@@ -1,4 +1,5 @@
 import time
+import RPi.GPIO as GPIO
 from datetime import datetime, timezone
 from config import *
 
@@ -8,68 +9,62 @@ from hw.gps_l76k import GPS_L76K
 from hw.display_oled import OLEDDisplay
 from data.logger import CSVLogger
 
+# Joystick Pins für Waveshare 1.3 OLED HAT
+JS_UP = 6
+JS_DOWN = 19
+JS_PRESS = 13
+
+def setup_joystick():
+    if hasattr(GPIO, 'setmode'):
+        GPIO.setmode(GPIO.BCM)
+        for pin in [JS_UP, JS_DOWN, JS_PRESS]:
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
 def main():
     print("StreetDyno 2.0 - Booting...")
+    setup_joystick()
     
-    # 1. OLED initialisieren & Start-Logo
     display = OLEDDisplay()
     if display.device:
         display.show_status(0, 0, 0, "BOOTING...", False)
         time.sleep(0.5)
 
-    # 2. Hardware-Checks
-    status_info = "HW: "
-    
-    # RPM Check
     rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
     rpm_sensor.start()
-    status_info += "RPM [OK]"
    
-    # GPS Check
     gps = GPS_L76K()
-    gps.start()  # Versucht die Verbindung zu gpsd aufzubauen
+    gps.start()
     
-    if gps._connected:
-        status_info += "GPS [OK]"
-        print("[OK] GPS via gpsd verbunden.")
-    else:
-        status_info += "GPS [X]"
-        print("[!] GPS konnte nicht mit gpsd verbinden.")
-    
-    # Logger Check
-    try:
-        logger = CSVLogger(filename_prefix="VMC177_Run")
-        status_info += " LOG [OK]"
-    except:
-        status_info += "GPS [X]"
-        status_info += " LOG "
-
-    print(status_info)
-    if display.device:
-        display.show_status(0, 0, 0, status_info, False)
-        time.sleep(1.5)
-
-    # 3. Hauptschleife (10 Hz)
+    logger = CSVLogger(filename_prefix="VMC177_Run")
     print("Logging aktiv...")
+
     try:
         while True:
             loop_start = time.time()
             
-            # Daten sammeln
+            # 1. Joystick Abfrage für Display-Modus
+            if not GPIO.input(JS_UP):
+                display.set_mode("RPM")
+            elif not GPIO.input(JS_DOWN):
+                display.set_mode("SPEED")
+            elif not GPIO.input(JS_PRESS):
+                display.set_mode("AFR")
+
+            # 2. Daten sammeln
             rpm_val = rpm_sensor.get_data().rpm
             gps_data = gps.get_data()
             ts = datetime.now(timezone.utc).isoformat()
 
-            # Display Update
+            # 3. Display Update (Minimalistisch & Fokus-orientiert)
             display.show_status(
                 rpm=rpm_val, 
                 speed=gps_data.speed_kmh, 
-                afr=14.7, # Platzhalter
-                info="SD 2.0 LIVE", 
+                afr=14.7, 
+                info="LIVE", 
                 gps_fix=gps_data.fix
             )
 
-            # Loggen
+            # 4. Loggen
             logger.log(ts, rpm_val, gps_data.speed_kmh, 0, 0, 14.7, "1:50_MIX")
 
             # Exakte 10Hz einhalten
@@ -79,10 +74,10 @@ def main():
     except KeyboardInterrupt:
         print("\nBeende Logger...")
     finally:
-        rpm_sensor.stop()
         gps.stop()
         if display.device:
             display.clear()
+        GPIO.cleanup()
 
 if __name__ == "__main__":
     main()
