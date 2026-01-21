@@ -20,18 +20,13 @@ class OLEDDisplay:
                 self.serial = spi(device=0, port=0, gpio_DC=24, gpio_RST=25)
                 self.device = sh1106(self.serial)
                 
-                # --- SCHRIFTEN LADEN ---
-                # Wir laden eine große Schrift für die Zahlen und eine kleine für Labels
+                # Schriften laden
                 try:
-                    # Pfad zu einer Standard-Schrift auf dem Pi
                     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-                    self.font_big = ImageFont.truetype(font_path, 34)   # RIESIGE Zahlen
-                    self.font_medium = ImageFont.truetype(font_path, 18) # Mittel für Labels
-                    self.font_small = ImageFont.truetype(font_path, 10)  # Statuszeile
+                    self.font_big = ImageFont.truetype(font_path, 34)
+                    self.font_small = ImageFont.truetype(font_path, 10)
                 except:
-                    print("[!] Wunsch-Schrift nicht gefunden, nutze Standard.")
                     self.font_big = ImageFont.load_default()
-                    self.font_medium = ImageFont.load_default()
                     self.font_small = ImageFont.load_default()
 
                 print("[OK] OLED Hardware & Fonts geladen.")
@@ -41,25 +36,35 @@ class OLEDDisplay:
     def set_mode(self, new_mode):
         self.mode = new_mode
 
-    def show_status(self, rpm, speed, afr, info, gps_fix):
+    def clear(self):
+        """Löscht das Display beim Beenden."""
+        if self.device:
+            self.device.clear()
+
+    def show_status(self, rpm, speed, afr, info, gps_fix, is_logging=False):
         if not self.device: return
             
         with canvas(self.device) as draw:
-            # --- Fokus Bereich ---
+            # Modus-Label und Wert bestimmen
             if self.mode == "RPM":
-                draw.text((0, 0), "RPM", font=self.font_small, fill="white")
-                # Große Zahl mittig platzieren
-                draw.text((10, 8), f"{int(rpm)}", font=self.font_big, fill="white")
-            
+                label, val_str = "RPM", f"{int(rpm)}"
             elif self.mode == "SPEED":
-                draw.text((0, 0), "KM/H", font=self.font_small, fill="white")
-                draw.text((10, 8), f"{speed:.1f}", font=self.font_big, fill="white")
-            
-            elif self.mode == "AFR":
-                draw.text((0, 0), "AFR", font=self.font_small, fill="white")
-                draw.text((10, 8), f"{afr:.2f}", font=self.font_big, fill="white")
+                label, val_str = "KM/H", f"{speed:.1f}"
+            else:
+                label, val_str = "AFR", f"{afr:.2f}"
 
-            # --- Untere Statusleiste ---
+            # Label oben links
+            draw.text((0, 0), label, font=self.font_small, fill="white")
+            
+            # Recording-Indikator oben rechts (Punkt + Text)
+            if is_logging:
+                draw.ellipse((115, 2, 125, 12), fill="white")
+                draw.text((90, 2), "REC", font=self.font_small, fill="white")
+
+            # Große Zahl (X=20 für etwas Einrückung)
+            draw.text((20, 8), val_str, font=self.font_big, fill="white")
+
+            # Untere Statusleiste
             draw.line((0, 48, 128, 48), fill="white")
             fix_icon = "GPS: OK" if gps_fix else "NO GPS"
             draw.text((0, 52), f"{fix_icon} | {info}", font=self.font_small, fill="white")

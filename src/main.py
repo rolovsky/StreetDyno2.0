@@ -25,58 +25,68 @@ def main():
     setup_joystick()
     
     display = OLEDDisplay()
-    if display.device:
-        display.show_status(0, 0, 0, "BOOTING...", False)
-        time.sleep(0.5)
-
     rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
     rpm_sensor.start()
    
     gps = GPS_L76K()
     gps.start()
     
-    logger = CSVLogger(filename_prefix="VMC177_Run")
-    print("Logging aktiv...")
+    logger = None
+    logging_active = False
+    last_press_time = 0
+
+    print("System bereit. Drücke Joystick-Center zum Loggen.")
 
     try:
         while True:
             loop_start = time.time()
             
-            # 1. Joystick Abfrage für Display-Modus
+            # --- JOYSTICK ABFRAGE ---
             if not GPIO.input(JS_UP):
                 display.set_mode("RPM")
             elif not GPIO.input(JS_DOWN):
                 display.set_mode("SPEED")
-            elif not GPIO.input(JS_PRESS):
-                display.set_mode("AFR")
-
-            # 2. Daten sammeln
+            
+            # Start/Stop Toggle (Debounce 0.5s)
+            if not GPIO.input(JS_PRESS):
+                if time.time() - last_press_time > 0.5:
+                    logging_active = not logging_active
+                    last_press_time = time.time()
+                    if logging_active:
+                        logger = CSVLogger(filename_prefix="VMC177_Run")
+                        print(f"🔴 Log gestartet: {logger.filename}")
+                    else:
+                        logger = None
+                        print("⚪ Log gestoppt.")
+            
+            # --- DATEN SAMMELN ---
             rpm_val = rpm_sensor.get_data().rpm
             gps_data = gps.get_data()
-            ts = datetime.now(timezone.utc).isoformat()
 
-            # 3. Display Update (Minimalistisch & Fokus-orientiert)
+            # --- DISPLAY UPDATE ---
             display.show_status(
                 rpm=rpm_val, 
                 speed=gps_data.speed_kmh, 
-                afr=14.7, 
+                afr=14.7, # Platzhalter für AFR
                 info="LIVE", 
-                gps_fix=gps_data.fix
+                gps_fix=gps_data.fix,
+                is_logging=logging_active
             )
 
-            # 4. Loggen
-            logger.log(ts, rpm_val, gps_data.speed_kmh, 0, 0, 14.7, "1:50_MIX")
+            # --- LOGGEN WENN AKTIV ---
+            if logging_active and logger:
+                ts = datetime.now(timezone.utc).isoformat()
+                logger.log(ts, rpm_val, gps_data.speed_kmh, 0, 0, 14.7, "VMC177")
 
-            # Exakte 10Hz einhalten
+            # 10Hz Takt einhalten
             elapsed = time.time() - loop_start
             time.sleep(max(0, 0.1 - elapsed))
 
     except KeyboardInterrupt:
-        print("\nBeende Logger...")
+        print("\nBeende System...")
     finally:
         gps.stop()
-        if display.device:
-            display.clear()
+        display.clear()
         GPIO.cleanup()
 
 if __name__ == "__main__":
