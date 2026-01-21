@@ -20,7 +20,6 @@ class OLEDDisplay:
                 self.serial = spi(device=0, port=0, gpio_DC=24, gpio_RST=25)
                 self.device = sh1106(self.serial)
                 
-                # Schriften laden
                 try:
                     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
                     self.font_big = ImageFont.truetype(font_path, 34)
@@ -37,7 +36,6 @@ class OLEDDisplay:
         self.mode = new_mode
 
     def clear(self):
-        """Löscht das Display beim Beenden."""
         if self.device:
             self.device.clear()
 
@@ -45,7 +43,7 @@ class OLEDDisplay:
         if not self.device: return
             
         with canvas(self.device) as draw:
-            # Modus-Label und Wert bestimmen
+            # Modus-Label bestimmen
             if self.mode == "RPM":
                 label, val_str = "RPM", f"{int(rpm)}"
             elif self.mode == "SPEED":
@@ -56,15 +54,14 @@ class OLEDDisplay:
             # Label oben links
             draw.text((0, 0), label, font=self.font_small, fill="white")
             
-            # Recording-Indikator oben rechts (Punkt + Text)
+            # Recording-Indikator als Text (statt Punkt/Emoji)
             if is_logging:
-                draw.ellipse((115, 2, 125, 12), fill="white")
-                draw.text((90, 2), "REC", font=self.font_small, fill="white")
+                draw.text((95, 0), "LOGGING", font=self.font_small, fill="white")
 
-            # Große Zahl (X=20 für etwas Einrückung)
+            # Große Zahl
             draw.text((20, 8), val_str, font=self.font_big, fill="white")
 
-            # Untere Statusleiste
+            # Untere Statusleiste (Text statt Icon)
             draw.line((0, 48, 128, 48), fill="white")
-            fix_icon = "GPS: OK" if gps_fix else "NO GPS"
-            draw.text((0, 52), f"{fix_icon} | {info}", font=self.font_small, fill="white")
+            fix_text = "GPS: OK" if gps_fix else "GPS: NO FIX"
+            draw.text((0, 52), f"{fix_text} | {info}", font=self.font_small, fill="white")
