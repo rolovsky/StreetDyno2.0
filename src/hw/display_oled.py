@@ -21,7 +21,7 @@ class OLEDDisplay:
             except Exception as e:
                 print(f"[X] OLED Hardware Fehler: {e}")
         else:
-            print("🛠 [MOCK] OLED Simulation aktiv.")
+            print("[MOCK] OLED Simulation aktiv.")
 
     def show_status(self, rpm, speed, afr, info, gps_fix):
         if not self.device:
