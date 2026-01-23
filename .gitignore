@@ -1,2 +1,15 @@
 __pycache__/
+*.pyc# Python-Bytecode (verhindert pycache-Fehler)
+__pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Messdaten / Logs ausschließen
+src/logs/*.csv
+logs/*.csv
+
+# Lokale Konfigurationen oder temporäre Dateien
+*.swp
+*~
+.DS_Store
