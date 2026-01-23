@@ -22,27 +22,28 @@ class RPMInput:
 
     def start(self):
         if IS_PI:
-            # Setup für PC817: Signal wird vom Modul auf Masse gezogen (Active Low)
+            # WICHTIG: Kein setmode hier! Das macht die main.py zentral.
             GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            # Interrupt bei fallender Flanke registrieren
             GPIO.add_event_detect(self.pin, GPIO.FALLING, callback=self._callback)
-            print(f"[OK] [Hardware] RPM an Pin {self.pin} gestartet.")
+            print(f"[OK] [Hardware] RPM-Eingang an Pin {self.pin} aktiviert.")
         else:
-            print(f"[Mock] RPM Simulation gestartet.")
+            print(f"[Mock] RPM Simulation aktiv.")
 
     def _callback(self, channel):
         self.timestamps.append(time.time())
 
     def stop(self):
         if IS_PI:
-            GPIO.remove_event_detect(self.pin)
+            try:
+                GPIO.remove_event_detect(self.pin)
+            except:
+                pass
 
     def get_data(self) -> RPMData:
         if not IS_PI:
             return RPMData(rpm=1250.0)
 
         now = time.time()
-        # Alte Impulse außerhalb des Zeitfensters entfernen
         while self.timestamps and (now - self.timestamps[0] > self.window_s):
             self.timestamps.popleft()
 
@@ -50,9 +51,7 @@ class RPMInput:
         if count < 2:
             return RPMData(rpm=0.0)
 
-        # Zeitspanne zwischen erstem und letztem Impuls im Fenster berechnen
         time_span = self.timestamps[-1] - self.timestamps[0]
-        
         if time_span > 0:
             revs_per_second = (count - 1) / time_span / self.ppr
             self.last_rpm = revs_per_second * 60.0

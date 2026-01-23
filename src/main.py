@@ -1,12 +1,14 @@
 import time
-# Mock-Check für Codespaces/PC integrieren
+import sys
+
+# Mock-Check
 try:
     import RPi.GPIO as GPIO
     IS_PI = True
 except (ImportError, RuntimeError):
     IS_PI = False
     GPIO = None
-    print("[Info] Nicht auf einem Raspberry Pi erkannt. Nutze Simulations-Modus.")
+    print("[Info] Simulations-Modus aktiv.")
 
 from datetime import datetime, timezone
 from config import *
@@ -22,24 +24,30 @@ JS_UP = 6
 JS_DOWN = 19
 JS_PRESS = 13
 
-def setup_hardware():
+def setup_gpio_global():
     if IS_PI and GPIO:
-        try:
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setwarnings(False)
-            for pin in [JS_UP, JS_DOWN, JS_PRESS]:
-                GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        except Exception as e:
-            print(f"[X] GPIO Setup Fehler: {e}")
+        # Globalen Modus setzen, bevor irgendeine Hardware-Klasse geladen wird
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        # Joystick Setup
+        for pin in [JS_UP, JS_DOWN, JS_PRESS]:
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        print("[OK] GPIO Global Setup abgeschlossen.")
 
 def main():
     print("StreetDyno 2.0 - Booting...")
-    setup_hardware()
     
+    # 1. GPIO Modus global festlegen
+    setup_gpio_global()
+    
+    # 2. Display initialisieren (setzt intern seine Pins als OUTPUT)
     display = OLEDDisplay()
+    
+    # 3. RPM Sensor initialisieren
     rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
     rpm_sensor.start()
    
+    # 4. GPS initialisieren
     gps = GPS_L76K()
     gps.start()
     
@@ -51,7 +59,7 @@ def main():
         while True:
             loop_start = time.time()
             
-            # --- JOYSTICK ABFRAGE ---
+            # Joystick Abfrage
             if IS_PI and GPIO:
                 if not GPIO.input(JS_UP):
                     display.set_mode("RPM")
@@ -64,14 +72,13 @@ def main():
                         last_press_time = time.time()
                         if logging_active:
                             logger = CSVLogger(filename_prefix="VMC177_Run")
-                            print(f"Logging an: {logger.filepath}")
                         else:
                             logger = None
-                            print("Logging aus.")
             
             rpm_val = rpm_sensor.get_data().rpm
             gps_data = gps.get_data()
 
+            # Anzeige aktualisieren
             display.show_status(
                 rpm=rpm_val, 
                 speed=gps_data.speed_kmh, 
@@ -81,18 +88,21 @@ def main():
                 is_logging=logging_active
             )
 
+            # Logging
             if logging_active and logger:
                 ts = datetime.now(timezone.utc).isoformat()
                 logger.log(ts, rpm_val, gps_data.speed_kmh, 0, 0, 14.7, "VMC177")
 
+            # Timing (10Hz)
             time.sleep(max(0, 0.1 - (time.time() - loop_start)))
 
     except KeyboardInterrupt:
-        print("\nBeende System...")
+        print("\nShutdown...")
     finally:
-        gps.stop()
-        rpm_sensor.stop()
-        display.clear()
+        if gps: gps.stop()
+        if rpm_sensor: rpm_sensor.stop()
+        if display: display.clear()
+        # Cleanup am Ende verhindert, dass Pins für den nächsten Start blockiert sind
         if IS_PI and GPIO:
             GPIO.cleanup()
 
