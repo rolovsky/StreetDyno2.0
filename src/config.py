@@ -2,7 +2,7 @@
 import os
 
 # GPIO Pins
-RPM_PIN = 24            # Dein Signal-Pin für die Drehzahl
+RPM_PIN = 23  # Von 24 auf 23 ändern, da 24 vom Display (DC-Pin) belegt ist
 JOYSTICK_PRESS_PIN = 13 # Button zum Starten/Stoppen des Logs
 
 # Motor Setup
