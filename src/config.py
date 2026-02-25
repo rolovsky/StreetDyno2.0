@@ -6,7 +6,7 @@ RPM_PIN = 23  # Von 24 auf 23 ändern, da 24 vom Display (DC-Pin) belegt ist
 JOYSTICK_PRESS_PIN = 13 # Button zum Starten/Stoppen des Logs
 
 # Motor Setup
-PULSES_PER_REV = 1      # 1 Impuls pro Umdrehung (Vespa Standard)
+PULSES_PER_REV = 3      # 3 Impulse pro Umdrehung (Vespa Lusso (Ducati Standard)
 RPM_AVG_WINDOW_S = 0.2  # Glättung über 0.2 Sekunden
 
 # Logging
