@@ -1,7 +1,7 @@
 import RPi.GPIO as GPIO
 import time
 
-PIN = 24  # Dein RPM_PIN aus der config.py
+PIN = 23x  # Dein RPM_PIN aus der config.py
 
 GPIO.setmode(GPIO.BCM)
 # Wie in deiner neuen rpm_input.py: Pull-Up nutzen
