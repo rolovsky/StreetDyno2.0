@@ -12,10 +12,10 @@ def setup_gpio():
     """Initialisiert die Joystick-Pins am Pi"""
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
-    # Nutze die Pins aus deiner config.py
-    for pin in [JS_UP, JS_DOWN, JS_LEFT, JS_RIGHT, JS_PRESS]:
+    # Nur die Pins nutzen, die in der config.py definiert sind
+    for pin in [JS_UP, JS_DOWN, JS_PRESS]:
         GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    print("[OK] Joystick-GPIOs (BCM) aktiv.")
+    print("[OK] Joystick-GPIOs (UP, DOWN, PRESS) aktiv.")
 
 def main():
     # 1. Initialisierung
@@ -24,9 +24,9 @@ def main():
     gps = GPS_L76K()
     gps.start()
     
-    # Serial Setup mit hoher Baudrate
+    # Serial Setup mit hoher Baudrate und Non-Blocking Mode
     try:
-        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0) # Timeout 0 für Non-Blocking
+        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0) 
         ser.flushInput()
         print(f"[OK] Kommunikation mit Arduino auf {SERIAL_PORT} gestartet.")
     except Exception as e:
@@ -45,12 +45,10 @@ def main():
     try:
         while True:
             # --- A. JOYSTICK (Echtzeit-Abfrage) ---
-            # Wir prüfen die Eingänge sofort. 
-            # Die kleinen sleeps (0.15) verhindern 'Geister-Klicks' (Entprellen)
             if not GPIO.input(JS_UP):
                 current_mode_idx = (current_mode_idx - 1) % len(modes)
                 display.set_mode(modes[current_mode_idx])
-                time.sleep(0.15) 
+                time.sleep(0.15) # Entprellen
             
             elif not GPIO.input(JS_DOWN):
                 current_mode_idx = (current_mode_idx + 1) % len(modes)
@@ -58,20 +56,18 @@ def main():
                 time.sleep(0.15)
 
             if not GPIO.input(JS_PRESS):
-                # Toggle Logging (0.5s Sperre gegen Doppelklicks)
                 if time.time() - last_press_time > 0.5:
                     logging_active = not logging_active
                     last_press_time = time.time()
                     print(f"\n[LOGGING] {'Gestartet' if logging_active else 'Gestoppt'}")
 
-            # --- B. ARDUINO DATEN (Turbo-Cleanup) ---
+            # --- B. ARDUINO DATEN (Turbo-Cleanup gegen Delay) ---
             if ser and ser.in_waiting > 0:
                 try:
-                    # Lies ALLES im Puffer, um Latenz zu vermeiden
+                    # Gesamten Puffer lesen, um Latenz zu vermeiden
                     raw_data = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-                    # Zerlege in Zeilen und nimm die letzte komplette
                     lines = raw_data.split('\n')
-                    # Wir gehen rückwärts durch die Zeilen, bis wir ein gültiges Paket finden
+                    # Rückwärts suchen nach dem aktuellsten vollständigen Paket
                     for i in range(len(lines)-1, -1, -1):
                         line = lines[i].strip()
                         if ";" in line:
@@ -80,14 +76,13 @@ def main():
                                 rpm_val = float(parts[0])
                                 afr_val = float(parts[1])
                                 egt_val = float(parts[2])
-                                break # Das ist das aktuellste Paket, fertig.
-                except Exception as e:
-                    pass # Kaputte Pakete ignorieren
+                                break 
+                except Exception:
+                    pass 
 
             # --- C. GPS & DISPLAY UPDATE ---
             gps_data = gps.get_data()
             
-            # Die Anzeige aktualisieren (Hauptzeitfresser, aber nötig)
             display.show_status(
                 rpm=rpm_val, 
                 speed=gps_data.speed_kmh, 
@@ -98,7 +93,7 @@ def main():
                 is_logging=logging_active
             )
 
-            # Minimales Sleep, um die CPU nicht zu grillen (1ms)
+            # Minimales Sleep für die CPU-Entlastung
             time.sleep(0.001)
 
     except KeyboardInterrupt:
