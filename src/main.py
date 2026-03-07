@@ -1,6 +1,7 @@
 import time
 import serial
 import RPi.GPIO as GPIO
+import threading
 from config import *
 
 # Hardware-Modules
@@ -8,27 +9,41 @@ from hw.gps_l76k import GPS_L76K
 from hw.display_oled import OLEDDisplay
 from data.logger import CSVLogger
 
+# Globale Variablen für den Thread-Austausch
+current_gps_data = None
+
+def gps_thread_function(gps_instance):
+    """Dieser Thread kümmert sich nur um das GPS, ohne die Main-Loop zu bremsen."""
+    global current_gps_data
+    while True:
+        current_gps_data = gps_instance.get_data()
+        time.sleep(0.1) # GPS aktualisiert eh nur mit 10Hz
+
 def setup_gpio():
     """Initialisiert die Joystick-Pins am Pi"""
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
-    # Nur die Pins nutzen, die in der config.py definiert sind
     for pin in [JS_UP, JS_DOWN, JS_PRESS]:
         GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    print("[OK] Joystick-GPIOs (UP, DOWN, PRESS) aktiv.")
+    print("[OK] Joystick-GPIOs aktiv.")
 
 def main():
-    # 1. Initialisierung
+    global current_gps_data
     setup_gpio()
     display = OLEDDisplay()
+    
+    # GPS Setup & Thread Start
     gps = GPS_L76K()
     gps.start()
+    t = threading.Thread(target=gps_thread_function, args=(gps,), daemon=True)
+    t.start()
+    print("[OK] GPS-Hintergrund-Thread gestartet.")
     
-    # Serial Setup mit hoher Baudrate und Non-Blocking Mode
+    # Serial Setup (Non-Blocking)
     try:
         ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0) 
         ser.flushInput()
-        print(f"[OK] Kommunikation mit Arduino auf {SERIAL_PORT} gestartet.")
+        print(f"[OK] Arduino-Stream aktiv ({SERIAL_BAUD} Baud).")
     except Exception as e:
         print(f"[X] Serial Fehler: {e}")
         ser = None
@@ -40,34 +55,32 @@ def main():
     current_mode_idx = 0
     last_press_time = 0
 
-    print("[GO] StreetDyno 2.0 läuft...")
+    print("[GO] StreetDyno 2.0 im Low-Latency Mode!")
 
     try:
         while True:
-            # --- A. JOYSTICK (Echtzeit-Abfrage) ---
+            # --- 1. JOYSTICK (Sofort-Reaktion) ---
             if not GPIO.input(JS_UP):
                 current_mode_idx = (current_mode_idx - 1) % len(modes)
                 display.set_mode(modes[current_mode_idx])
-                time.sleep(0.15) # Entprellen
+                time.sleep(0.1) # Kürzere Entprellzeit für mehr Speed
             
             elif not GPIO.input(JS_DOWN):
                 current_mode_idx = (current_mode_idx + 1) % len(modes)
                 display.set_mode(modes[current_mode_idx])
-                time.sleep(0.15)
+                time.sleep(0.1)
 
             if not GPIO.input(JS_PRESS):
-                if time.time() - last_press_time > 0.5:
+                if time.time() - last_press_time > 0.4:
                     logging_active = not logging_active
                     last_press_time = time.time()
-                    print(f"\n[LOGGING] {'Gestartet' if logging_active else 'Gestoppt'}")
 
-            # --- B. ARDUINO DATEN (Turbo-Cleanup gegen Delay) ---
+            # --- 2. ARDUINO DATEN (Echtzeit-Parsing) ---
             if ser and ser.in_waiting > 0:
                 try:
-                    # Gesamten Puffer lesen, um Latenz zu vermeiden
-                    raw_data = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-                    lines = raw_data.split('\n')
-                    # Rückwärts suchen nach dem aktuellsten vollständigen Paket
+                    # Wir lesen alles und springen sofort zum Ende
+                    raw = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+                    lines = raw.split('\n')
                     for i in range(len(lines)-1, -1, -1):
                         line = lines[i].strip()
                         if ";" in line:
@@ -77,27 +90,30 @@ def main():
                                 afr_val = float(parts[1])
                                 egt_val = float(parts[2])
                                 break 
-                except Exception:
-                    pass 
+                except:
+                    pass
 
-            # --- C. GPS & DISPLAY UPDATE ---
-            gps_data = gps.get_data()
+            # --- 3. DISPLAY UPDATE ---
+            # Wir nutzen die GPS-Daten aus dem Thread (falls vorhanden)
+            speed = current_gps_data.speed_kmh if current_gps_data else 0.0
+            fix = current_gps_data.fix if current_gps_data else False
             
             display.show_status(
                 rpm=rpm_val, 
-                speed=gps_data.speed_kmh, 
+                speed=speed, 
                 afr=afr_val, 
                 egt=egt_val, 
                 info=VEHICLE_NAME, 
-                gps_fix=gps_data.fix, 
+                gps_fix=fix, 
                 is_logging=logging_active
             )
 
-            # Minimales Sleep für die CPU-Entlastung
-            time.sleep(0.001)
+            # Kein künstliches Sleep mehr, oder nur minimalst
+            # Das OLED-Update selbst dauert ca. 20ms, das ist unsere natürliche Bremse.
+            time.sleep(0.0001)
 
     except KeyboardInterrupt:
-        print("\n[STOP] Beende StreetDyno...")
+        print("\n[STOP] Beende...")
     finally:
         gps.stop()
         if ser: ser.close()
