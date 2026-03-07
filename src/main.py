@@ -1,7 +1,10 @@
 import time
 import sys
+import serial
+from datetime import datetime, timezone
+from config import *
 
-# Mock-Check
+# Mock-Check für GPIO
 try:
     import RPi.GPIO as GPIO
     IS_PI = True
@@ -10,101 +13,106 @@ except (ImportError, RuntimeError):
     GPIO = None
     print("[Info] Simulations-Modus aktiv.")
 
-from datetime import datetime, timezone
-from config import *
-
 # Hardware Importe
-from hw.rpm_input import RPMInput
 from hw.gps_l76k import GPS_L76K
 from hw.display_oled import OLEDDisplay
 from data.logger import CSVLogger
 
-# Joystick Pins
-JS_UP = 6
-JS_DOWN = 19
-JS_PRESS = 13
-
 def setup_gpio_global():
     if IS_PI and GPIO:
-        # Globalen Modus setzen, bevor irgendeine Hardware-Klasse geladen wird
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        # Joystick Setup
+        GPIO.setmode(GPIO.BCM) #
+        GPIO.setwarnings(False) #
         for pin in [JS_UP, JS_DOWN, JS_PRESS]:
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP) #
         print("[OK] GPIO Global Setup abgeschlossen.")
 
 def main():
     print("StreetDyno 2.0 - Booting...")
-    
-    # 1. GPIO Modus global festlegen
     setup_gpio_global()
     
-    # 2. Display initialisieren (setzt intern seine Pins als OUTPUT)
-    display = OLEDDisplay()
+    display = OLEDDisplay() #
+    gps = GPS_L76K() #
+    gps.start() #
     
-    # 3. RPM Sensor initialisieren
-    rpm_sensor = RPMInput(RPM_PIN, PULSES_PER_REV, RPM_AVG_WINDOW_S)
-    rpm_sensor.start()
-   
-    # 4. GPS initialisieren
-    gps = GPS_L76K()
-    gps.start()
-    
+    # Serielle Verbindung zum Arduino aufbauen
+    try:
+        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0.1)
+        print(f"[OK] Verbindung zu Arduino an {SERIAL_PORT} hergestellt.")
+    except Exception as e:
+        print(f"[Fehler] Arduino nicht gefunden: {e}")
+        ser = None
+
     logger = None
     logging_active = False
     last_press_time = 0
+    
+    # Initialwerte
+    rpm_val = 0.0
+    afr_val = 14.7
+    egt_val = 0.0
 
     try:
         while True:
-            loop_start = time.time()
-            
-            # Joystick Abfrage
+            loop_start = time.time() #
+
+            # 1. Daten vom Arduino lesen (Format: RPM;AFR;EGT)
+            if ser and ser.in_waiting > 0:
+                try:
+                    line = ser.readline().decode('utf-8').strip()
+                    if line:
+                        parts = line.split(';')
+                        if len(parts) >= 2:
+                            rpm_val = float(parts[0])
+                            afr_val = float(parts[1])
+                            if len(parts) >= 3:
+                                egt_val = float(parts[2])
+                except Exception as e:
+                    print(f"Serial Error: {e}")
+
+            # 2. Joystick Abfrage
             if IS_PI and GPIO:
                 if not GPIO.input(JS_UP):
-                    display.set_mode("RPM")
+                    display.set_mode("RPM") #
                 elif not GPIO.input(JS_DOWN):
-                    display.set_mode("SPEED")
+                    display.set_mode("SPEED") #
                 
                 if not GPIO.input(JS_PRESS):
-                    if time.time() - last_press_time > 0.5:
-                        logging_active = not logging_active
+                    if time.time() - last_press_time > 0.5: #
+                        logging_active = not logging_active #
                         last_press_time = time.time()
                         if logging_active:
-                            logger = CSVLogger(filename_prefix="VMC177_Run")
+                            logger = CSVLogger(filename_prefix="VMC177_Run") #
                         else:
                             logger = None
-            
-            rpm_val = rpm_sensor.get_data().rpm
-            gps_data = gps.get_data()
 
-            # Anzeige aktualisieren
+            gps_data = gps.get_data() #
+
+            # 3. Anzeige aktualisieren
             display.show_status(
-                rpm=rpm_val, 
-                speed=gps_data.speed_kmh, 
-                afr=14.7, 
-                info="LIVE", 
+                rpm=rpm_val,
+                speed=gps_data.speed_kmh,
+                afr=afr_val, # Jetzt mit echtem Wert!
+                info="LIVE",
                 gps_fix=gps_data.fix,
                 is_logging=logging_active
             )
 
-            # Logging
+            # 4. Logging (10Hz)
             if logging_active and logger:
-                ts = datetime.now(timezone.utc).isoformat()
-                logger.log(ts, rpm_val, gps_data.speed_kmh, 0, 0, 14.7, "VMC177")
+                ts = datetime.now(timezone.utc).isoformat() #
+                # Header: timestamp, rpm, speed_kmh, lat, lon, afr, note
+                logger.log(ts, rpm_val, gps_data.speed_kmh, gps_data.lat, gps_data.lon, afr_val, "VMC177")
 
-            # Timing (10Hz)
-            time.sleep(max(0, 0.1 - (time.time() - loop_start)))
+            time.sleep(max(0, 0.1 - (time.time() - loop_start))) #
 
     except KeyboardInterrupt:
         print("\nShutdown...")
     finally:
         if gps: gps.stop()
-        if rpm_sensor: rpm_sensor.stop()
         if display: display.clear()
-        # Cleanup am Ende verhindert, dass Pins für den nächsten Start blockiert sind
+        if ser: ser.close()
         if IS_PI and GPIO:
-            GPIO.cleanup()
+            GPIO.cleanup() #
 
 if __name__ == "__main__":
     main()
