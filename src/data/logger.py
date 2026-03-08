@@ -1,20 +1,37 @@
-import csv
 import os
-from datetime import datetime
+import time
 
 class CSVLogger:
-    def __init__(self, filename_prefix="dyno"):
-        if not os.path.exists('logs'): os.makedirs('logs')
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.filepath = f"logs/{filename_prefix}_{ts}.csv"
-        self._write_header()
-        print(f"Log start: {self.filepath}")
+    def __init__(self, log_dir="/home/rolovsky/streetdyno2.0/logs"):
+        self.log_dir = log_dir
+        self.filepath = None
+        self.is_logging = False
 
-    def _write_header(self):
-        header = ["timestamp", "rpm", "speed_kmh", "lat", "lon", "afr", "egt", "note"]
-        with open(self.filepath, 'w', newline='') as f:
-            csv.writer(f).writerow(header)
+        # Ordner erstellen, falls er nicht existiert
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
 
-    def log(self, ts, rpm, speed, lat, lon, afr, egt, note=""):
-        with open(self.filepath, 'a', newline='') as f:
-            csv.writer(f).writerow([ts, rpm, speed, lat, lon, afr, egt, note])
+    def start(self):
+        """Erstellt eine neue Datei mit Header, sobald du den Joystick drückst."""
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        self.filepath = os.path.join(self.log_dir, f"dyno_log_{timestamp}.csv")
+        
+        with open(self.filepath, "w") as f:
+            # Das ist die Kopfzeile für deine Excel-Auswertung
+            f.write("Time,RPM,AFR,EGT,Speed_kmh,GPS_Fix\n")
+            
+        self.is_logging = True
+        print(f"\n[LOGGER] Aufzeichnung gestartet: {self.filepath}")
+
+    def stop(self):
+        """Beendet das Logging."""
+        self.is_logging = False
+        print("\n[LOGGER] Aufzeichnung gestoppt.")
+
+    def log(self, rpm, afr, egt, speed, fix):
+        """Schreibt in Echtzeit eine neue Zeile in die Datei."""
+        if self.is_logging and self.filepath:
+            timestamp = time.strftime("%H:%M:%S")
+            # a = append (anhängen)
+            with open(self.filepath, "a") as f:
+                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{fix}\n")

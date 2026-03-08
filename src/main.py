@@ -34,6 +34,9 @@ def main():
     setup_gpio()
     display = OLEDDisplay()
     
+    # --- NEU: Logger scharf schalten ---
+    logger = CSVLogger()
+    
     # GPS Setup & Hintergrund-Thread starten
     gps = GPS_L76K()
     gps.start()
@@ -77,6 +80,12 @@ def main():
                     logging_active = not logging_active
                     last_press_time = time.time()
                     print(f"Logging: {'AN' if logging_active else 'AUS'}")
+                    
+                    # --- NEU: Logger bei Tastendruck triggern ---
+                    if logging_active:
+                        logger.start()
+                    else:
+                        logger.stop()
 
             # --- 2. ARDUINO DATEN (Turbo-Cleanup) ---
             if ser and ser.in_waiting > 0:
@@ -111,12 +120,19 @@ def main():
                 is_logging=logging_active
             )
 
+            # --- 4. NEU: In die CSV schreiben ---
+            if logging_active:
+                logger.log(rpm_val, afr_val, egt_val, current_speed, current_fix)
+
             # Winziges Sleep für die CPU (0.1ms), das OLED ist eh die Bremse
             time.sleep(0.0001)
 
     except KeyboardInterrupt:
         print("\n[STOP] StreetDyno beendet.")
     finally:
+        # Falls du das Skript abwürgst, Datei sauber schließen
+        if logging_active:
+            logger.stop()
         gps.stop()
         if ser: ser.close()
         GPIO.cleanup()
