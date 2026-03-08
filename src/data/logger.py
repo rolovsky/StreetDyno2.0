@@ -2,17 +2,18 @@ import os
 import time
 
 class CSVLogger:
+    # Der Pfad ist jetzt absolut in Stein gemeißelt. Keine Ausreden mehr für den Pi.
     def __init__(self, log_dir="/home/rolovsky/streetdyno2.0/logs"):
         self.log_dir = log_dir
         self.filepath = None
         self.is_logging = False
 
-        # Ordner erstellen, falls er nicht existiert
+        # Erstellt den Ordner zuverlässig, falls er noch nicht existiert
         if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+            os.makedirs(self.log_dir, exist_ok=True)
 
     def start(self):
-        """Erstellt eine neue Datei mit Header, sobald du den Joystick drückst."""
+        """Erstellt eine neue Datei mit Header."""
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         self.filepath = os.path.join(self.log_dir, f"dyno_log_{timestamp}.csv")
         
@@ -32,6 +33,5 @@ class CSVLogger:
         """Schreibt in Echtzeit eine neue Zeile in die Datei."""
         if self.is_logging and self.filepath:
             timestamp = time.strftime("%H:%M:%S")
-            # a = append (anhängen)
             with open(self.filepath, "a") as f:
                 f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{fix}\n")
