@@ -2,13 +2,11 @@ import os
 import time
 
 class CSVLogger:
-    # Der Pfad ist jetzt absolut in Stein gemeißelt. Keine Ausreden mehr für den Pi.
     def __init__(self, log_dir="/home/rolovsky/streetdyno2.0/logs"):
         self.log_dir = log_dir
         self.filepath = None
         self.is_logging = False
 
-        # Erstellt den Ordner zuverlässig, falls er noch nicht existiert
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir, exist_ok=True)
 
@@ -18,7 +16,6 @@ class CSVLogger:
         self.filepath = os.path.join(self.log_dir, f"dyno_log_{timestamp}.csv")
         
         with open(self.filepath, "w") as f:
-            # Das ist die Kopfzeile für deine Excel-Auswertung
             f.write("Time,RPM,AFR,EGT,Speed_kmh,GPS_Fix\n")
             
         self.is_logging = True
@@ -34,4 +31,5 @@ class CSVLogger:
         if self.is_logging and self.filepath:
             timestamp = time.strftime("%H:%M:%S")
             with open(self.filepath, "a") as f:
-                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{fix}\n")
+                # HIER IST DIE LUPE IM LOGGER: .4f statt .2f
+                f.write(f"{timestamp},{rpm:.0f},{afr:.4f},{egt:.1f},{speed:.1f},{fix}\n")
