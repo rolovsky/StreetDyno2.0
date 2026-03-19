@@ -16,11 +16,6 @@ class GPSData:
     timestamp: Optional[datetime] = None
 
 class GPS_L76K:
-    """
-    GPS-Leser für den L76K-HAT über gpsd (JSON-Stream).
-    Optimiert für den Betrieb in einem Hintergrund-Thread.
-    """
-
     def __init__(self, host: str = "127.0.0.1", port: int = 2947, timeout: float = 0.1) -> None:
         self.host = host
         self.port = port
@@ -32,10 +27,8 @@ class GPS_L76K:
         self._running = False
 
     def start(self) -> None:
-        """Verbindung zu gpsd herstellen."""
         if self._connected:
             return
-
         try:
             sock = socket.create_connection((self.host, self.port), timeout=2.0)
             sock.settimeout(self.timeout)
@@ -50,7 +43,6 @@ class GPS_L76K:
             self._connected = False
 
     def stop(self) -> None:
-        """Verbindung schließen."""
         self._running = False
         if self._sock is not None:
             try:
@@ -62,19 +54,16 @@ class GPS_L76K:
         print("[GPS] Verbindung zu gpsd geschlossen.")
 
     def _update_internal(self) -> None:
-        """Liest Daten vom Socket. Wird im Thread aufgerufen."""
         if not self._connected or self._sock is None:
             self.start()
             if not self._connected:
                 time.sleep(2)
                 return
-
         try:
             chunk = self._sock.recv(4096)
             if not chunk:
                 self._connected = False
                 return
-
             self._buffer += chunk
             
             while b"\n" in self._buffer:
@@ -82,7 +71,6 @@ class GPS_L76K:
                 line = line.strip()
                 if not line:
                     continue
-                
                 try:
                     msg = json.loads(line.decode("ascii", "ignore"))
                     cls = msg.get("class")
@@ -91,14 +79,13 @@ class GPS_L76K:
                         self._data.lat = msg.get("lat")
                         self._data.lon = msg.get("lon")
                         
-                        # SPEED FIX: Von Knoten (Knots) direkt in km/h umrechnen!
+                        # --- HIER IST DER FIX: Exakt * 3.6 ---
                         speed = msg.get("speed") or 0.0 
-                        self._data.speed_kmh = float(speed) * 1.852
+                        self._data.speed_kmh = float(speed) * 3.6
                         
                         mode = msg.get("mode") or 0
                         self._data.fix = mode >= 2
                         
-                        # UHRZEIT EXTRAHIEREN
                         time_str = msg.get("time")
                         if time_str:
                             try:
@@ -113,15 +100,12 @@ class GPS_L76K:
                         self._data.sats = len(used)
                 except json.JSONDecodeError:
                     continue
-
         except socket.timeout:
             pass
         except OSError:
             self._connected = False
 
     def get_data(self) -> GPSData:
-        """Gibt die aktuellsten Daten für die Main-Loop zurück."""
         if self._running:
             self._update_internal()
-            
         return self._data
