@@ -31,5 +31,5 @@ class CSVLogger:
         if self.is_logging and self.filepath:
             timestamp = time.strftime("%H:%M:%S")
             with open(self.filepath, "a") as f:
-                # HIER IST DIE LUPE IM LOGGER: .4f statt .2f
-                f.write(f"{timestamp},{rpm:.0f},{afr:.4f},{egt:.1f},{speed:.1f},{fix}\n")
+                # Alles sauber gerundet
+                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{fix}\n")

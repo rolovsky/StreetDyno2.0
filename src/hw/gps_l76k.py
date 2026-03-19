@@ -4,6 +4,7 @@ from typing import Optional
 import json
 import socket
 import time
+from datetime import datetime
 
 @dataclass
 class GPSData:
@@ -12,6 +13,7 @@ class GPSData:
     speed_kmh: float = 0.0
     sats: Optional[int] = 0
     fix: bool = False
+    timestamp: Optional[datetime] = None
 
 class GPS_L76K:
     """
@@ -35,10 +37,8 @@ class GPS_L76K:
             return
 
         try:
-            # Kurzer Timeout für den Verbindungsaufbau
             sock = socket.create_connection((self.host, self.port), timeout=2.0)
             sock.settimeout(self.timeout)
-            # WATCH-Command an gpsd senden
             sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
             self._sock = sock
             self._connected = True
@@ -50,7 +50,7 @@ class GPS_L76K:
             self._connected = False
 
     def stop(self) -> None:
-        """Verbindung schließen und Thread-Schleife signalisieren zu stoppen."""
+        """Verbindung schließen."""
         self._running = False
         if self._sock is not None:
             try:
@@ -62,18 +62,14 @@ class GPS_L76K:
         print("[GPS] Verbindung zu gpsd geschlossen.")
 
     def _update_internal(self) -> None:
-        """
-        Liest alle verfügbaren Daten vom Socket und aktualisiert den internen Status.
-        Diese Methode wird im Thread kontinuierlich aufgerufen.
-        """
+        """Liest Daten vom Socket. Wird im Thread aufgerufen."""
         if not self._connected or self._sock is None:
             self.start()
             if not self._connected:
-                time.sleep(2) # Wartezeit bei Verbindungsverlust
+                time.sleep(2)
                 return
 
         try:
-            # Lies einen Block vom Socket
             chunk = self._sock.recv(4096)
             if not chunk:
                 self._connected = False
@@ -81,7 +77,6 @@ class GPS_L76K:
 
             self._buffer += chunk
             
-            # Verarbeite alle vollständigen Zeilen im Puffer
             while b"\n" in self._buffer:
                 line, self._buffer = self._buffer.split(b"\n", 1)
                 line = line.strip()
@@ -95,10 +90,22 @@ class GPS_L76K:
                     if cls == "TPV":
                         self._data.lat = msg.get("lat")
                         self._data.lon = msg.get("lon")
-                        speed = msg.get("speed") or 0.0 # m/s
-                        self._data.speed_kmh = float(speed) * 3.6
+                        
+                        # SPEED FIX: Von Knoten (Knots) direkt in km/h umrechnen!
+                        speed = msg.get("speed") or 0.0 
+                        self._data.speed_kmh = float(speed) * 1.852
+                        
                         mode = msg.get("mode") or 0
                         self._data.fix = mode >= 2
+                        
+                        # UHRZEIT EXTRAHIEREN
+                        time_str = msg.get("time")
+                        if time_str:
+                            try:
+                                parsed_time = datetime.strptime(time_str[:19], "%Y-%m-%dT%H:%M:%S")
+                                self._data.timestamp = parsed_time
+                            except ValueError:
+                                pass
 
                     elif cls == "SKY":
                         sats = msg.get("satellites") or []
@@ -108,18 +115,12 @@ class GPS_L76K:
                     continue
 
         except socket.timeout:
-            # Ein Timeout ist hier okay, wir loopen einfach weiter
             pass
         except OSError:
             self._connected = False
 
     def get_data(self) -> GPSData:
-        """
-        Gibt die aktuellsten Daten zurück. 
-        Wenn Threading aktiv ist, wird diese Methode in main.py aufgerufen.
-        """
-        # Falls wir nicht im Thread laufen, machen wir hier ein schnelles Update
-        # Aber im Threading-Modus macht der Thread die Arbeit.
+        """Gibt die aktuellsten Daten für die Main-Loop zurück."""
         if self._running:
             self._update_internal()
             
