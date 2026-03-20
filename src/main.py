@@ -109,6 +109,8 @@ def main():
             # Daten aus dem globalen GPS-Speicher ziehen
             current_speed = current_gps_data.speed_kmh if current_gps_data else 0.0
             current_fix = current_gps_data.fix if current_gps_data else False
+            current_lat = current_gps_data.lat if current_gps_data and current_gps_data.lat else 0.0
+            current_lon = current_gps_data.lon if current_gps_data and current_gps_data.lon else 0.0
             
             display.show_status(
                 rpm=rpm_val, 
@@ -122,7 +124,7 @@ def main():
 
             # --- 4. NEU: In die CSV schreiben ---
             if logging_active:
-                logger.log(rpm_val, afr_val, egt_val, current_speed, current_fix)
+                logger.log(rpm_val, afr_val, egt_val, current_speed, current_lat, current_lon, current_fix)
 
             # Winziges Sleep für die CPU (0.1ms), das OLED ist eh die Bremse
             time.sleep(0.0001)
