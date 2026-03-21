@@ -8,6 +8,16 @@ from flask import Flask, jsonify, render_template_string, send_from_directory
 from hw.gps_l76k import GPS_L76K
 from data.logger import CSVLogger
 
+# --- OLED DISPLAY IMPORT (Suchlogik für Haupt- oder Unterordner) ---
+try:
+    from display_oled import OLEDDisplay
+except ImportError:
+    try:
+        from hw.display_oled import OLEDDisplay
+    except ImportError:
+        print("❌ [FEHLER] display_oled.py wurde nicht gefunden. Bitte prüfen!")
+        sys.exit(1)
+
 # ==========================================
 # --- KONFIGURATION STREETDYNO 2.0 ---
 # ==========================================
@@ -60,7 +70,6 @@ HTML_DASHBOARD = """
     <a href="/logs" class="btn">📂 Log-Dateien herunterladen</a>
 
     <script>
-        // Holt 5x pro Sekunde frische Daten vom Pi
         setInterval(() => {
             fetch('/api/data')
                 .then(response => response.json())
@@ -114,9 +123,7 @@ def api_data():
 
 @app.route('/logs')
 def list_logs():
-    # Sucht alle CSV Dateien und sortiert die neuesten nach oben
     files = sorted([os.path.basename(x) for x in glob.glob(os.path.join(LOG_DIR, '*.csv'))], reverse=True)
-    # Kleiner Hack, um Variablen im Template zu rendern, ohne ein echtes Template-File anzulegen
     rendered_html = HTML_LOGS.replace("{% for file in files %}", "").replace("{% endfor %}", "")
     links = "".join([f'<a href="/download/{f}">📄 {f}</a>' for f in files])
     return rendered_html.replace("<h2>Deine Prüfstands-Logs:</h2>", f"<h2>Deine Prüfstands-Logs:</h2>{links}")
@@ -128,9 +135,16 @@ def download(filename):
 # --- HARDWARE & LOGGING LOOP (Hintergrund-Thread) ---
 def hardware_loop():
     print("🚀 [SYSTEM] Hardware-Thread gestartet...")
+    
+    # 1. Hardware Initialisieren
     gps = GPS_L76K()
     gps.start()
     logger = CSVLogger(log_dir=LOG_DIR)
+    
+    # OLED Initialisieren
+    oled = OLEDDisplay()
+    oled.set_mode("RPM") # Startet direkt im RPM-Modus
+    last_oled_update = 0.0
 
     try:
         ser = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=1)
@@ -152,13 +166,14 @@ def hardware_loop():
                 else: continue
             except ValueError: continue 
 
+            # GPS Daten auslesen
             current_gps_data = gps._data 
             current_speed = current_gps_data.speed_kmh if current_gps_data else 0.0
             current_fix = current_gps_data.fix if current_gps_data else False
             current_lat = current_gps_data.lat if current_gps_data and current_gps_data.lat else 0.0
             current_lon = current_gps_data.lon if current_gps_data and current_gps_data.lon else 0.0
 
-            # Dyno Auto-Record Logik
+            # --- Dyno Auto-Record Logik ---
             if not logger.is_logging:
                 if rpm_val > AUTO_START_RPM and current_speed > MIN_SPEED_KMH:
                     logger.start()
@@ -173,12 +188,26 @@ def hardware_loop():
             if logger.is_logging:
                 logger.log(rpm_val, afr_val, egt_val, current_speed, current_lat, current_lon, current_fix)
 
-            # Globale Telemetrie für den Webserver aktualisieren
+            # --- Globale Telemetrie für den Webserver aktualisieren ---
             telemetry["rpm"] = rpm_val
             telemetry["afr"] = afr_val
             telemetry["egt"] = egt_val
             telemetry["speed"] = current_speed
             telemetry["fix"] = current_fix
+
+            # --- OLED Display Update (Frame-Limiter auf 10 Hz) ---
+            current_time = time.time()
+            if current_time - last_oled_update >= 0.1:
+                oled.show_status(
+                    rpm=rpm_val, 
+                    speed=current_speed, 
+                    afr=afr_val, 
+                    egt=egt_val, 
+                    info="PX125", 
+                    gps_fix=current_fix, 
+                    is_logging=logger.is_logging
+                )
+                last_oled_update = current_time
 
         time.sleep(0.005)
 
@@ -186,6 +215,6 @@ if __name__ == '__main__':
     # Startet den Hardware-Reader als separaten Thread
     threading.Thread(target=hardware_loop, daemon=True).start()
     print("\n🏁 --- SYSTEM BEREIT ---")
-    print("🌐 Web-Dashboard läuft auf: http://10.42.0.1:8080 (oder http://IP_DEINES_PI:8080)\n")
-    # Startet den Webserver auf Port 8080 (für alle im WLAN erreichbar)
+    print("🌐 Web-Dashboard läuft auf: http://10.42.0.1:8080 (oder Heimnetz-IP)\n")
+    # Startet den Webserver auf Port 8080
     app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
