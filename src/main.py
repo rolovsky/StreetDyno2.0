@@ -1,99 +1,191 @@
 import time
 import serial
 import sys
+import os
+import glob
+import threading
+from flask import Flask, jsonify, render_template_string, send_from_directory
 from hw.gps_l76k import GPS_L76K
 from data.logger import CSVLogger
 
 # ==========================================
 # --- KONFIGURATION STREETDYNO 2.0 ---
 # ==========================================
-ARDUINO_PORT = '/dev/ttyUSB0'  # Anpassen, falls dein Nano auf ACM0 liegt
-ARDUINO_BAUD = 500000          # High-Speed Baudrate für 10Hz
+ARDUINO_PORT = '/dev/ttyUSB0'  # Anpassen auf ACM0 falls nötig
+ARDUINO_BAUD = 500000          
 
-# Die Dyno-Automatik
 AUTO_START_RPM = 2500
 AUTO_STOP_RPM = 2000
 MIN_SPEED_KMH = 30.0
+LOG_DIR = "/home/rolovsky/streetdyno2.0/logs"
+
+# Globaler Datenspeicher für das Web-Dashboard
+telemetry = {
+    "rpm": 0, "afr": 0.0, "egt": 0.0, "speed": 0.0, "fix": False, "status": "🟢 IDLE"
+}
 # ==========================================
 
-def main():
-    print("🚀 [SYSTEM] Starte StreetDyno 2.0 Kommandozentrale...")
+# --- FLASK WEBSERVER SETUP ---
+app = Flask(__name__)
 
-    # 1. GPS Modul hochfahren
+HTML_DASHBOARD = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreetDyno 2.0 - PX125 Lusso</title>
+    <style>
+        body { background-color: #111; color: #fff; font-family: 'Courier New', Courier, monospace; text-align: center; margin: 0; padding: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-width: 600px; margin: 0 auto; }
+        .box { background: #222; padding: 20px; border-radius: 10px; border: 1px solid #333; }
+        .value { font-size: 3em; font-weight: bold; margin: 10px 0; }
+        .label { color: #888; font-size: 1.2em; text-transform: uppercase; }
+        #speed { color: #00ffcc; }
+        #rpm { color: #ff9800; }
+        #afr { color: #ff3366; }
+        #egt { color: #ffcc00; }
+        #status { font-size: 1.5em; padding: 15px; margin-bottom: 20px; border-radius: 5px; background: #333; }
+        .btn { display: inline-block; margin-top: 20px; padding: 15px 30px; background: #ff9800; color: #111; text-decoration: none; font-size: 1.2em; font-weight: bold; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="status">Warte auf Daten...</div>
+    <div class="grid">
+        <div class="box"><div class="label">Speed (km/h)</div><div class="value" id="speed">0.0</div></div>
+        <div class="box"><div class="label">RPM</div><div class="value" id="rpm">0</div></div>
+        <div class="box"><div class="label">AFR</div><div class="value" id="afr">0.0</div></div>
+        <div class="box"><div class="label">CHT / EGT (°C)</div><div class="value" id="egt">0.0</div></div>
+    </div>
+    <a href="/logs" class="btn">📂 Log-Dateien herunterladen</a>
+
+    <script>
+        // Holt 5x pro Sekunde frische Daten vom Pi
+        setInterval(() => {
+            fetch('/api/data')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('rpm').innerText = data.rpm.toFixed(0);
+                    document.getElementById('speed').innerText = data.speed.toFixed(1);
+                    document.getElementById('afr').innerText = data.afr.toFixed(2);
+                    document.getElementById('egt').innerText = data.egt.toFixed(1);
+                    
+                    let statusDiv = document.getElementById('status');
+                    statusDiv.innerText = data.status + (data.fix ? " (GPS 3D Fix)" : " (Suche Satelliten...)");
+                    statusDiv.style.color = data.status.includes('REC') ? '#ff3366' : '#00ffcc';
+                });
+        }, 200);
+    </script>
+</body>
+</html>
+"""
+
+HTML_LOGS = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreetDyno Logs</title>
+    <style>
+        body { background-color: #111; color: #fff; font-family: monospace; padding: 20px; }
+        a { color: #ff9800; text-decoration: none; font-size: 1.2em; display: block; margin: 10px 0; padding: 10px; background: #222; border-radius: 5px;}
+        a:hover { background: #333; }
+        .back { color: #00ffcc; margin-bottom: 20px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back">🔙 Zurück zum Dashboard</a>
+    <h2>Deine Prüfstands-Logs:</h2>
+    {% for file in files %}
+        <a href="/download/{{ file }}">📄 {{ file }}</a>
+    {% endfor %}
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_DASHBOARD)
+
+@app.route('/api/data')
+def api_data():
+    return jsonify(telemetry)
+
+@app.route('/logs')
+def list_logs():
+    # Sucht alle CSV Dateien und sortiert die neuesten nach oben
+    files = sorted([os.path.basename(x) for x in glob.glob(os.path.join(LOG_DIR, '*.csv'))], reverse=True)
+    # Kleiner Hack, um Variablen im Template zu rendern, ohne ein echtes Template-File anzulegen
+    rendered_html = HTML_LOGS.replace("{% for file in files %}", "").replace("{% endfor %}", "")
+    links = "".join([f'<a href="/download/{f}">📄 {f}</a>' for f in files])
+    return rendered_html.replace("<h2>Deine Prüfstands-Logs:</h2>", f"<h2>Deine Prüfstands-Logs:</h2>{links}")
+
+@app.route('/download/<filename>')
+def download(filename):
+    return send_from_directory(LOG_DIR, filename, as_attachment=True)
+
+# --- HARDWARE & LOGGING LOOP (Hintergrund-Thread) ---
+def hardware_loop():
+    print("🚀 [SYSTEM] Hardware-Thread gestartet...")
     gps = GPS_L76K()
     gps.start()
-    print("✅ [GPS] Modul lauscht auf 5Hz Satelliten-Daten...")
+    logger = CSVLogger(log_dir=LOG_DIR)
 
-    # 2. Daten-Logger scharfschalten
-    logger = CSVLogger()
-
-    # 3. Serielle Brücke zum Arduino aufbauen
     try:
         ser = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=1)
-        print(f"✅ [ARDUINO] Verbunden auf {ARDUINO_PORT}.")
     except Exception as e:
         print(f"❌ [FEHLER] Arduino nicht gefunden: {e}")
-        sys.exit(1)
+        return
 
-    print("\n🏁 --- SYSTEM BEREIT ---")
-    print(f"Fahre los! Auto-Record startet im 3. Gang (> {MIN_SPEED_KMH} km/h & > {AUTO_START_RPM} RPM).\n")
+    while True:
+        if ser.in_waiting > 0:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+            if not line: continue
+            
+            try:
+                parts = line.split(';')
+                if len(parts) == 3:
+                    rpm_val = float(parts[0])
+                    afr_val = float(parts[1])
+                    egt_val = float(parts[2])
+                else: continue
+            except ValueError: continue 
 
-    try:
-        while True:
-            # --- A. ARDUINO DATEN SAUGEN ---
-            if ser.in_waiting > 0:
-                line = ser.readline().decode('utf-8', errors='ignore').strip()
-                if not line:
-                    continue
-                
-                try:
-                    parts = line.split(';')
-                    if len(parts) == 3:
-                        rpm_val = float(parts[0])
-                        afr_val = float(parts[1])
-                        egt_val = float(parts[2])
-                    else:
-                        continue
-                except ValueError:
-                    continue # Datenmüll beim Startvorgang ignorieren
+            current_gps_data = gps._data 
+            current_speed = current_gps_data.speed_kmh if current_gps_data else 0.0
+            current_fix = current_gps_data.fix if current_gps_data else False
+            current_lat = current_gps_data.lat if current_gps_data and current_gps_data.lat else 0.0
+            current_lon = current_gps_data.lon if current_gps_data and current_gps_data.lon else 0.0
 
-                # --- B. GPS DATEN KOPPELN ---
-                current_gps_data = gps._data # Greift auf die Daten deiner gps_l76k.py zu
-                current_speed = current_gps_data.speed_kmh if current_gps_data else 0.0
-                current_fix = current_gps_data.fix if current_gps_data else False
-                current_lat = current_gps_data.lat if current_gps_data and current_gps_data.lat else 0.0
-                current_lon = current_gps_data.lon if current_gps_data and current_gps_data.lon else 0.0
-
-                # --- C. LIVE TERMINAL OUTPUT ---
-                status = "🔴 REC" if logger.is_logging else "🟢 IDLE"
-                sys.stdout.write(f"\r[{status}] RPM: {rpm_val:5.0f} | AFR: {afr_val:5.2f} | EGT: {egt_val:5.1f}°C | Speed: {current_speed:5.1f} km/h | Fix: {current_fix}   ")
-                sys.stdout.flush()
-
-                # --- D. DIE DYNO AUTO-RECORD LOGIK ---
-                if not logger.is_logging:
-                    # Start-Bedingung checken
-                    if rpm_val > AUTO_START_RPM and current_speed > MIN_SPEED_KMH:
-                        print("\n\n🔥 [AUTO-DYNO] Schwellenwerte erreicht! Starte Vollgas-Aufzeichnung...")
-                        logger.start()
+            # Dyno Auto-Record Logik
+            if not logger.is_logging:
+                if rpm_val > AUTO_START_RPM and current_speed > MIN_SPEED_KMH:
+                    logger.start()
+                    telemetry["status"] = "🔴 REC (Vollgas!)"
                 else:
-                    # Stopp-Bedingung checken
-                    if rpm_val < AUTO_STOP_RPM:
-                        print("\n🛑 [AUTO-DYNO] Drehzahl gefallen. Pull beendet, Log gespeichert.")
-                        logger.stop()
+                    telemetry["status"] = "🟢 IDLE (Warte auf Pull)"
+            else:
+                if rpm_val < AUTO_STOP_RPM:
+                    logger.stop()
+                    telemetry["status"] = "🟢 IDLE (Log gespeichert!)"
 
-                # --- E. DATEN IN DIE CSV HÄMMERN ---
-                if logger.is_logging:
-                    logger.log(rpm_val, afr_val, egt_val, current_speed, current_lat, current_lon, current_fix)
+            if logger.is_logging:
+                logger.log(rpm_val, afr_val, egt_val, current_speed, current_lat, current_lon, current_fix)
 
-            time.sleep(0.005) # Verhindert, dass die CPU des Pi kocht
+            # Globale Telemetrie für den Webserver aktualisieren
+            telemetry["rpm"] = rpm_val
+            telemetry["afr"] = afr_val
+            telemetry["egt"] = egt_val
+            telemetry["speed"] = current_speed
+            telemetry["fix"] = current_fix
 
-    except KeyboardInterrupt:
-        print("\n\n🛑 [SYSTEM] Not-Halt eingeleitet...")
-        if logger.is_logging:
-            logger.stop()
-        gps.stop()
-        ser.close()
-        print("✅ [SYSTEM] Hardware sicher entkoppelt.")
+        time.sleep(0.005)
 
 if __name__ == '__main__':
-    main()
+    # Startet den Hardware-Reader als separaten Thread
+    threading.Thread(target=hardware_loop, daemon=True).start()
+    print("\n🏁 --- SYSTEM BEREIT ---")
+    print("🌐 Web-Dashboard läuft auf: http://10.42.0.1:8080 (oder http://IP_DEINES_PI:8080)\n")
+    # Startet den Webserver auf Port 8080 (für alle im WLAN erreichbar)
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
