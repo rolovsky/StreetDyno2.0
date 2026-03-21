@@ -30,7 +30,7 @@ except ImportError:
 # --- KONFIGURATION STREETDYNO 2.0 ---
 # ==========================================
 ARDUINO_PORT = '/dev/ttyUSB0'  
-ARDUINO_BAUD = 500000          
+ARDUINO_BAUD = 115200          
 
 # Waveshare OLED HAT: Key1 = 21, GPS-Wake = 4
 BUTTON_PIN = 21   
