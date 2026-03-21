@@ -8,7 +8,12 @@ from flask import Flask, jsonify, render_template_string, send_from_directory
 from hw.gps_l76k import GPS_L76K
 from data.logger import CSVLogger
 
-# --- OLED DISPLAY IMPORT (Suchlogik für Haupt- oder Unterordner) ---
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    print("❌ [FEHLER] RPi.GPIO nicht installiert. Bitte prüfen!")
+
+# --- OLED DISPLAY IMPORT ---
 try:
     from display_oled import OLEDDisplay
 except ImportError:
@@ -21,8 +26,11 @@ except ImportError:
 # ==========================================
 # --- KONFIGURATION STREETDYNO 2.0 ---
 # ==========================================
-ARDUINO_PORT = '/dev/ttyUSB0'  # Anpassen auf ACM0 falls nötig
+ARDUINO_PORT = '/dev/ttyUSB0'  
 ARDUINO_BAUD = 500000          
+
+# !!! HIER DEINEN TASTER-PIN EINTRAGEN (BCM-Nummer) !!!
+BUTTON_PIN = 17 
 
 AUTO_START_RPM = 2500
 AUTO_STOP_RPM = 2000
@@ -141,11 +149,31 @@ def hardware_loop():
     gps.start()
     logger = CSVLogger(log_dir=LOG_DIR)
     
-    # OLED Initialisieren
+    # 2. OLED Initialisieren
     oled = OLEDDisplay()
-    oled.set_mode("RPM") # Startet direkt im RPM-Modus
+    display_modes = ["RPM", "SPEED", "AFR", "EGT"]
+    current_mode_idx = 0
+    oled.set_mode(display_modes[current_mode_idx])
     last_oled_update = 0.0
 
+    # 3. Taster-Interrupt Setup
+    def button_callback(channel):
+        nonlocal current_mode_idx
+        current_mode_idx = (current_mode_idx + 1) % len(display_modes)
+        oled.set_mode(display_modes[current_mode_idx])
+        print(f"🔄 [OLED] Modus gewechselt zu: {display_modes[current_mode_idx]}")
+
+    try:
+        GPIO.setmode(GPIO.BCM)
+        # Pull-Up Widerstand aktivieren (Schalter schaltet gegen Masse)
+        GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        # Bouncetime (300ms) verhindert doppeltes Schalten bei einem Druck
+        GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, callback=button_callback, bouncetime=300)
+        print(f"✅ [TASTER] GPIO {BUTTON_PIN} scharfgeschaltet.")
+    except Exception as e:
+        print(f"❌ [FEHLER] Taster konnte nicht eingerichtet werden: {e}")
+
+    # 4. Serielle Verbindung
     try:
         ser = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=1)
     except Exception as e:
@@ -166,7 +194,6 @@ def hardware_loop():
                 else: continue
             except ValueError: continue 
 
-            # GPS Daten auslesen
             current_gps_data = gps._data 
             current_speed = current_gps_data.speed_kmh if current_gps_data else 0.0
             current_fix = current_gps_data.fix if current_gps_data else False
@@ -212,9 +239,7 @@ def hardware_loop():
         time.sleep(0.005)
 
 if __name__ == '__main__':
-    # Startet den Hardware-Reader als separaten Thread
     threading.Thread(target=hardware_loop, daemon=True).start()
     print("\n🏁 --- SYSTEM BEREIT ---")
     print("🌐 Web-Dashboard läuft auf: http://10.42.0.1:8080 (oder Heimnetz-IP)\n")
-    # Startet den Webserver auf Port 8080
     app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
