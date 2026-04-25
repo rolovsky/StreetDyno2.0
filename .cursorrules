@@ -1,0 +1,14 @@
+Projekt: StreetDyno 2.0 (Vespa/Diesel Telemetrie)
+Struktur: 
+- /app: Python Flask Dashboard & Logik
+- /firmware: Arduino C++ (PlatformIO)
+- /hw: Hardware-Treiber (OLED, GPS)
+
+Konfiguration:
+- RPM Faktor: 4.0 (PULSES_PER_REV)
+- AFR Offset: -2.5
+- EGT Limit: 650°C
+- Kommunikation: Serial 115200 Baud
+
+Regel: Code muss performant auf Raspberry Pi Zero/3 laufen. 
+Kein unnötiger Overhead. Behalte den Mentor-Tonfall bei Korrekturen bei.
