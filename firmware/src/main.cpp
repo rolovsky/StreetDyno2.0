@@ -2,93 +2,80 @@
 #include "max6675.h"
 
 // ==========================================
-// --- KONFIGURATION: V3.9.1 (SIP-Box Sync) ---
+// --- CONFIG: STREETDYNO MASTER v3.8 ---
 // ==========================================
-const int RPM_PIN = 2;              
-const int IMPULSES_PER_REV = 3;     // Deine SIP Blackbox Einstellung
-const float ALPHA = 0.12;           // Dein Glättungsfaktor
-const unsigned long INTERVAL = 100; // Messintervall für Output
+const float PULSES_PER_REV = 4.0;   
+const int   DEBOUNCE_MICROS = 800;  // Etwas offener für die "Mitte" (~18k RPM Limit)
 
-const int afrPin = A0;
-float afrOffset = -2.5;             // Dein originaler Offset (aktuell inaktiv)
+const int rpmPin = 2;       
+const int afrPin = A0;      
 
-// MAX6675 Pins
-int thermoDO = 4, thermoCS = 5, thermoCLK = 6;
-MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
+MAX6675 thermocouple(6, 5, 4); // CLK, CS, DO
 
-// ==========================================
-// --- VARIABLEN ---
-// ==========================================
-volatile unsigned long pulseTicks = 0;
-float currentRPM = 0;
-unsigned long prevMillis = 0;
-unsigned long lastEgtUpdate = 0;
-float currentEgtValue = -1.0;
+volatile unsigned long v_lastPulseTime = 0;
+volatile unsigned long v_currentInterval = 0;
+volatile bool v_newPulseData = false;
 
-// Interrupt Service Routine (Schlank aus deinem Snippet)
-void countPulse() {
-  pulseTicks++;
+void rpmInterrupt() {
+    unsigned long now = micros();
+    unsigned long interval = now - v_lastPulseTime;
+    if (interval > DEBOUNCE_MICROS) {
+        v_currentInterval = interval;
+        v_lastPulseTime = now;
+        v_newPulseData = true; 
+    }
 }
 
 void setup() {
-  Serial.begin(115200);
-  
-  pinMode(RPM_PIN, INPUT); 
-  attachInterrupt(digitalPinToInterrupt(RPM_PIN), countPulse, RISING);
-  
-  // Kurze Info für den Serial Monitor beim Booten
-  Serial.println("System Ready: EMA-Filter + Multimeter Mode Active");
+    Serial.begin(115200); 
+    pinMode(rpmPin, INPUT); 
+    attachInterrupt(digitalPinToInterrupt(rpmPin), rpmInterrupt, RISING);
 }
 
 void loop() {
-  unsigned long now = millis();
+    static unsigned long lastUpdate = 0;
+    static unsigned long lastEgtUpdate = 0;
+    static float lastEgt = -1.0;
+    unsigned long now = millis();
 
-  // 1. EGT Abfrage (Alle 500ms für stabile Werte)
-  if (now - lastEgtUpdate >= 500) {
-    lastEgtUpdate = now;
-    float rawEgt = thermocouple.readCelsius();
-    if (!isnan(rawEgt) && rawEgt > 1.0) {
-      currentEgtValue = rawEgt;
-    } else {
-      currentEgtValue = -1.0; 
+    if (now - lastEgtUpdate >= 500) {
+        lastEgtUpdate = now;
+        float egt = thermocouple.readCelsius();
+        lastEgt = (!isnan(egt) && egt > 0) ? egt : -1.0;
     }
-  }
 
-  // 2. Haupt-Berechnung & Output (Alle 100ms)
-  if (now - prevMillis >= INTERVAL) {
-    // Impulse atomar auslesen
-    noInterrupts();
-    unsigned long capturedPulses = pulseTicks;
-    pulseTicks = 0;
-    interrupts();
+    if (now - lastUpdate >= 100) {
+        lastUpdate = now;
+        
+        unsigned long localInterval = 0;
+        bool hasNewPulse = false;
 
-    // Berechnung der RPM (Deine neue Logik)
-    float rawRPM = (capturedPulses * 600.0) / IMPULSES_PER_REV;
+        noInterrupts();
+        if (v_newPulseData) {
+            localInterval = v_currentInterval;
+            v_newPulseData = false;
+            hasNewPulse = true;
+        }
+        unsigned long timeSinceLast = micros() - v_lastPulseTime;
+        interrupts();
 
-    // Glättung mit EMA (Trägheit)
-    currentRPM = (rawRPM * ALPHA) + (currentRPM * (1.0 - ALPHA));
+        float rpm = 0;
+        // Nur rechnen, wenn der letzte Puls nicht ewig her ist (< 0.5s)
+        if (timeSinceLast < 500000 && hasNewPulse) {
+            rpm = (60000000.0 / (float)localInterval) / PULSES_PER_REV;
+        } else if (timeSinceLast > 500000) {
+            rpm = 0; // Motor definitiv aus
+        }
 
-    // Nullpunkt-Unterdrückung
-    if (currentRPM < 50) currentRPM = 0;
+        // NEUE PRÄZISIONS-AFR LOGIK (SIP/KOSO)
+        float afrV = analogRead(afrPin) * (5.0 / 1023.0);
+        float afrValue = 23.14 - (afrV * 6.15); 
 
-    // --- AFR / VOLT LOGIK ---
-    float afrV = analogRead(afrPin) * (5.0 / 1023.0);
-    
-    // ORIGINAL-BERECHNUNG (AUSKOMMENTIERT):
-    // float afrValue = 20.0 - (afrV * 2.0) + afrOffset; 
-    
-    // MULTIMETER-MODUS: Spannung direkt senden
-    float afrValue = afrV; 
-
-    // --- DASHBOARD-KOMPATIBLER OUTPUT ---
-    // Format: $RPM;VOLT;EGT
-    Serial.print("$");
-    Serial.print((int)currentRPM);
-    Serial.print(";");
-    Serial.print(afrValue, 3); // 3 Nachkommastellen für die Kalibrierung
-    Serial.print(";");
-    Serial.println(currentEgtValue, 1);
-
-    prevMillis = now;
-  }
+        Serial.print("$");
+        Serial.print(rpm, 0);
+        Serial.print(";");
+        Serial.print(afrValue, 2);
+        Serial.print(";");
+        Serial.println(lastEgt, 1);
+    }
 }
