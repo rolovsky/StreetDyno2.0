@@ -46,6 +46,3 @@ Das Dashboard ist keine einfache Webseite, sondern ein vollwertiges Diagnose-Too
    * **Browsing:** Über die /logs URL können alte Fahrten direkt im Browser aufgelistet werden.
    * **Analyse:** Ein Klick auf "Analyse" bereitet die Daten grafisch auf (Pandas/Matplotlib Integration vorbereitet).
  * **Download:** Möglichkeit, die CSV-Dateien direkt auf das Handy zu ziehen, um sie in Excel oder MegaLogViewer zu prüfen.
-> ### Mentor-Empfehlung:
-> Wir haben jetzt ein System, das professionellen Motorsport-Datenloggern kaum noch nachsteht. Der aktuelle „Multimeter-Modus“ ist die letzte Meile: Sobald wir die Volt-Werte gegen die Tacho-Anzeige abgeglichen haben, ist das System **kalibriert**.
-> **Nächster Schritt:** Notiere dir beim nächsten Lauf zwei Volt-Werte (z.B. Standgas und Volllast), damit wir die finale AFR-Gleichung in den Stein meißeln können.
