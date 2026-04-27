@@ -2,10 +2,10 @@
 #include "max6675.h"
 
 // ==========================================
-// --- CONFIG: STREETDYNO MASTER v3.8 ---
+// --- STREETDYNO FIRMWARE V3.9 (3-PULSE) ---
 // ==========================================
-const float PULSES_PER_REV = 4.0;   
-const int   DEBOUNCE_MICROS = 800;  // Etwas offener für die "Mitte" (~18k RPM Limit)
+const float PULSES_PER_REV = 3.0;   // Korrigiert auf 3 Impulse
+const int   DEBOUNCE_MICROS = 1000; // Schutz vor Störsignalen
 
 const int rpmPin = 2;       
 const int afrPin = A0;      
@@ -28,8 +28,9 @@ void rpmInterrupt() {
 
 void setup() {
     Serial.begin(115200); 
-    pinMode(rpmPin, INPUT); 
-    attachInterrupt(digitalPinToInterrupt(rpmPin), rpmInterrupt, RISING);
+    pinMode(rpmPin, INPUT_PULLUP); // Für Optokoppler-Betrieb
+    attachInterrupt(digitalPinToInterrupt(rpmPin), rpmInterrupt, FALLING);
+    delay(500);
 }
 
 void loop() {
@@ -46,7 +47,6 @@ void loop() {
 
     if (now - lastUpdate >= 100) {
         lastUpdate = now;
-        
         unsigned long localInterval = 0;
         bool hasNewPulse = false;
 
@@ -60,14 +60,13 @@ void loop() {
         interrupts();
 
         float rpm = 0;
-        // Nur rechnen, wenn der letzte Puls nicht ewig her ist (< 0.5s)
         if (timeSinceLast < 500000 && hasNewPulse) {
             rpm = (60000000.0 / (float)localInterval) / PULSES_PER_REV;
         } else if (timeSinceLast > 500000) {
-            rpm = 0; // Motor definitiv aus
+            rpm = 0; 
         }
 
-        // NEUE PRÄZISIONS-AFR LOGIK (SIP/KOSO)
+        // AFR: 0.56V=19.7 / 1.52V=13.8
         float afrV = analogRead(afrPin) * (5.0 / 1023.0);
         float afrValue = 23.14 - (afrV * 6.15); 
 
