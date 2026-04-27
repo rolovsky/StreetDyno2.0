@@ -2,10 +2,10 @@
 #include "max6675.h"
 
 // ==========================================
-// --- STREETDYNO FIRMWARE V3.9 (3-PULSE) ---
+// --- STREETDYNO FIRMWARE V4.0 (3-PULSE) ---
 // ==========================================
-const float PULSES_PER_REV = 3.0;   // Korrigiert auf 3 Impulse
-const int   DEBOUNCE_MICROS = 1000; // Schutz vor Störsignalen
+const float PULSES_PER_REV = 3.0;   
+const int   DEBOUNCE_MICROS = 1000; 
 
 const int rpmPin = 2;       
 const int afrPin = A0;      
@@ -28,7 +28,7 @@ void rpmInterrupt() {
 
 void setup() {
     Serial.begin(115200); 
-    pinMode(rpmPin, INPUT_PULLUP); // Für Optokoppler-Betrieb
+    pinMode(rpmPin, INPUT_PULLUP); // Zwingend für Optokoppler
     attachInterrupt(digitalPinToInterrupt(rpmPin), rpmInterrupt, FALLING);
     delay(500);
 }
@@ -66,7 +66,6 @@ void loop() {
             rpm = 0; 
         }
 
-        // AFR: 0.56V=19.7 / 1.52V=13.8
         float afrV = analogRead(afrPin) * (5.0 / 1023.0);
         float afrValue = 23.14 - (afrV * 6.15); 
 
