@@ -13,6 +13,8 @@ const unsigned long DEBOUNCE_MICROS = 1500; // Sperrzeit gegen EMV-Ringen
 const int rpmPin = 2;       
 const int afrPin = A0;      
 
+const float INTERNAL_BANDGAP = 1.1; // Default 1.1V Bandgap (für Kalibrierung anpassbar)
+
 MAX6675 thermocouple(6, 5, 4); 
 
 // Volatile Variablen für den Datenaustausch mit dem Interrupt
@@ -43,6 +45,29 @@ unsigned long smartRound(unsigned long value) {
     else if (value > 500)  roundTo = 10;
     else return value;
     return ((value + (roundTo / 2)) / roundTo) * roundTo;
+}
+
+long readVcc() {
+    // 1.1V Referenzspannung gegen AVcc messen
+    #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
+        ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+    #elif defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega32U4) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+        ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+        ADCSRB &= ~_BV(MUX5);   // MUX5 Bit löschen
+    #endif  
+
+    delay(2); // Warten bis Referenzspannung stabil ist
+    ADCSRA |= _BV(ADSC); // Messung starten
+    while (bit_is_set(ADCSRA, ADSC)); // Warten bis fertig
+
+    uint8_t low  = ADCL; // ADCL zuerst lesen (sperrt das Register)
+    uint8_t high = ADCH; // ADCH lesen (entsperrt beide)
+
+    long result = (high << 8) | low;
+
+    // Vcc in Millivolt berechnen: INTERNAL_BANDGAP * 1023 * 1000
+    result = (INTERNAL_BANDGAP * 1023.0 * 1000.0) / result; 
+    return result; 
 }
 
 void setup() {
@@ -99,8 +124,22 @@ void loop() {
         lastValidRPM = calculatedRPM;
         unsigned long roundedRPM = smartRound((unsigned long)calculatedRPM);
 
-        // AFR-Berechnung (Deine Lemarxon/SI 24 Kalibrierung)
-        float afrV = analogRead(afrPin) * (5.0 / 1023.0);
+        // Dynamische VCC Messung für präzise AFR-Spannungsreferenz
+        static float filteredVcc = -1.0;
+        float currentVcc = readVcc();
+        
+        // Dummy-Read und kurze Wartezeit, damit sich der ADC-Multiplexer wieder auf AVcc einschwingen kann
+        analogRead(afrPin);
+        delay(2);
+
+        if (filteredVcc < 0) {
+            filteredVcc = currentVcc;
+        } else {
+            filteredVcc = (filteredVcc * 0.9) + (currentVcc * 0.1);
+        }
+
+        float vccVolts = filteredVcc / 1000.0;
+        float afrV = analogRead(afrPin) * (vccVolts / 1023.0);
         float afrValue = 23.14 - (afrV * 6.15); 
 
         // Das $ Protokoll für den Pi
