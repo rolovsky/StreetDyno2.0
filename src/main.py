@@ -446,7 +446,7 @@ def analyze_file():
         
         <div style="margin-bottom: 15px;">
             <label style="font-size: 0.8rem; color: #a1a1aa; font-weight: 600; display: block; margin-bottom: 6px;">GOOGLE APPS SCRIPT WEB APP URL:</label>
-            <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" 
+            <input type="text" id="scriptUrl" value="https://script.google.com/macros/s/AKfycbzTiR-DMjniaRbbbSBZh1DZpJ83q4dEBeMveRqgsjso18oCYDaGT1yRtrreacwmZ0ae/exec" 
                    style="width: 100%; padding: 12px; background: #121214; border: 1px solid #27272a; border-radius: 8px; color: #fff; font-family: monospace; font-size: 0.85rem; box-sizing: border-box;">
         </div>
 
