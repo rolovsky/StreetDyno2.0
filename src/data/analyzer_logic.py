@@ -26,25 +26,28 @@ def clean_egt_data(df):
     or sudden jumps > 50°C per timestep) by holding the last valid value.
     """
     cleaned_egt = []
-    
-    # Find the first valid value that isn't a spike
     last_valid_egt = None
+    
     for val in df['EGT']:
-        if val not in [701.0, 705.0] and val > 0:
-            last_valid_egt = val
-            break
-            
-    if last_valid_egt is None:
-        last_valid_egt = 0.0  # Fallback if all values are spikes or empty
-
-    for val in df['EGT']:
-        # Plausibility check: spikes or difference > 50°C from last valid value
-        if val in [701.0, 705.0] or abs(val - last_valid_egt) > 50.0:
-            cleaned_egt.append(last_valid_egt)
+        is_invalid = (val in [701.0, 705.0] or val <= 0.0)
+        
+        if is_invalid:
+            if last_valid_egt is not None:
+                cleaned_egt.append(last_valid_egt)
+            else:
+                cleaned_egt.append(20.0) # Ambient/cold fallback
         else:
-            cleaned_egt.append(val)
-            last_valid_egt = val
-            
+            if last_valid_egt is None:
+                last_valid_egt = val
+                cleaned_egt.append(val)
+            else:
+                # Apply rate-of-change filter only if sensor is active/hot (>50°C)
+                if last_valid_egt > 50.0 and abs(val - last_valid_egt) > 50.0:
+                    cleaned_egt.append(last_valid_egt) # Hold last valid value on spike
+                else:
+                    cleaned_egt.append(val)
+                    last_valid_egt = val
+                    
     df['EGT_cleaned'] = cleaned_egt
     return df
 
