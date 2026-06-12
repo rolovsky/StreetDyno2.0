@@ -186,9 +186,6 @@ def analyze_file():
         # Mittlerer AFR während des Pulls
         avg_afr = trimmed_df['AFR'].mean()
         
-        # Google Sheets Credentials prüfen
-        has_sheets_creds = os.path.exists(GOOGLE_CREDS_PATH)
-        
         html = f"""
 <!DOCTYPE html>
 <html>
@@ -445,59 +442,143 @@ def analyze_file():
     
     <div class="cloud-section">
         <h3>☁️ Google Sheets Cloud Sync</h3>
-        <p>Exportiere diese berechneten Leistungsdaten direkt in dein Cloud-Dashboard.</p>
+        <p>Exportiere diese Leistungsdaten direkt von deinem Smartphone in deine Google Tabelle.</p>
         
-        {"<button id='exportBtn' class='btn btn-primary' onclick='exportToSheets()'><span class='spinner' id='btnSpinner'></span><span id='btnText'>Tabelle exportieren</span></button>" if has_sheets_creds else "<button class='btn' disabled>Export nicht konfiguriert</button>"}
+        <div style="margin-bottom: 15px;">
+            <label style="font-size: 0.8rem; color: #a1a1aa; font-weight: 600; display: block; margin-bottom: 6px;">GOOGLE APPS SCRIPT WEB APP URL:</label>
+            <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" 
+                   style="width: 100%; padding: 12px; background: #121214; border: 1px solid #27272a; border-radius: 8px; color: #fff; font-family: monospace; font-size: 0.85rem; box-sizing: border-box;">
+        </div>
+
+        <button id="exportBtn" class="btn btn-primary" onclick="exportToSheets()"><span class="spinner" id="btnSpinner"></span><span id="btnText">☁️ In Tabelle eintragen</span></button>
         
         <div id="statusMsg" class="status-message"></div>
         
-        {"" if has_sheets_creds else f"""
-        <div style="margin-top: 15px;" class="info-box">
-            <b>Einrichtungsschritte:</b>
+        <div style="margin-top: 20px;" class="info-box">
+            <b>Einrichtung (Apps Script):</b>
             <ol>
-                <li>Erstelle eine Google Cloud Service-Account credentials JSON.</li>
-                <li>Lade sie als <code>service_account.json</code> in das Hauptverzeichnis auf dem Pi.</li>
-                <li>Erstelle ein Spreadsheet namens <code>Vespa_Dyno_Cloud</code> und gib es für die E-Mail-Adresse deines Service Accounts frei.</li>
+                <li>Öffne deine Google Tabelle im Browser.</li>
+                <li>Gehe auf <i>Erweiterungen &gt; Apps Script</i>.</li>
+                <li>Füge den unten stehenden, optimierten Apps Script Code ein und speichere ihn.</li>
+                <li>Klicke auf <i>Bereitstellen &gt; Neue Bereitstellung</i> (Typ: <b>Web-App</b>, Ausführen als: <b>Ich</b>, Wer hat Zugriff: <b>Jeder</b>).</li>
+                <li>Kopiere die erzeugte Web-App-URL und füge sie oben ein.</li>
             </ol>
+            <details style="margin-top: 10px; cursor: pointer;">
+                <summary style="font-weight: 600; color: #ff9800; font-size: 0.85rem;">Apps Script Code anzeigen (Klicken)</summary>
+                <textarea readonly style="width: 100%; height: 160px; background: #000; color: #00ffcc; border: 1px solid #333; font-family: monospace; font-size: 0.75rem; margin-top: 8px; padding: 8px; box-sizing: border-box; border-radius: 6px;" onclick="this.select()">
+function doPost(e) {{
+  try {{
+    var payload = JSON.parse(e.postData.contents);
+    var sheetName = payload.worksheet || "RawData";
+    var data = payload.data;
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(sheetName);
+    
+    var headers = ["Time", "RPM", "RPM_smoothed", "AFR", "EGT", "EGT_cleaned", "Speed_kmh", "PS", "Nm"];
+    
+    if (!sheet) {{
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(headers);
+    }}
+    
+    var rowsToWrite = [];
+    for (var i = 0; i < data.length; i++) {{
+      var row = data[i];
+      var rowData = [];
+      for (var j = 0; j < headers.length; j++) {{
+        var key = headers[j];
+        rowData.push(row[key] !== undefined ? row[key] : "");
+      }}
+      rowsToWrite.push(rowData);
+    }}
+    
+    if (rowsToWrite.length > 0) {{
+      var startRow = sheet.getLastRow() + 1;
+      sheet.getRange(startRow, 1, rowsToWrite.length, headers.length).setValues(rowsToWrite);
+    }}
+    
+    return ContentService.createTextOutput(JSON.stringify({{success: true}}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }} catch (err) {{
+    return ContentService.createTextOutput(JSON.stringify({{success: false, error: err.toString()}}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }}
+}}
+                </textarea>
+            </details>
         </div>
-        """}
     </div>
 
     <script>
+        // Gespeicherte Apps Script URL laden
+        document.addEventListener('DOMContentLoaded', () => {{
+            const savedUrl = localStorage.getItem('google_apps_script_url');
+            if (savedUrl) {{
+                document.getElementById('scriptUrl').value = savedUrl;
+            }}
+        }});
+
         function exportToSheets() {{
+            const scriptUrl = document.getElementById('scriptUrl').value.trim();
             const btn = document.getElementById('exportBtn');
             const spinner = document.getElementById('btnSpinner');
             const btnText = document.getElementById('btnText');
             const statusMsg = document.getElementById('statusMsg');
             
+            if (!scriptUrl) {{
+                statusMsg.style.display = 'block';
+                statusMsg.className = 'status-message status-error';
+                statusMsg.innerText = '✗ Bitte gib eine gültige Apps Script URL ein!';
+                return;
+            }}
+            
+            // URL lokal im Browser sichern
+            localStorage.setItem('google_apps_script_url', scriptUrl);
+            
             btn.disabled = true;
             spinner.style.display = 'inline-block';
-            btnText.innerText = 'Exportiert...';
+            btnText.innerText = 'Sende Daten...';
             statusMsg.style.display = 'none';
             
-            fetch(`/api/export_sheets?file={fname}`)
-                .then(r => r.json())
-                .then(d => {{
+            // 1. Daten vom Pi holen
+            fetch(`/api/get_pull_data?file={fname}`)
+                .then(r => {{
+                    if (!r.ok) throw new Error('Pi-Verbindung fehlgeschlagen');
+                    return r.json();
+                }})
+                .then(payload => {{
+                    const baseName = payload.filename.split('.')[0];
+                    const worksheetName = baseName.replace("dyno_log_", "");
+                    
+                    // 2. Clientseitig zu Google Apps Script senden
+                    return fetch(scriptUrl, {{
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: {{
+                            'Content-Type': 'application/json'
+                        }},
+                        body: JSON.stringify({{
+                            worksheet: worksheetName,
+                            data: payload.data
+                        }})
+                    }});
+                }})
+                .then(() => {{
                     spinner.style.display = 'none';
                     btn.disabled = false;
-                    btnText.innerText = 'Tabelle exportieren';
+                    btnText.innerText = '☁️ In Tabelle eintragen';
                     statusMsg.style.display = 'block';
-                    
-                    if (d.success) {{
-                        statusMsg.className = 'status-message status-success';
-                        statusMsg.innerText = '✓ Daten erfolgreich exportiert!';
-                    }} else {{
-                        statusMsg.className = 'status-message status-error';
-                        statusMsg.innerText = '✗ Fehler: ' + d.error;
-                    }}
+                    statusMsg.className = 'status-message status-success';
+                    statusMsg.innerText = '✓ Erfolgreich über dein Smartphone übertragen!';
                 }})
                 .catch(err => {{
                     spinner.style.display = 'none';
                     btn.disabled = false;
-                    btnText.innerText = 'Tabelle exportieren';
+                    btnText.innerText = '☁️ In Tabelle eintragen';
                     statusMsg.style.display = 'block';
                     statusMsg.className = 'status-message status-error';
-                    statusMsg.innerText = '✗ Verbindung fehlgeschlagen: ' + err;
+                    statusMsg.innerText = '✗ Fehler: ' + err.message;
                 }});
         }}
     </script>
@@ -508,14 +589,14 @@ def analyze_file():
     except Exception as e:
         return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehler bei der Analyse:</h3><pre>{str(e)}</pre><br><a href='/logs'>Zurück</a></body>"
 
-@app.route('/api/export_sheets')
-def api_export_sheets():
+@app.route('/api/get_pull_data')
+def api_get_pull_data():
     fname = request.args.get('file')
     if not fname:
-        return jsonify({"success": False, "error": "No file selected."})
+        return jsonify({"error": "No file selected."}), 400
     fpath = os.path.join(LOG_DIR, fname)
     if not os.path.exists(fpath):
-        return jsonify({"success": False, "error": "File not found."})
+        return jsonify({"error": "File not found."}), 404
         
     try:
         df = pd.read_csv(fpath)
@@ -526,17 +607,19 @@ def api_export_sheets():
         df = calculate_telemetry_metrics(df)
         trimmed_df, detected = detect_dyno_pull(df, min_rpm=3000.0, min_duration_sec=1.0, drop_threshold=500.0)
         
-        # Worksheet-Name aus Dateiname ableiten (z.B. dyno_log_20260612-162000.csv -> 20260612-162000)
-        base_name = os.path.splitext(fname)[0]
-        sheet_title = base_name.replace("dyno_log_", "")
-            
-        success = export_to_google_sheets(trimmed_df, creds_path=GOOGLE_CREDS_PATH, worksheet_name=sheet_title)
-        if success:
-            return jsonify({"success": True})
-        else:
-            return jsonify({"success": False, "error": "Google Sheets Export fehlgeschlagen. Credentials oder Tabellenname prüfen."})
+        # Nur relevante Spalten für den Export auswählen
+        cols = ['Time', 'RPM', 'RPM_smoothed', 'AFR', 'EGT', 'EGT_cleaned', 'Speed_kmh', 'PS', 'Nm']
+        cols = [c for c in cols if c in trimmed_df.columns]
+        
+        # In Liste von Dictionaries konvertieren
+        data = trimmed_df[cols].replace({np.nan: None}).to_dict(orient='records')
+        return jsonify({
+            "filename": fname,
+            "detected": detected,
+            "data": data
+        })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/plots/<path:filename>')
 def send_plot(filename): return send_from_directory(PLOT_DIR, filename)
