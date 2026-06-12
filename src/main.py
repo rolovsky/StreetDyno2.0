@@ -5,6 +5,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from flask import Flask, jsonify, render_template_string, send_from_directory, request
 
+from data.analyzer_logic import (
+    clean_egt_data,
+    calculate_telemetry_metrics,
+    detect_dyno_pull,
+    plot_telemetry,
+    export_to_google_sheets
+)
+
 # ==========================================
 # --- KONFIGURATION v5.1 (STABLE LOGGING + AFR WARN) ---
 # ==========================================
@@ -20,6 +28,7 @@ MIN_SPEED_KMH = 2.0
 
 LOG_DIR = "/home/rolovsky/streetdyno2.0/logs"
 PLOT_DIR = "/home/rolovsky/streetdyno2.0/plots"
+GOOGLE_CREDS_PATH = "/home/rolovsky/streetdyno2.0/service_account.json"
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 try:
@@ -135,17 +144,399 @@ def analyze_file():
     fname = request.args.get('file')
     if not fname: return "No file selected."
     fpath = os.path.join(LOG_DIR, fname)
+    if not os.path.exists(fpath):
+        return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Datei nicht gefunden</h3><br><a href='/logs'>Zurück</a></body>"
     try:
         df = pd.read_csv(fpath)
-        df['rpm_s'] = df['RPM'].rolling(window=15, center=True).median()
-        df['hp_s'] = ((df['rpm_s'] * (df['rpm_s'].diff()/0.1)) / 175000).clip(lower=0).rolling(window=30, center=True).mean()
-        plt.style.use('dark_background')
-        fig, ax1 = plt.subplots(figsize=(10, 6))
-        ax1.plot(df['rpm_s'], df['hp_s'], color='#00ffcc', linewidth=4)
-        ax1.set_xlabel('RPM'); ax1.set_ylabel('PS')
-        pname = f"p_{int(time.time())}.png"; plt.savefig(os.path.join(PLOT_DIR, pname), dpi=100); plt.close()
-        return f'<body style="background:#111; color:white; text-align:center; padding:20px;"><h1>{df["hp_s"].max():.1f} PS</h1><img src="/plots/{pname}" style="width:100%;"><br><a href="/logs" style="color:#ff9800;">ZURÜCK</a></body>'
-    except Exception as e: return str(e)
+        
+        # Spaltennamen bereinigen
+        col_mapping = {col: col.strip() for col in df.columns}
+        df = df.rename(columns=col_mapping)
+        
+        # Prüfen ob alle Spalten existieren
+        required_cols = ['Time', 'RPM', 'AFR', 'EGT', 'Speed_kmh']
+        missing_cols = [c for c in required_cols if c not in df.columns]
+        if missing_cols:
+            return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehlende Spalten in CSV: {missing_cols}</h3><br><a href='/logs'>Zurück</a></body>"
+            
+        df = clean_egt_data(df)
+        df = calculate_telemetry_metrics(df)
+        
+        # Dyno-Pull automatisch erkennen
+        trimmed_df, detected = detect_dyno_pull(df, min_rpm=3000.0, min_duration_sec=1.0, drop_threshold=500.0)
+        title_suffix = " (Automatisch getrimmt)" if detected else " (Gesamtes Log)"
+        
+        # Plot generieren
+        pname = f"p_{os.path.splitext(fname)[0]}.png"
+        plot_path = os.path.join(PLOT_DIR, pname)
+        plot_telemetry(trimmed_df, title_suffix, plot_path)
+        
+        # Leistungswerte berechnen
+        max_ps = trimmed_df['PS'].max()
+        max_nm = trimmed_df['Nm'].max()
+        max_egt = trimmed_df['EGT_cleaned'].max()
+        
+        # RPM bei Peak Werten finden
+        peak_ps_idx = trimmed_df['PS'].idxmax()
+        peak_ps_rpm = trimmed_df.loc[peak_ps_idx, 'RPM_smoothed'] if not pd.isna(peak_ps_idx) else 0.0
+        
+        peak_nm_idx = trimmed_df['Nm'].idxmax()
+        peak_nm_rpm = trimmed_df.loc[peak_nm_idx, 'RPM_smoothed'] if not pd.isna(peak_nm_idx) else 0.0
+        
+        # Mittlerer AFR während des Pulls
+        avg_afr = trimmed_df['AFR'].mean()
+        
+        # Google Sheets Credentials prüfen
+        has_sheets_creds = os.path.exists(GOOGLE_CREDS_PATH)
+        
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Analyse</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {{
+            background: #0d0d0d;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            margin: 0;
+            padding: 15px;
+            -webkit-font-smoothing: antialiased;
+        }}
+        .header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding: 5px 0;
+            border-bottom: 1px solid #222;
+        }}
+        .header h1 {{
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin: 0;
+            background: linear-gradient(135deg, #00ffcc, #0099ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        .back-link {{
+            color: #ff9800;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: opacity 0.2s;
+        }}
+        .back-link:hover {{
+            opacity: 0.8;
+        }}
+        .filename-banner {{
+            font-size: 0.85rem;
+            color: #888;
+            background: #161618;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            border: 1px solid #222;
+            overflow-x: auto;
+        }}
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }}
+        .card {{
+            background: linear-gradient(145deg, #18181b, #121214);
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }}
+        .card::before {{
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 3px;
+        }}
+        .card-ps::before {{ background: #00ffcc; }}
+        .card-nm::before {{ background: #ff9800; }}
+        .card-afr::before {{ background: #ff3366; }}
+        .card-egt::before {{ background: #ffcc00; }}
+        
+        .card .label {{
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #8e8e93;
+            margin-bottom: 5px;
+        }}
+        .card .value {{
+            font-size: 1.8rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin: 5px 0;
+        }}
+        .card-ps .value {{ color: #00ffcc; }}
+        .card-nm .value {{ color: #ff9800; }}
+        .card-afr .value {{ color: #ff3366; }}
+        .card-egt .value {{ color: #ffcc00; }}
+        
+        .card .sub {{
+            font-size: 0.75rem;
+            color: #a1a1aa;
+            margin-top: 2px;
+        }}
+        .plot-container {{
+            background: #121214;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }}
+        .plot-container img {{
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+            display: block;
+        }}
+        .cloud-section {{
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }}
+        .cloud-section h3 {{
+            margin-top: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #f5f5f7;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        .cloud-section p {{
+            font-size: 0.85rem;
+            color: #a1a1aa;
+            line-height: 1.4;
+            margin: 5px 0 15px 0;
+        }}
+        .btn {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }}
+        .btn-primary {{
+            background: linear-gradient(135deg, #007aff, #0055d4);
+            color: #fff;
+        }}
+        .btn-primary:active {{
+            transform: scale(0.98);
+        }}
+        .btn:disabled {{
+            background: #27272a;
+            color: #71717a;
+            cursor: not-allowed;
+            transform: none;
+        }}
+        .info-box {{
+            background: rgba(255, 152, 0, 0.08);
+            border: 1px solid rgba(255, 152, 0, 0.2);
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 0.8rem;
+            color: #ffb74d;
+            line-height: 1.4;
+        }}
+        .info-box ol {{
+            margin: 8px 0 0 15px;
+            padding: 0;
+        }}
+        .info-box li {{
+            margin-bottom: 4px;
+        }}
+        .status-message {{
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 8px;
+            display: none;
+        }}
+        .status-success {{ background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.3); }}
+        .status-error {{ background: rgba(244, 67, 54, 0.15); color: #f44336; border: 1px solid rgba(244, 67, 54, 0.3); }}
+        
+        .spinner {{
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid #ffffff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>STREETDYNO ANALYSE</h1>
+        <a href="/logs" class="back-link">📂 ZURÜCK</a>
+    </div>
+    
+    <div class="filename-banner">
+        Datei: {fname} {title_suffix}
+    </div>
+    
+    <div class="grid">
+        <div class="card card-ps">
+            <span class="label">Leistung</span>
+            <span class="value">{max_ps:.1f} PS</span>
+            <span class="sub">@{int(peak_ps_rpm)} U/min</span>
+        </div>
+        <div class="card card-nm">
+            <span class="label">Drehmoment</span>
+            <span class="value">{max_nm:.1f} Nm</span>
+            <span class="sub">@{int(peak_nm_rpm)} U/min</span>
+        </div>
+        <div class="card card-afr">
+            <span class="label">AFR (Mittel)</span>
+            <span class="value">{avg_afr:.2f}</span>
+            <span class="sub">während Dyno-Pull</span>
+        </div>
+        <div class="card card-egt">
+            <span class="label">EGT (Peak)</span>
+            <span class="value">{max_egt:.0f}°C</span>
+            <span class="sub">bereinigter Spitzenwert</span>
+        </div>
+    </div>
+    
+    <div class="plot-container">
+        <img src="/plots/{pname}" alt="Leistungsdiagramm">
+    </div>
+    
+    <div class="cloud-section">
+        <h3>☁️ Google Sheets Cloud Sync</h3>
+        <p>Exportiere diese berechneten Leistungsdaten direkt in dein Cloud-Dashboard.</p>
+        
+        {"<button id='exportBtn' class='btn btn-primary' onclick='exportToSheets()'><span class='spinner' id='btnSpinner'></span><span id='btnText'>Tabelle exportieren</span></button>" if has_sheets_creds else "<button class='btn' disabled>Export nicht konfiguriert</button>"}
+        
+        <div id="statusMsg" class="status-message"></div>
+        
+        {"" if has_sheets_creds else f"""
+        <div style="margin-top: 15px;" class="info-box">
+            <b>Einrichtungsschritte:</b>
+            <ol>
+                <li>Erstelle eine Google Cloud Service-Account credentials JSON.</li>
+                <li>Lade sie als <code>service_account.json</code> in das Hauptverzeichnis auf dem Pi.</li>
+                <li>Erstelle ein Spreadsheet namens <code>Vespa_Dyno_Cloud</code> und gib es für die E-Mail-Adresse deines Service Accounts frei.</li>
+            </ol>
+        </div>
+        """}
+    </div>
+
+    <script>
+        function exportToSheets() {{
+            const btn = document.getElementById('exportBtn');
+            const spinner = document.getElementById('btnSpinner');
+            const btnText = document.getElementById('btnText');
+            const statusMsg = document.getElementById('statusMsg');
+            
+            btn.disabled = true;
+            spinner.style.display = 'inline-block';
+            btnText.innerText = 'Exportiert...';
+            statusMsg.style.display = 'none';
+            
+            fetch(`/api/export_sheets?file={fname}`)
+                .then(r => r.json())
+                .then(d => {{
+                    spinner.style.display = 'none';
+                    btn.disabled = false;
+                    btnText.innerText = 'Tabelle exportieren';
+                    statusMsg.style.display = 'block';
+                    
+                    if (d.success) {{
+                        statusMsg.className = 'status-message status-success';
+                        statusMsg.innerText = '✓ Daten erfolgreich exportiert!';
+                    }} else {{
+                        statusMsg.className = 'status-message status-error';
+                        statusMsg.innerText = '✗ Fehler: ' + d.error;
+                    }}
+                }})
+                .catch(err => {{
+                    spinner.style.display = 'none';
+                    btn.disabled = false;
+                    btnText.innerText = 'Tabelle exportieren';
+                    statusMsg.style.display = 'block';
+                    statusMsg.className = 'status-message status-error';
+                    statusMsg.innerText = '✗ Verbindung fehlgeschlagen: ' + err;
+                }});
+        }}
+    </script>
+</body>
+</html>
+"""
+        return render_template_string(html)
+    except Exception as e:
+        return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehler bei der Analyse:</h3><pre>{str(e)}</pre><br><a href='/logs'>Zurück</a></body>"
+
+@app.route('/api/export_sheets')
+def api_export_sheets():
+    fname = request.args.get('file')
+    if not fname:
+        return jsonify({"success": False, "error": "No file selected."})
+    fpath = os.path.join(LOG_DIR, fname)
+    if not os.path.exists(fpath):
+        return jsonify({"success": False, "error": "File not found."})
+        
+    try:
+        df = pd.read_csv(fpath)
+        col_mapping = {col: col.strip() for col in df.columns}
+        df = df.rename(columns=col_mapping)
+        
+        df = clean_egt_data(df)
+        df = calculate_telemetry_metrics(df)
+        trimmed_df, detected = detect_dyno_pull(df, min_rpm=3000.0, min_duration_sec=1.0, drop_threshold=500.0)
+        
+        # Worksheet-Name aus Dateiname ableiten (z.B. dyno_log_20260612-162000.csv -> 20260612-162000)
+        base_name = os.path.splitext(fname)[0]
+        sheet_title = base_name.replace("dyno_log_", "")
+            
+        success = export_to_google_sheets(trimmed_df, creds_path=GOOGLE_CREDS_PATH, worksheet_name=sheet_title)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "Google Sheets Export fehlgeschlagen. Credentials oder Tabellenname prüfen."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/plots/<path:filename>')
 def send_plot(filename): return send_from_directory(PLOT_DIR, filename)
