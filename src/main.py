@@ -18,7 +18,7 @@ from data.analyzer_logic import (
 # ==========================================
 AFR_OFFSET = 0.0        # Justiert auf dein Tacho-Standgas (~13.2)
 EGT_OFFSET = 0.0        
-RPM_MULTIPLIER = 0.82   
+RPM_MULTIPLIER = 0.69   
 RPM_ALPHA = 0.15        
 AFR_ALPHA = 0.05        # MASSIVE Dämpfung für AFR (Tacho-Look)
 AFR_MAX_VALID = 16.5    # Spike-Blocker für Schiebebetrieb
