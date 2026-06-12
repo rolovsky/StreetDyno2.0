@@ -10,10 +10,15 @@ class CSVLogger:
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir, exist_ok=True)
 
-    def start(self):
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
-        self.filepath = os.path.join(self.log_dir, f"dyno_log_{timestamp}.csv")
-        
+    def start(self, filepath=None):
+        if filepath is not None:
+            self.filepath = filepath
+        elif getattr(self, "filename", None) is not None:
+            self.filepath = self.filename
+        else:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            self.filepath = os.path.join(self.log_dir, f"dyno_log_{timestamp}.csv")
+            
         with open(self.filepath, "w") as f:
             # NEU: Lat und Lon im Header hinzugefügt
             f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,GPS_Fix\n")

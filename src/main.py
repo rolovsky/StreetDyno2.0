@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 from flask import Flask, jsonify, render_template_string, send_from_directory, request
 
 # ==========================================
-# --- KONFIGURATION v5.1 (STABLE LOGGING + AFR WARN) ---
+# --- KONFIGURATION v5.0 (STABLE LOGGING + AFR WARN) ---
 # ==========================================
-AFR_OFFSET = 0.0        # Justiert auf dein Tacho-Standgas (~13.2)
+AFR_OFFSET = 1.2        # Justiert auf dein Tacho-Standgas (~13.2)
 EGT_OFFSET = 0.0        
 RPM_MULTIPLIER = 0.82   
 RPM_ALPHA = 0.15        
@@ -44,7 +44,7 @@ def sync_time_with_gps(gps_data):
     global time_synced
     if not time_synced and gps_data and gps_data.fix:
         try:
-            new_time = gps_data.utc_time.strftime('%Y-%m-%d %H:%M:%S')
+            new_time = gps_data.timestamp.strftime('%Y-%m-%d %H:%M:%S')
             os.system(f'sudo date -s "{new_time}"')
             print(f"--- GPS TIME SYNC: Systemzeit auf {new_time} gesetzt ---")
             time_synced = True
@@ -198,8 +198,9 @@ def hardware_loop():
                         # LOGGING (Trigger und Log auf GEGLÄTTETE Daten!)
                         if not logger.is_logging:
                             if current_filtered_rpm > AUTO_START_RPM and spd > MIN_SPEED_KMH:
-                                logger.filename = os.path.join(LOG_DIR, f"dyno_log_{datetime.now().strftime('%Y%m%d-%H%M%S')}.csv")
-                                logger.start(); telemetry["status"]="🔴 REC"
+                                log_time = g.timestamp if (g and g.fix and g.timestamp) else datetime.now()
+                                log_filename = os.path.join(LOG_DIR, f"dyno_log_{log_time.strftime('%Y%m%d-%H%M%S')}.csv")
+                                logger.start(log_filename); telemetry["status"]="🔴 REC"
                         else:
                             # HIER IST DER FIX: Loggt 'current_filtered_rpm' statt 'target_rpm'
                             logger.log(round(current_filtered_rpm, 1), current_filtered_afr, p_egt, spd, g.lat, g.lon, g.fix if g else False)
@@ -212,10 +213,121 @@ def hardware_loop():
             telemetry["rpm"] = current_filtered_rpm = last_raw_rpm = current_filtered_afr = 0
             
         if time.time() - last_upd > 0.1:
-            oled.show_status(telemetry["rpm"], telemetry["speed"], telemetry["afr"], telemetry["egt"], "V5.1", telemetry["fix"], logger.is_logging)
+            oled.show_status(telemetry["rpm"], telemetry["speed"], telemetry["afr"], telemetry["egt"], "V5.0", telemetry["fix"], logger.is_logging)
             last_upd = time.time()
         time.sleep(0.005)
 
 if __name__ == '__main__':
     threading.Thread(target=hardware_loop, daemon=True).start()
     app.run(host='0.0.0.0', port=8080)
+
+# GPS initialisieren
+try:
+    gpsd.connect()
+    print("[OK] gpsd verbunden.")
+except Exception as e:
+    print(f"[FEHLER] gpsd nicht erreichbar: {e}")
+
+# Waveshare Taster Setup (mit sauberem Hardware-PullUp & Entprellung)
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+def toggle_logging(channel):
+    global is_logging, csv_writer, log_file
+    
+    if not is_logging:
+        # Start Logging
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"{LOG_DIR}/dyno_log_{timestamp}.csv"
+        log_file = open(filename, mode='w', newline='')
+        csv_writer = csv.writer(log_file)
+        # Header schreiben
+        csv_writer.writerow(['Time', 'RPM', 'AFR', 'EGT', 'Speed_kmh', 'Lat', 'Lon', 'GPS_Fix'])
+        is_logging = True
+        # Saubere Konsolen-Trennung beim Start
+        print(f"\n[REC] Logging GESTARTET: {filename}")
+    else:
+        # Stop Logging
+        is_logging = False
+        if log_file:
+            log_file.close()
+        print("\n[STOP] Logging BEENDET.")
+
+# Interrupt für den Taster (300ms Bouncetime gegen Prellen)
+GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, callback=toggle_logging, bouncetime=300)
+
+# Arduino Serial Setup
+try:
+    arduino = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.5)
+    print(f"[OK] Arduino auf {SERIAL_PORT} mit {BAUD_RATE} Baud verbunden.")
+except Exception as e:
+    print(f"[FEHLER] Arduino nicht gefunden: {e}")
+    sys.exit(1)
+
+print("--- STREETDYNO BEREIT ---")
+print("Drücke den Waveshare-Taster zum Starten/Stoppen der Aufnahme.\n")
+
+# ==========================================
+# --- MAIN LOOP ---
+# ==========================================
+try:
+    while True:
+        if arduino.in_waiting > 0:
+            try:
+                # Rohdaten vom Arduino lesen (Format: RPM,AFR,EGT)
+                line = arduino.readline().decode('utf-8').strip()
+                data = line.split(',')
+                
+                if len(data) == 3:
+                    raw_rpm = float(data[0])
+                    afr = float(data[1])
+                    egt = float(data[2])
+                    
+                    # --- DER FILTER-BLOCK ---
+                    # 1. Spikes über den Median killen
+                    rpm_history.append(raw_rpm)
+                    median_rpm = statistics.median(rpm_history)
+                    
+                    # 2. Kurve mit EMA glätten (das ist der Wert für Display UND Log!)
+                    rpm_display = (EMA_ALPHA * median_rpm) + ((1 - EMA_ALPHA) * rpm_display)
+                    
+                    # --- GPS DATEN HOLEN ---
+                    speed_kmh = 0.0
+                    lat, lon = 0.0, 0.0
+                    has_fix = False
+                    
+                    try:
+                        packet = gpsd.get_current()
+                        if packet.mode >= 2: # 2D oder 3D Fix
+                            has_fix = True
+                            speed_kmh = packet.speed() * 3.6 # m/s in km/h
+                            lat, lon = packet.position()
+                    except Exception:
+                        pass # gpsd wirft manchmal Exceptions, wenn kein Signal da ist
+                    
+                    # --- INLINE DASHBOARD ---
+                    status_sym = "🔴 REC" if is_logging else "🟢 RDY"
+                    fix_sym = "🛰️ OK" if has_fix else "🛰️ --"
+                    # \r überschreibt die aktuelle Zeile für ein flackerfreies Dashboard
+                    sys.stdout.write(f"\r[{status_sym}] {fix_sym} | RPM: {int(rpm_display):04d} | AFR: {afr:.1f} | EGT: {int(egt):03d}°C | Speed: {speed_kmh:.1f} km/h   ")
+                    sys.stdout.flush()
+                    
+                    # --- LOGGING ---
+                    if is_logging and csv_writer:
+                        now = datetime.now().strftime("%H:%M:%S")
+                        # HIER IST DER FIX: Wir schreiben rpm_display statt raw_rpm
+                        csv_writer.writerow([now, round(rpm_display, 1), afr, egt, round(speed_kmh, 1), lat, lon, has_fix])
+                        
+            except ValueError:
+                # Überspringt kaputte serielle Zeilen (z.B. beim Start)
+                pass
+            
+        time.sleep(0.05) # Kurze Pause, um die CPU zu schonen
+
+except KeyboardInterrupt:
+    print("\n[INFO] Programm manuell beendet.")
+finally:
+    if is_logging and log_file:
+        log_file.close()
+    arduino.close()
+    GPIO.cleanup()

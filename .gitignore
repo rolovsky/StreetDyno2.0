@@ -13,3 +13,5 @@ logs/*.csv
 *.swp
 *~
 .DS_Store
+venv/
+.venv/
