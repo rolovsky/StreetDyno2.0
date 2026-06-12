@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 from flask import Flask, jsonify, render_template_string, send_from_directory, request
 
 # ==========================================
-# --- KONFIGURATION v5.0 (STABLE LOGGING + AFR WARN) ---
+# --- KONFIGURATION v5.1 (STABLE LOGGING + AFR WARN) ---
 # ==========================================
-AFR_OFFSET = 1.2        # Justiert auf dein Tacho-Standgas (~13.2)
+AFR_OFFSET = 0.0        # Justiert auf dein Tacho-Standgas (~13.2)
 EGT_OFFSET = 0.0        
 RPM_MULTIPLIER = 0.82   
 RPM_ALPHA = 0.15        
@@ -78,7 +78,7 @@ DASH_HTML = """
     </style>
 </head>
 <body>
-    <div id="status" class="status-bar">V5.0 READY</div>
+    <div id="status" class="status-bar">V5.1 READY</div>
     <div class="card"><div class="label">Speed km/h</div><div id="speed" class="value" style="color:#00ffcc;">0.0</div></div>
     <div class="card"><div class="label">RPM</div><div id="rpm" class="value" style="color:#ff9800;">0</div></div>
     <div class="card"><div class="label">AFR (Smooth)</div><div id="afr" class="value" style="color:#ff3366;">0.0</div></div>
@@ -213,7 +213,7 @@ def hardware_loop():
             telemetry["rpm"] = current_filtered_rpm = last_raw_rpm = current_filtered_afr = 0
             
         if time.time() - last_upd > 0.1:
-            oled.show_status(telemetry["rpm"], telemetry["speed"], telemetry["afr"], telemetry["egt"], "V5.0", telemetry["fix"], logger.is_logging)
+            oled.show_status(telemetry["rpm"], telemetry["speed"], telemetry["afr"], telemetry["egt"], "V5.1", telemetry["fix"], logger.is_logging)
             last_upd = time.time()
         time.sleep(0.005)
 
