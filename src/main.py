@@ -71,7 +71,7 @@ def smart_round(value):
     else: return value
     return int(round((value + (round_to / 2)) / round_to) * round_to)
 
-# --- HIGH-CONTRAST OUTDOOR LIVE COCKPIT HUD (iOS SAFARI OPTIMIZED) ---
+# --- HIGH-CONTRAST OUTDOOR LIVE COCKPIT HUD (IPHONE 15 PRO MAX OPTIMIZED) ---
 DASH_HTML = """
 <!DOCTYPE html>
 <html lang="de">
@@ -80,58 +80,78 @@ DASH_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="StreetDyno">
+    <meta name="theme-color" content="#000000">
     <meta name="format-detection" content="telephone=no">
     <title>StreetDyno 2.0 - Live HUD</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
+        
+        :root {
+            --sat: env(safe-area-inset-top, 20px);
+            --sab: env(safe-area-inset-bottom, 20px);
+            --sal: env(safe-area-inset-left, 12px);
+            --sar: env(safe-area-inset-right, 12px);
+        }
+
+        html, body {
             background: #000000;
             color: #ffffff;
-            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-            overflow-x: hidden;
-            min-height: 100vh;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            height: -webkit-fill-available;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        body {
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            padding: env(safe-area-inset-top, 10px) env(safe-area-inset-right, 10px) env(safe-area-inset-bottom, 10px) env(safe-area-inset-left, 10px);
-            user-select: none;
-            -webkit-user-select: none;
+            padding: max(12px, var(--sat)) max(14px, var(--sar)) max(12px, var(--sab)) max(14px, var(--sal));
         }
 
-        /* Top Bar */
+        /* Top Bar & Dynamic Island Clearance */
         .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px 12px;
-            background: #0f0f12;
-            border: 1px solid #222228;
-            border-radius: 12px;
+            padding: 8px 14px;
+            background: rgba(18, 18, 22, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
             margin-bottom: 8px;
             font-size: 0.85rem;
             font-weight: 700;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
         }
+
         .status-pill {
             display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            border-radius: 20px;
-            background: #18181c;
-            border: 1px solid #333;
+            gap: 8px;
+            padding: 5px 12px;
+            border-radius: 30px;
+            background: #141418;
+            border: 1px solid #2a2a32;
         }
         .rec-dot {
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: #4caf50;
+            background: #00e676;
+            box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
             transition: all 0.2s;
         }
         .rec-dot.active {
             background: #ff1744;
-            box-shadow: 0 0 12px #ff1744;
+            box-shadow: 0 0 16px #ff1744;
             animation: pulse-dot 0.6s infinite alternate;
         }
         @keyframes pulse-dot { from { opacity: 0.3; } to { opacity: 1; } }
@@ -141,9 +161,10 @@ DASH_HTML = """
             height: 8px;
             border-radius: 50%;
             background: #00ffcc;
-            opacity: 0.3;
+            opacity: 0.25;
+            transition: opacity 0.1s;
         }
-        .heartbeat-dot.beat { opacity: 1; }
+        .heartbeat-dot.beat { opacity: 1; box-shadow: 0 0 8px #00ffcc; }
 
         .top-actions {
             display: flex;
@@ -151,77 +172,80 @@ DASH_HTML = """
         }
         .btn-icon {
             background: #1c1c22;
-            border: 1px solid #333;
+            border: 1px solid #33333e;
             color: #fff;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 10px;
+            font-weight: 800;
             font-size: 0.8rem;
             text-decoration: none;
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 4px;
+            -webkit-tap-highlight-color: transparent;
         }
-        .btn-icon:active { background: #333; }
+        .btn-icon:active { background: #333; transform: scale(0.96); }
 
         /* Rev Bar / Shift Light */
         .rev-bar-container {
             width: 100%;
-            height: 14px;
+            height: 16px;
             background: #111116;
-            border-radius: 7px;
-            border: 1px solid #222;
+            border-radius: 8px;
+            border: 1px solid #22222a;
             overflow: hidden;
             margin-bottom: 10px;
             position: relative;
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.8);
         }
         .rev-bar-fill {
             height: 100%;
             width: 0%;
-            background: linear-gradient(90deg, #00e676 0%, #ffea00 65%, #ff9100 80%, #ff1744 100%);
+            background: linear-gradient(90deg, #00e676 0%, #ffea00 60%, #ff9100 80%, #ff1744 100%);
             transition: width 0.08s linear;
         }
         .shift-light {
             position: fixed;
             top: 0; left: 0; right: 0;
-            height: 6px;
+            height: max(8px, var(--sat));
             background: transparent;
             z-index: 9999;
             pointer-events: none;
         }
         .shift-light.flash {
             background: #ff1744;
-            box-shadow: 0 0 30px 10px #ff1744;
-            animation: flash-border 0.12s infinite;
+            box-shadow: 0 0 40px 15px #ff1744;
+            animation: flash-border 0.1s infinite;
         }
-        @keyframes flash-border { 50% { opacity: 0.1; } }
+        @keyframes flash-border { 50% { opacity: 0.15; } }
 
-        /* Main Grid (Portrait & Landscape responsive) */
+        /* Main Grid (Portrait 2x2 & Landscape 4x1 for iPhone 15 Pro Max) */
         .hud-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            gap: 12px;
             flex-grow: 1;
             margin-bottom: 10px;
         }
         @media (orientation: landscape) {
             .hud-grid {
                 grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
             }
         }
 
         .hud-card {
-            background: #0d0d11;
-            border: 2px solid #1c1c24;
-            border-radius: 20px;
-            padding: 12px;
+            background: linear-gradient(165deg, #131318 0%, #0a0a0d 100%);
+            border: 2px solid rgba(255, 255, 255, 0.07);
+            border-radius: 22px;
+            padding: 14px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             text-align: center;
             position: relative;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.7);
         }
         .hud-card .card-header {
             display: flex;
@@ -235,62 +259,63 @@ DASH_HTML = """
         }
         .hud-card .card-value {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 3.8rem;
+            font-size: clamp(3.2rem, 9.5vw, 4.8rem);
             font-weight: 800;
-            line-height: 1.0;
-            margin: 8px 0;
-            letter-spacing: -0.04em;
+            line-height: 0.95;
+            margin: 6px 0;
+            letter-spacing: -0.05em;
         }
         .hud-card .card-unit {
             font-size: 0.8rem;
-            font-weight: 700;
+            font-weight: 800;
             color: #52525b;
             text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
-        /* Value color themes */
-        .card-speed .card-value { color: #00ffcc; text-shadow: 0 0 25px rgba(0,255,204,0.3); }
-        .card-rpm .card-value { color: #ff9800; text-shadow: 0 0 25px rgba(255,152,0,0.3); }
-        .card-afr .card-value { color: #00e676; text-shadow: 0 0 25px rgba(0,230,118,0.3); }
-        .card-egt .card-value { color: #ffd600; text-shadow: 0 0 25px rgba(255,214,0,0.3); }
+        /* High-Contrast Neon Accents */
+        .card-speed .card-value { color: #00ffcc; text-shadow: 0 0 35px rgba(0,255,204,0.35); }
+        .card-rpm .card-value { color: #ff9800; text-shadow: 0 0 35px rgba(255,152,0,0.35); }
+        .card-afr .card-value { color: #00e676; text-shadow: 0 0 35px rgba(0,230,118,0.35); }
+        .card-egt .card-value { color: #ffd600; text-shadow: 0 0 35px rgba(255,214,0,0.35); }
 
         /* Danger Alarms */
         @keyframes danger-blink {
-            0% { background: #0d0d11; border-color: #ff1744; }
-            50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 35px rgba(255,23,68,0.7); }
-            100% { background: #0d0d11; border-color: #ff1744; }
+            0% { background: #131318; border-color: #ff1744; }
+            50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 40px rgba(255,23,68,0.8); }
+            100% { background: #131318; border-color: #ff1744; }
         }
         .card-danger {
-            animation: danger-blink 0.4s infinite !important;
+            animation: danger-blink 0.35s infinite !important;
         }
         .card-danger .card-value {
             color: #ff1744 !important;
-            text-shadow: 0 0 30px #ff1744 !important;
+            text-shadow: 0 0 35px #ff1744 !important;
         }
 
-        /* Bottom Action Bar */
+        /* Bottom Action Bar (Glove-Friendly Touch Targets) */
         .bottom-bar {
             display: flex;
             gap: 10px;
-            margin-top: 5px;
+            min-height: 56px;
         }
         .btn-rec {
-            flex: 2;
+            flex: 2.2;
             padding: 16px;
-            border-radius: 14px;
-            font-size: 1.1rem;
+            border-radius: 16px;
+            font-size: 1.05rem;
             font-weight: 900;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
             border: none;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
-            background: #18181c;
+            background: #18181f;
             color: #00ffcc;
             border: 2px solid #00ffcc;
-            box-shadow: 0 4px 15px rgba(0,255,204,0.2);
+            box-shadow: 0 4px 20px rgba(0,255,204,0.2);
             transition: all 0.15s;
             -webkit-tap-highlight-color: transparent;
         }
@@ -298,21 +323,21 @@ DASH_HTML = """
             background: #ff1744;
             color: #ffffff;
             border: 2px solid #ff5252;
-            box-shadow: 0 0 25px rgba(255,23,68,0.6);
+            box-shadow: 0 0 30px rgba(255,23,68,0.7);
             animation: pulse-btn 1s infinite alternate;
         }
         @keyframes pulse-btn { from { transform: scale(1); } to { transform: scale(0.98); } }
-        .btn-rec:active { transform: scale(0.95); }
+        .btn-rec:active { transform: scale(0.96); }
 
         .btn-nav {
             flex: 1;
             padding: 16px;
-            border-radius: 14px;
-            font-size: 1.0rem;
+            border-radius: 16px;
+            font-size: 0.95rem;
             font-weight: 800;
-            background: #18181c;
+            background: #18181f;
             color: #ffffff;
-            border: 2px solid #33333e;
+            border: 2px solid #2a2a34;
             text-decoration: none;
             text-align: center;
             display: flex;
@@ -320,7 +345,7 @@ DASH_HTML = """
             justify-content: center;
             -webkit-tap-highlight-color: transparent;
         }
-        .btn-nav:active { background: #27272a; }
+        .btn-nav:active { background: #272730; transform: scale(0.96); }
     </style>
 </head>
 <body>
@@ -525,7 +550,7 @@ DASH_HTML = """
                                 cardAfr.style.borderColor = '#29b6f6';
                             } else {
                                 afrZone.innerText = '--';
-                                cardAfr.style.borderColor = '#1c1c24';
+                                cardAfr.style.borderColor = 'rgba(255, 255, 255, 0.07)';
                             }
                         }
                     }
