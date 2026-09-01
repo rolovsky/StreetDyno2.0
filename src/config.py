@@ -52,15 +52,42 @@ AIR_DENSITY: float = 1.205            # Ambient air density rho (kg/m³)
 TRANSMISSION_EFFICIENCY: float = 0.90 # Powertrain mechanical efficiency
 GRAVITY: float = 9.81                 # Gravitational acceleration (m/s²)
 
-# --- Dell'Orto SI 24/24 Carburetor Baseline Configuration ---
+# --- Dell'Orto SI 24/24 Carburetor Component & Fuel Mappings ---
+FUEL_STOICHIOMETRY: Dict[str, float] = {
+    "Super_E5": 14.30,
+    "Super_E10": 14.10,
+    "SuperPlus_E0": 14.70
+}
+
+SLIDE_TYPES: Dict[str, str] = {
+    "lemarxon_low": "Lemarxon Low Cutaway (aktuell aktiv / fett)",
+    "lemarxon_mid": "Lemarxon Mid Cutaway (mittel)",
+    "bgm_std_cutout": "BGM FastFlow 24/24 Standard mit Cutaway (mager)"
+}
+
+INTAKE_TYPES: Dict[str, str] = {
+    "polini_venturi": "Polini Venturi Trichter",
+    "lemarxon_22mm": "22mm Reduzierhülse Lemarxon",
+    "orig_drilled": "Originalfilter mit Bohrungen (5mm/8mm)",
+    "open_no_filter": "Ohne Filter / Trichter"
+}
+
+AIRBOX_TYPES: Dict[str, str] = {
+    "polini_airbox": "Polini Airbox (Großer Deckel)",
+    "orig_box_cover": "Original Vergaserdeckel",
+    "no_cover": "Ohne Deckel (Offene Wanne)"
+}
+
 DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
+    "fuel_type": "Super_E5",
+    "slide_type": "lemarxon_low",
+    "intake_type": "polini_venturi",
+    "airbox_type": "polini_airbox",
     "main_jet_hd": 135,
     "idle_jet_nd": "60/160",
     "air_corrector_hlkd": 160,
     "emulsion_tube": "Lemarxon x234",
-    "throttle_slide": "Lemarxon Low",
-    "intake_funnel": "Polini Venturi Trichter",
     "exhaust": "Polini Box",
     "notes": "VMC 177 / 60mm Welle / Baseline Setup"
 }
@@ -94,3 +121,4 @@ def save_carb_setup(setup_dict: Dict[str, Any]) -> bool:
 
 
 CARB_SETUP: Dict[str, Any] = load_carb_setup()
+

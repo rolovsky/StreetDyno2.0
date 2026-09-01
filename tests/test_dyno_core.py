@@ -67,7 +67,7 @@ class TestDynoPhysics(unittest.TestCase):
         """Verify 4-zone carburetor diagnostic evaluation."""
         # Create synthetic pull data
         rpm = np.linspace(2000, 8500, 100)
-        afr = np.full(100, 12.7)  # Perfect AFR
+        afr = np.full(100, 12.6)  # Perfect AFR for Super E5
         egt = np.linspace(400, 600, 100)
         df = pd.DataFrame({'RPM': rpm, 'AFR': afr, 'EGT': egt, 'Speed_kmh': rpm / 81.6})
 
@@ -75,6 +75,53 @@ class TestDynoPhysics(unittest.TestCase):
         self.assertTrue(analysis["valid"])
         self.assertEqual(analysis["overall_status"], "PERFECT")
         self.assertEqual(len(analysis["zones"]), 4)
+
+    def test_fuel_stoichiometry_scaling(self):
+        """Verify dynamic AFR target scaling for Super E5, Super E10, and SuperPlus E0."""
+        rpm = np.linspace(2000, 8500, 100)
+        afr = np.full(100, 12.5)
+        df = pd.DataFrame({'RPM': rpm, 'AFR': afr, 'EGT': np.full(100, 550.0), 'Speed_kmh': rpm / 81.6})
+
+        # Test Super E5 (14.30)
+        setup_e5 = {**DEFAULT_CARB_SETUP, "fuel_type": "Super_E5"}
+        res_e5 = analyze_carb_jetting(df, setup_e5)
+        self.assertEqual(res_e5["stoich_afr"], 14.30)
+
+        # Test Super E10 (14.10)
+        setup_e10 = {**DEFAULT_CARB_SETUP, "fuel_type": "Super_E10"}
+        res_e10 = analyze_carb_jetting(df, setup_e10)
+        self.assertEqual(res_e10["stoich_afr"], 14.10)
+        # Zone 4 target for E10 should be lower than E5
+        z4_e10 = [z for z in res_e10["zones"] if z["id"] == "zone4"][0]
+        z4_e5 = [z for z in res_e5["zones"] if z["id"] == "zone4"][0]
+        self.assertLess(float(z4_e10["target"].split('-')[0]), float(z4_e5["target"].split('-')[0]))
+
+        # Test SuperPlus E0 (14.70)
+        setup_e0 = {**DEFAULT_CARB_SETUP, "fuel_type": "SuperPlus_E0"}
+        res_e0 = analyze_carb_jetting(df, setup_e0)
+        self.assertEqual(res_e0["stoich_afr"], 14.70)
+
+    def test_slide_and_intake_diagnostics(self):
+        """Verify component-specific recommendations for BGM Cutaway vs Lemarxon and Polini Venturi."""
+        # Create lean pull in Zone 2 (3200-4800 RPM)
+        rpm = np.linspace(3500, 4500, 50)
+        afr = np.full(50, 14.2)  # Lean in Zone 2
+        df_lean = pd.DataFrame({'RPM': rpm, 'AFR': afr, 'EGT': np.full(50, 580.0), 'Speed_kmh': rpm / 81.6})
+
+        # Test BGM standard slide suggests Lemarxon Cutaway
+        setup_bgm = {**DEFAULT_CARB_SETUP, "slide_type": "bgm_std_cutout"}
+        res_bgm = analyze_carb_jetting(df_lean, setup_bgm)
+        z2_bgm = [z for z in res_bgm["zones"] if z["id"] == "zone2"][0]
+        self.assertIn("BGM Standard-Cutaway", z2_bgm["advice"])
+        self.assertIn("Lemarxon", z2_bgm["advice"])
+
+        # Test Polini Venturi note in Zone 4
+        rpm_wot = np.linspace(7000, 8500, 50)
+        df_wot_lean = pd.DataFrame({'RPM': rpm_wot, 'AFR': np.full(50, 13.8), 'EGT': np.full(50, 620.0), 'Speed_kmh': rpm_wot / 81.6})
+        setup_venturi = {**DEFAULT_CARB_SETUP, "intake_type": "polini_venturi"}
+        res_venturi = analyze_carb_jetting(df_wot_lean, setup_venturi)
+        z4_venturi = [z for z in res_venturi["zones"] if z["id"] == "zone4"][0]
+        self.assertIn("Polini Venturi Trichter", z4_venturi["advice"])
 
     def test_nd_ratio_parser(self):
         """Verify ND ratio parsing (e.g. 60/160 -> 2.67)."""

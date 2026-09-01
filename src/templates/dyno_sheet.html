@@ -140,12 +140,13 @@
     <div class="grid-2">
         <div class="box">
             <div class="box-title">⚙️ FAHRZEUG & VERGASER-SETUP</div>
-            <div class="spec-row"><span>Fahrzeug:</span><span class="spec-val">Vespa PX 125 (VMC 177)</span></div>
+            <div class="spec-row"><span>Fahrzeug / Kraftstoff:</span><span class="spec-val">Vespa PX (VMC 177) &bull; {{ carb.fuel_type or 'Super_E5' }} (Stöch. {{ "%.2f"|format(carb_diag.stoich_afr if carb_diag and carb_diag.stoich_afr else 14.30) }})</span></div>
             <div class="spec-row"><span>Gesamtmasse:</span><span class="spec-val">190.0 kg (Roller + Fahrer)</span></div>
             <div class="spec-row"><span>Vergaser:</span><span class="spec-val">{{ carb.carburetor_type }}</span></div>
             <div class="spec-row"><span>Bedüsung:</span><span class="spec-val">HD {{ carb.main_jet_hd }} | ND {{ carb.idle_jet_nd }} | HLKD {{ carb.air_corrector_hlkd }}</span></div>
-            <div class="spec-row"><span>Mischrohr / Schieber:</span><span class="spec-val">{{ carb.emulsion_tube }} | {{ carb.throttle_slide }}</span></div>
-            <div class="spec-row"><span>Ansaugung / Auspuff:</span><span class="spec-val">{{ carb.intake_funnel }} | {{ carb.exhaust }}</span></div>
+            <div class="spec-row"><span>Mischrohr / Schieber:</span><span class="spec-val">{{ carb.emulsion_tube }} | {{ slide_label }}</span></div>
+            <div class="spec-row"><span>Ansaugung & Wanne:</span><span class="spec-val">{{ intake_label }} &bull; {{ airbox_label }}</span></div>
+            <div class="spec-row"><span>Auspuff:</span><span class="spec-val">{{ carb.exhaust }}</span></div>
         </div>
 
         <div class="box">

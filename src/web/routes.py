@@ -25,7 +25,11 @@ from config import (
     PLOT_DIR,
     load_carb_setup,
     save_carb_setup,
-    DEFAULT_CARB_SETUP
+    DEFAULT_CARB_SETUP,
+    FUEL_STOICHIOMETRY,
+    SLIDE_TYPES,
+    INTAKE_TYPES,
+    AIRBOX_TYPES
 )
 from data.analyzer_logic import (
     clean_egt_data,
@@ -371,6 +375,10 @@ def dyno_sheet_report() -> str:
         carb = load_carb_setup()
         carb_diag = analyze_carb_jetting(trimmed, carb)
 
+        slide_label = SLIDE_TYPES.get(carb.get("slide_type", ""), carb.get("slide_type", "Lemarxon Low Cutaway"))
+        intake_label = INTAKE_TYPES.get(carb.get("intake_type", ""), carb.get("intake_type", "Polini Venturi Trichter"))
+        airbox_label = AIRBOX_TYPES.get(carb.get("airbox_type", ""), carb.get("airbox_type", "Polini Airbox"))
+
         gear = int(trimmed.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in trimmed.columns else 3
         max_ps = float(trimmed['PS'].max()) if 'PS' in trimmed.columns else 0.0
         max_ps_raw = float(trimmed['PS_Raw'].max()) if 'PS_Raw' in trimmed.columns else max_ps
@@ -404,6 +412,9 @@ def dyno_sheet_report() -> str:
             peak_nm_rpm=peak_nm_rpm,
             carb=carb,
             carb_diag=carb_diag,
+            slide_label=slide_label,
+            intake_label=intake_label,
+            airbox_label=airbox_label,
             norm_param=norm_param,
             temp_param=temp_param,
             pressure_param=pressure_param,

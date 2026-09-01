@@ -1,0 +1,13 @@
+{
+    "carburetor_type": "BGM 24/24 Fastflow",
+    "fuel_type": "Super_E5",
+    "slide_type": "lemarxon_low",
+    "intake_type": "polini_venturi",
+    "airbox_type": "polini_airbox",
+    "main_jet_hd": 135,
+    "idle_jet_nd": "60/160",
+    "air_corrector_hlkd": 160,
+    "emulsion_tube": "Lemarxon x234",
+    "exhaust": "Polini Box",
+    "notes": "VMC 177 / 60mm Welle / Baseline Setup"
+}

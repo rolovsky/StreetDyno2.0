@@ -105,6 +105,39 @@
 
         <form id="carbForm" onsubmit="saveSetup(event)">
             <div class="form-grid">
+                <div class="form-group full">
+                    <label>Kraftstoff / Stöchiometrie (Ziel λ ≈ 0.86)</label>
+                    <select name="fuel_type">
+                        <option value="Super_E5" {% if carb.fuel_type == 'Super_E5' or not carb.fuel_type %}selected{% endif %}>Super E5 (Stöchiometrisch 14.30 AFR)</option>
+                        <option value="Super_E10" {% if carb.fuel_type == 'Super_E10' %}selected{% endif %}>Super E10 (Stöchiometrisch 14.10 AFR)</option>
+                        <option value="SuperPlus_E0" {% if carb.fuel_type == 'SuperPlus_E0' %}selected{% endif %}>SuperPlus E0 (Stöchiometrisch 14.70 AFR)</option>
+                    </select>
+                </div>
+                <div class="form-group full">
+                    <label>Gasschieber (Cutaway)</label>
+                    <select name="slide_type">
+                        <option value="lemarxon_low" {% if carb.slide_type == 'lemarxon_low' or not carb.slide_type %}selected{% endif %}>Lemarxon Low Cutaway (aktuell aktiv / fett)</option>
+                        <option value="lemarxon_mid" {% if carb.slide_type == 'lemarxon_mid' %}selected{% endif %}>Lemarxon Mid Cutaway (mittel)</option>
+                        <option value="bgm_std_cutout" {% if carb.slide_type == 'bgm_std_cutout' %}selected{% endif %}>BGM FastFlow 24/24 Standard mit Cutaway (mager)</option>
+                    </select>
+                </div>
+                <div class="form-group full">
+                    <label>Ansaugung / Trichter</label>
+                    <select name="intake_type">
+                        <option value="polini_venturi" {% if carb.intake_type == 'polini_venturi' or not carb.intake_type %}selected{% endif %}>Polini Venturi Trichter</option>
+                        <option value="lemarxon_22mm" {% if carb.intake_type == 'lemarxon_22mm' %}selected{% endif %}>22mm Reduzierhülse Lemarxon</option>
+                        <option value="orig_drilled" {% if carb.intake_type == 'orig_drilled' %}selected{% endif %}>Originalfilter mit Bohrungen (5mm/8mm)</option>
+                        <option value="open_no_filter" {% if carb.intake_type == 'open_no_filter' %}selected{% endif %}>Ohne Filter / Trichter</option>
+                    </select>
+                </div>
+                <div class="form-group full">
+                    <label>Vergaserdeckel / Airbox Wanne</label>
+                    <select name="airbox_type">
+                        <option value="polini_airbox" {% if carb.airbox_type == 'polini_airbox' or not carb.airbox_type %}selected{% endif %}>Polini Airbox (Großer Deckel)</option>
+                        <option value="orig_box_cover" {% if carb.airbox_type == 'orig_box_cover' %}selected{% endif %}>Original Vergaserdeckel</option>
+                        <option value="no_cover" {% if carb.airbox_type == 'no_cover' %}selected{% endif %}>Ohne Deckel (Offene Wanne)</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label>Hauptdüse (HD)</label>
                     <input type="number" name="main_jet_hd" value="{{ carb.main_jet_hd }}" required>
@@ -122,16 +155,12 @@
                     <input type="text" name="emulsion_tube" value="{{ carb.emulsion_tube }}" required>
                 </div>
                 <div class="form-group">
-                    <label>Gasschieber</label>
-                    <input type="text" name="throttle_slide" value="{{ carb.throttle_slide }}" required>
-                </div>
-                <div class="form-group">
-                    <label>Ansaugung / Trichter</label>
-                    <input type="text" name="intake_funnel" value="{{ carb.intake_funnel }}" required>
-                </div>
-                <div class="form-group full">
                     <label>Vergaser-Typ</label>
                     <input type="text" name="carburetor_type" value="{{ carb.carburetor_type }}">
+                </div>
+                <div class="form-group">
+                    <label>Auspuff</label>
+                    <input type="text" name="exhaust" value="{{ carb.exhaust }}">
                 </div>
                 <div class="form-group full">
                     <label>Notizen / Setup</label>
