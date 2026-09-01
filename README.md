@@ -1,13 +1,14 @@
 # 🛵 StreetDyno 2.0 – High-Precision Vespa Road Dyno & Telemetry System
 
 [![Platform: Raspberry Pi](https://img.shields.io/badge/Platform-Raspberry%20Pi-red.svg)](https://www.raspberrypi.com/)
-[![Firmware: Arduino Nano](https://img.shields.io/badge/Firmware-Arduino%20Nano%20(PlatformIO)-blue.svg)](https://platformio.org/)
+[![Firmware: Arduino Nano](https://img.shields.io/badge/Firmware-Arduino%20Nano%20(AVR)-blue.svg)](https://platformio.org/)
 [![Web: Flask & Chart.js](https://img.shields.io/badge/Web-Flask%20%2B%20Chart.js-brightgreen.svg)](https://flask.palletsprojects.com/)
 [![Physics: Savitzky--Golay & DIN 70020](https://img.shields.io/badge/Physics-DIN%2070020%20%2B%20SG%20Filter-orange.svg)]()
 [![Architecture: Clean Code & Modular](https://img.shields.io/badge/Architecture-Clean%20Code%20%26%20Modular-success.svg)]()
 [![Cockpit: iPhone 15 Pro Max](https://img.shields.io/badge/Cockpit-iPhone%2015%20Pro%20Max%20Optimized-purple.svg)]()
+[![Tests: 11/11 Passing](https://img.shields.io/badge/Tests-11%2F11%20Passed%20(100%25)-brightgreen.svg)]()
 
-**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, automatischer Straßenneigungskompensation, 4-Zonen-Vergaserbedüsungsdiagnose, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
+**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, automatischer Straßenneigungskompensation, 4-Zonen-Vergaserbedüsungsdiagnose, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
 
 ---
 
@@ -29,16 +30,17 @@
 ```mermaid
 flowchart TD
     subgraph Hardware["Sensoren & Vespa Hardware"]
-        RPM[SIP Tacho Signal / 3 Impulse] -->|D2 Interrupt| ARD[Arduino Nano V5.1]
+        RPM[SIP Tacho Signal / 3 Impulse] -->|D2 Interrupt FALLING| ARD[Arduino Nano V5.1]
         EGT[MAX6675 Abgastemperatur] -->|SPI D4/D5/D6| ARD
-        AFR[Breitband-Lambda 0-5V] -->|A0 Analog| ARD
-        GPS[Waveshare L76K GPS] -->|UART ttyAMA0 / 10Hz| PI[Raspberry Pi Zero W]
-        ARD -->|USB Seriell 115200 Baud| PI
+        AFR[Breitband-Lambda 0-5V] -->|A0 Analog 4.71V Ref| ARD
+        GPS[Waveshare L76K GPS] -->|UART ttyAMA0 / 10Hz| PI[Raspberry Pi Zero 2 W]
+        ARD -->|USB Seriell 115200 Baud / Multi-Period Accumulator| PI
     end
 
-    subgraph PiCore["Raspberry Pi Core (Clean Architecture)"]
+    subgraph PiCore["Raspberry Pi Core (Debian Trixie / ZRAM 416MB)"]
         PI --> HWS[HardwareService Daemon]
-        HWS --> LOG[CSV Logger / 10Hz Async]
+        HWS --> TRIG[3-Punkt WOT Auto-Trigger]
+        HWS --> LOG[CSV Logger mit 1.0s Pre-Trigger Buffer]
         HWS --> DISP[SSD1306 / SH1106 OLED]
         PI --> FLASK[Flask Application Factory]
         FLASK --> BP[Blueprint: src/web/routes.py]
@@ -46,11 +48,11 @@ flowchart TD
         BP --> TPL[Jinja2 Templates: src/templates/]
     end
 
-    subgraph Cockpit["Smartphone / iPhone 15 Pro Max"]
-        FLASK -->|WLAN AP| HUD[Live OLED Cockpit HUD]
-        FLASK -->|WLAN AP| ANA[Interaktive Analyse & Vergleich]
-        FLASK -->|WLAN AP| TUN[Vergaser-Setup Dashboard]
-        FLASK -->|WLAN AP| PDF[A4 Prüfstandsbericht / AirPrint]
+    subgraph Cockpit["Smartphone / iPhone 15 Pro Max (http://streetdyno.local:8080)"]
+        FLASK -->|WLAN / mDNS| HUD[Live OLED Cockpit HUD]
+        FLASK -->|WLAN / mDNS| ANA[Interaktive Analyse & Vergleich]
+        FLASK -->|WLAN / mDNS| TUN[Vergaser-Setup Dashboard]
+        FLASK -->|WLAN / mDNS| PDF[A4 Prüfstandsbericht / AirPrint]
         HUD -->|Open-Meteo API / Mobilfunk| WTR[DIN 70020 Wetter-Norm]
         WTR -->|Client-seitiger Sync| BP
     end
@@ -64,28 +66,30 @@ Das Repository folgt strengen Clean-Code-Prinzipien mit strikter **Separation of
 
 ```
 streetdyno2.0/
+├── .agents/rules/           # Persistente Projekt- & Hardware-Richtlinien
+│   └── streetdyno-guidelines.md
 ├── desktop_analyzer.py      # Desktop CLI für macOS/PC (nutzt src.data)
 ├── README.md                # Systemdokumentation
 ├── user_setup.json          # Persistente Vergaser- & Fahrzeugkonfiguration
 ├── firmware/
 │   ├── platformio.ini       # PlatformIO Build-Konfiguration (Arduino Nano)
 │   └── src/
-│       └── main.cpp         # Modern C++ Firmware mit constexpr & atomarem ISR
+│       └── main.cpp         # Modern C++ Firmware mit Multi-Period Akkumulator
 ├── src/
 │   ├── config.py            # Zentrale Fahrzeugparameter, Übersetzungen, Konstanten
 │   ├── main.py              # Schlanke WSGI Application Factory (< 55 Zeilen)
 │   ├── data/
 │   │   ├── analyzer_logic.py# Physik-Engine, SG-Filter, Neigung & DIN 70020
 │   │   ├── jetting_advisor.py# 4-Zonen Vergaser-Diagnose für Dell'Orto SI 24
-│   │   └── logger.py        # Threadsicherer 10Hz CSV-Logger
+│   │   └── logger.py        # Threadsicherer 10Hz CSV-Logger mit Pre-Trigger Puffer
 │   ├── hw/
-│   │   ├── hardware_service.py # Threadsicherer Hardware-Daemon (Serial, GPS, OLED)
+│   │   ├── hardware_service.py # Threadsicherer Hardware-Daemon & WOT Auto-Trigger
 │   │   ├── gps_l76k.py      # GPSD L76K Treiber mit Höhenmessung (Alt)
 │   │   ├── display_oled.py  # SSD1306/SH1106 OLED-Treiber
 │   │   └── rpm_input.py     # GPIO Interrupt-Treiber
 │   ├── templates/           # Saubere Jinja2 HTML/CSS/JS Templates
 │   │   ├── hud.html         # Live Cockpit HUD (iPhone 15 Pro Max optimiert)
-│   │   ├── logs.html        # Log-Archiv mit Run-Vergleichs-Auswahl
+│   │   ├── logs.html        # Log-Archiv mit Multi-Select Vergleichs-Starter
 │   │   ├── analyze.html     # Einzel-Run Analyse mit P4-Kurve, Neigung & Wetter
 │   │   ├── compare.html     # Interaktiver 2-Run Chart.js Vergleich
 │   │   ├── tuning.html      # Vergaser-Setup Formular & Live-Diagnose
@@ -95,24 +99,37 @@ streetdyno2.0/
 ├── systemd/
 │   └── streetdyno.service   # Systemd Service-Definition
 └── tests/
-    └── test_dyno_core.py    # Automatisierte Unit-Test-Suite (100% Pass)
+    └── test_dyno_core.py    # Automatisierte Unit-Test-Suite (11 Tests, 100% Pass)
 ```
 
 ---
 
 ## ⚡ Kernfunktionen
 
+* 🚀 **Autonomer WOT Auto-Trigger (3. Gang Messfahrten)**:
+  * **Automatischer Aufzeichnungsstart**: Erkennt Vollgasbeschleunigung im 3. Gang ($\ge 2.800\text{ RPM}$, $\text{dRPM/dt} \ge 200\text{ RPM/s}$ über 300ms, Übersetzung $60\text{--}110\text{ RPM/(km/h)}$).
+  * **1,0s Pre-Trigger Ringspeicher**: Der CSV-Logger speichert den rollenden Vorlauf aus dem RAM mit ab, sodass der exakte Startzeitpunkt des Gasaufreißens erfasst wird.
+  * **Intelligenter Auto-Stop**: Beendet die Messung nach Erreichen des Peaks ($\Delta\text{RPM} \le -350\text{ RPM}$ oder Gas weggenommen).
+  * **Spike-Schutz**: Verwirft unvollständige Läufe ($< 1{,}0\text{s}$ oder $< 1.200\text{ RPM}$ Anstieg) automatisch.
+
+* ⏱️ **Jitter-freie Multi-Period Impuls-Akkumulation (Arduino Nano)**:
+  * Der Hardware-Interrupt summiert alle Zündimpulse und Gesamt-Mikrosekunden im 100ms-Fenster.
+  * Bei 6.000 RPM wird über **~30 reale Zündungen gemittelt**, wodurch Signalrauschen und Zündfunkenprellen (1500µs GSF-Lockout) eliminiert werden.
+  * Sendet stufenlose, ungerundete Raw-Floats an den Raspberry Pi.
+  * **3-Punkt Rolling Central Derivative**: Berechnet stufenfreie $\text{dRPM/dt}$ Beschleunigungswerte ohne Phasenverzug.
+
 * 📱 **Live Cockpit HUD (Optimiert für iPhone 15 Pro Max)**:
+  * Erreichbar über mDNS: **`http://streetdyno.local:8080`**.
   * Pitch-Black OLED Dark Mode für maximale Lesbarkeit bei direkter Sonneneinstrahlung am Lenker.
   * Dynamische Safe-Area-Freistellung für **Dynamic Island** und iOS Home-Bar (`env(safe-area-inset-*)`).
   * Horizontale Drehzahlanzeige (0–10.000 U/min) mit **Shift-Light Blitz** ab 8.000 U/min.
   * Optischer Lean-AFR-Alarm (Blitzen bei AFR > 14.5 unter Last) und Abgastemperatur-Alarm (EGT $\ge 630^\circ\text{C}$).
-  * **Screen WakeLock API** (verhindert Standby beim Fahren) und One-Tap Start/Stop-REC-Button.
+  * **Screen WakeLock API** (verhindert Standby beim Fahren).
 
 * 🔬 **Dell'Orto / BGM SI 24/24 Carburetor Jetting Advisor**:
   * Teilt jeden Dyno-Pull automatisch in 4 Vergaser-Betriebsbereiche ein (**ND**, **Schieber**, **Mischrohr/HLKD**, **HD**).
   * Liefert konkrete Bedüsungsempfehlungen (z.B. HD 135 $\rightarrow$ 138/140 bei Magerlauf).
-  * Dediziertes Web-Dashboard ([`/tuning`](http://192.168.1.130:8080/tuning)) mit persistentem JSON-Speicher auf dem Pi.
+  * Dediziertes Web-Dashboard ([`/tuning`](http://streetdyno.local:8080/tuning)) mit persistentem JSON-Speicher auf dem Pi.
 
 * 🏔️ **GPS Straßenneigungs- & Hangabtriebskompensation**:
   * Physikalische Formel: $F_{\text{slope}} = m \cdot g \cdot \sin\theta \approx m \cdot g \cdot s_{\%}$.
@@ -120,7 +137,6 @@ streetdyno2.0/
   * Eliminiert Bergauf-/Bergab-Verfälschungen vollständig aus den PS-Kurven.
 
 * 🌤️ **DIN 70020 & SAE J1349 Wetter-Normierung (100% Offline-Sicher)**:
-  * Der Pi bleibt im Fahrbetrieb komplett offline.
   * Das Smartphone zieht die exakten Wetterdaten (Temperatur, Luftdruck) per Mobilfunk über **Open-Meteo** anhand der GPS-Koordinaten aus dem Log.
   * Berechnet den Korrekturfaktor $k_{\text{DIN}} = \left(\frac{1013.25}{p}\right) \cdot \sqrt{\frac{T + 273.15}{293.15}}$.
 
@@ -176,25 +192,26 @@ Der Vergaser-Berater wertet das gemessene Lambda/AFR in 4 Drehzahl- und Lastfens
 ### Arduino Nano V5.1
 | Komponente | Arduino Pin | Funktion |
 |---|---|---|
-| **RPM Input (SIP Tacho Box)** | **D2** | Hardware Interrupt (RISING), 3 Impulse/Umdr. |
+| **RPM Input (SIP Tacho Box)** | **D2** | Hardware Interrupt INT0 (`FALLING`), 3 Impulse/Umdr. |
 | **MAX6675 SO** | **D4** | SPI Serial Data Out (EGT Abgastemperatur) |
 | **MAX6675 CS** | **D5** | SPI Chip Select |
 | **MAX6675 SCK** | **D6** | SPI Serial Clock |
-| **Lambda Controller (AFR)** | **A0** | Analog In (0–5V Breitband-Signal) |
+| **Lambda Controller (AFR)** | **A0** | Analog In (0–5V Breitband-Signal @ 4.71V USB-Ref) |
 | **Signal Masse** | **GND** | Gemeinsame Masse für Lambda & Sensoren |
 
-### Raspberry Pi Zero W GPIO
-| Komponente | Pi Pin (BCM) | Funktion |
+### Raspberry Pi Zero 2 W GPIO & Schnittstellen
+| Komponente | Pi Schnittstelle | Funktion |
 |---|---|---|
-| **OLED Display (SSD1306 / SH1106)** | **GPIO 2 / 3** | I2C SDA / SCL |
-| **GPS Waveshare L76K** | **GPIO 14 / 15** | UART TX / RX (`/dev/ttyAMA0`) @ 9600 Baud |
-| **Arduino Nano** | **USB** | Serieller Datenstrom (`/dev/ttyUSB0`) @ 115200 Baud |
+| **OLED Display (SSD1306 / SH1106)** | **I2C-1 (`/dev/i2c-1`)** | Hardware I2C (GPIO 2 / 3) |
+| **GPS Waveshare L76K** | **UART (`/dev/ttyAMA0`)** | 9600 Baud via `gpsd` (JSON-Modus) |
+| **Arduino Nano** | **USB (`/dev/ttyUSB0`)** | 115200 Baud @ 10Hz Multi-Period Stream |
+| **Arbeitsspeicher-Schutz** | **ZRAM (`/dev/zram0`)** | 416 MB LZ4-komprimierter RAM-Swap |
 
 ---
 
 ## 🌐 Web Interface & Endpunkte
 
-Das Flask-Webinterface läuft auf Port **8080** auf dem Raspberry Pi:
+Das Flask-Webinterface läuft auf Port **8080** auf dem Raspberry Pi und ist im Netzwerk über **`http://streetdyno.local:8080`** erreichbar:
 
 | Route / Endpunkt | Methode | Beschreibung |
 |---|---|---|
@@ -205,8 +222,9 @@ Das Flask-Webinterface läuft auf Port **8080** auf dem Raspberry Pi:
 | **`/tuning`** | `GET` | Vergaser-Setup Formular & Live-Diagnose des letzten Pulls |
 | **`/dyno_sheet?file=...`** | `GET` | Druckfertiger A4 Prüfstandsbericht für AirPrint & PDF-Export |
 | **`/api/data`** | `GET` | Live JSON Telemetriestrom (RPM, Speed, AFR, EGT, GPS, Status) |
-| **`/api/toggle_logging`** | `GET` | Startet / stoppt die CSV-Aufzeichnung per Tastendruck |
+| **`/api/toggle_logging`** | `GET` | Startet / stoppt die CSV-Aufzeichnung manuell |
 | **`/api/update_carb_setup`** | `POST` | Speichert geändertes Vergaser-Setup persistent in `user_setup.json` |
+| **`/api/toggle_display`** | `GET` | Schaltet die OLED-Anzeigemodi um (RPM $\rightarrow$ SPEED $\rightarrow$ AFR $\rightarrow$ EGT) |
 
 ---
 
@@ -215,11 +233,12 @@ Das Flask-Webinterface läuft auf Port **8080** auf dem Raspberry Pi:
 Das gesamte System wird durch eine automatisierte Test-Suite abgesichert:
 
 ```bash
-# Unit-Tests ausführen
-python3 -m unittest discover -s tests -p "test_*.py" -v
+# Unit-Tests auf dem Pi ausführen
+python3 -m unittest discover tests -v
 ```
 
-### Testergebnisse:
+### Testergebnisse (11/11 Passed):
+* `test_logger_prebuffer_and_discard` $\rightarrow$ **OK** (1.0s Pre-Trigger & Auto-Discard)
 * `test_carb_jetting_advisor` $\rightarrow$ **OK** (4-Zonen Vergaser-Diagnoseregeln)
 * `test_din70020_weather_factor` $\rightarrow$ **OK** (DIN 70020 & SAE J1349 Faktoren)
 * `test_gear_ratios` $\rightarrow$ **OK** (Getriebeuntersetzungen & Gangerkennung)
@@ -244,6 +263,12 @@ sudo systemctl restart streetdyno.service
 
 # Live-Logs ansehen
 journalctl -u streetdyno.service -f
+
+# Arduino Nano Firmware direkt vom Pi flashen
+sudo systemctl stop streetdyno.service
+sudo fuser -k /dev/ttyUSB0
+/usr/local/bin/arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano:cpu=atmega328 /tmp/sketch_build
+sudo systemctl start streetdyno.service
 ```
 
 ---
