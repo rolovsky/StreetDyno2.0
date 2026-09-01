@@ -69,52 +69,441 @@ def smart_round(value):
     else: return value
     return int(round((value + (round_to / 2)) / round_to) * round_to)
 
-# --- DASHBOARD UI (Jetzt mit Mager-Warnung) ---
+# --- HIGH-CONTRAST OUTDOOR LIVE COCKPIT HUD ---
 DASH_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Live HUD</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
     <style>
-        body { background:#111; color:#fff; font-family: sans-serif; margin:0; padding: 10px; }
-        .status-bar { padding:12px; background:#222; border-radius:10px; margin-bottom:12px; text-align:center; border:1px solid #444; font-weight:bold; }
-        .card { background:#1a1a1a; padding:15px; border-radius:15px; border:1px solid #333; text-align:center; margin-bottom:10px; }
-        .label { color:#888; font-size:1em; text-transform:uppercase; margin-bottom:2px; }
-        .value { font-size:4.5em; font-weight:bold; font-family: monospace; line-height:1em; transition: color 0.2s; }
-        .btn { display:block; padding:20px; border-radius:12px; text-decoration:none; font-weight:bold; text-align:center; margin-top:10px; font-size:1.2em; background:#00ffcc; color:#111; }
-        @keyframes blink { 50% { opacity: 0.3; } }
-        .danger { color: #ff0000 !important; animation: blink 0.4s infinite; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #000000;
+            color: #ffffff;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow-x: hidden;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 10px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 12px;
+            background: #0f0f12;
+            border: 1px solid #222228;
+            border-radius: 12px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: #18181c;
+            border: 1px solid #333;
+        }
+        .rec-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+        .rec-dot.active {
+            background: #ff1744;
+            box-shadow: 0 0 10px #ff1744;
+            animation: pulse-dot 0.6s infinite alternate;
+        }
+        @keyframes pulse-dot { from { opacity: 0.3; } to { opacity: 1; } }
+
+        .top-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn-icon {
+            background: #1c1c22;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-decoration: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .btn-icon:active { background: #333; }
+
+        /* Rev Bar / Shift Light */
+        .rev-bar-container {
+            width: 100%;
+            height: 14px;
+            background: #111116;
+            border-radius: 7px;
+            border: 1px solid #222;
+            overflow: hidden;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .rev-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #00e676 0%, #ffea00 65%, #ff9100 80%, #ff1744 100%);
+            transition: width 0.08s linear;
+        }
+        .shift-light {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 6px;
+            background: transparent;
+            z-index: 9999;
+            pointer-events: none;
+        }
+        .shift-light.flash {
+            background: #ff1744;
+            box-shadow: 0 0 30px 10px #ff1744;
+            animation: flash-border 0.12s infinite;
+        }
+        @keyframes flash-border { 50% { opacity: 0.1; } }
+
+        /* Main Grid (Portrait & Landscape responsive) */
+        .hud-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            flex-grow: 1;
+            margin-bottom: 10px;
+        }
+        @media (orientation: landscape) {
+            .hud-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        .hud-card {
+            background: #0d0d11;
+            border: 2px solid #1c1c24;
+            border-radius: 20px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            text-align: center;
+            position: relative;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+        }
+        .hud-card .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #71717a;
+        }
+        .hud-card .card-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3.8rem;
+            font-weight: 800;
+            line-height: 1.0;
+            margin: 8px 0;
+            letter-spacing: -0.04em;
+        }
+        .hud-card .card-unit {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #52525b;
+            text-transform: uppercase;
+        }
+
+        /* Value color themes */
+        .card-speed .card-value { color: #00ffcc; text-shadow: 0 0 25px rgba(0,255,204,0.3); }
+        .card-rpm .card-value { color: #ff9800; text-shadow: 0 0 25px rgba(255,152,0,0.3); }
+        .card-afr .card-value { color: #00e676; text-shadow: 0 0 25px rgba(0,230,118,0.3); }
+        .card-egt .card-value { color: #ffd600; text-shadow: 0 0 25px rgba(255,214,0,0.3); }
+
+        /* Danger Alarms */
+        @keyframes danger-blink {
+            0% { background: #0d0d11; border-color: #ff1744; }
+            50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 35px rgba(255,23,68,0.7); }
+            100% { background: #0d0d11; border-color: #ff1744; }
+        }
+        .card-danger {
+            animation: danger-blink 0.4s infinite !important;
+        }
+        .card-danger .card-value {
+            color: #ff1744 !important;
+            text-shadow: 0 0 30px #ff1744 !important;
+        }
+
+        /* Bottom Action Bar */
+        .bottom-bar {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        .btn-rec {
+            flex: 2;
+            padding: 16px;
+            border-radius: 14px;
+            font-size: 1.1rem;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: #18181c;
+            color: #00ffcc;
+            border: 2px solid #00ffcc;
+            box-shadow: 0 4px 15px rgba(0,255,204,0.2);
+            transition: all 0.15s;
+        }
+        .btn-rec.recording {
+            background: #ff1744;
+            color: #ffffff;
+            border: 2px solid #ff5252;
+            box-shadow: 0 0 25px rgba(255,23,68,0.6);
+            animation: pulse-btn 1s infinite alternate;
+        }
+        @keyframes pulse-btn { from { transform: scale(1); } to { transform: scale(0.98); } }
+        .btn-rec:active { transform: scale(0.95); }
+
+        .btn-nav {
+            flex: 1;
+            padding: 16px;
+            border-radius: 14px;
+            font-size: 1.0rem;
+            font-weight: 800;
+            background: #18181c;
+            color: #ffffff;
+            border: 2px solid #33333e;
+            text-decoration: none;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-nav:active { background: #27272a; }
+
+        /* WakeLock Status Indicator */
+        .wakelock-badge {
+            font-size: 0.7rem;
+            color: #4caf50;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
     </style>
 </head>
 <body>
-    <div id="status" class="status-bar">V5.1 READY</div>
-    <div class="card"><div class="label">Speed km/h</div><div id="speed" class="value" style="color:#00ffcc;">0.0</div></div>
-    <div class="card"><div class="label">RPM</div><div id="rpm" class="value" style="color:#ff9800;">0</div></div>
-    <div class="card"><div class="label">AFR (Smooth)</div><div id="afr" class="value" style="color:#ff3366;">0.0</div></div>
-    <div class="card"><div class="label">EGT °C</div><div id="egt" class="value" style="color:#ffcc00;">0.0</div></div>
-    <a href="/logs" class="btn">📂 LOG-ARCHIV</a>
-    <script>
-        setInterval(() => {
-            fetch('/api/data').then(r => r.json()).then(d => {
-                document.getElementById('rpm').innerText = d.rpm.toFixed(0);
-                document.getElementById('speed').innerText = d.speed.toFixed(1);
-                
-                let afrEl = document.getElementById('afr');
-                afrEl.innerText = d.afr.toFixed(2);
-                // MAGER-WARNUNG: Blinkt rot wenn AFR > 14.5 unter Last
-                if (d.afr > 14.5 && d.speed > 10) {
-                    afrEl.classList.add('danger');
-                } else {
-                    afrEl.classList.remove('danger');
-                }
+    <div id="shiftLight" class="shift-light"></div>
 
-                document.getElementById('egt').innerText = d.egt.toFixed(1);
-                
-                let s = document.getElementById('status');
-                s.innerText = d.status + (d.fix ? " (FIX)" : " (NO FIX)");
-                s.style.color = d.status.includes('REC') ? '#ff3366' : '#00ffcc';
-            });
-        }, 200);
+    <div class="top-bar">
+        <div class="status-pill">
+            <div id="recDot" class="rec-dot"></div>
+            <span id="statusText">V5.1 READY</span>
+        </div>
+        <div id="gpsPill" class="status-pill">
+            <span>🛰️ GPS:</span>
+            <span id="gpsText" style="color:#00ffcc;">SUCHE...</span>
+        </div>
+        <div class="top-actions">
+            <button class="btn-icon" onclick="toggleFullScreen()">⛶ HUD</button>
+        </div>
+    </div>
+
+    <!-- RPM Rev Bar -->
+    <div class="rev-bar-container">
+        <div id="revBar" class="rev-bar-fill"></div>
+    </div>
+
+    <!-- Main High-Contrast Numeric Grid -->
+    <div class="hud-grid">
+        <div class="hud-card card-speed">
+            <div class="card-header">
+                <span>Speed</span>
+                <span>GPS</span>
+            </div>
+            <div id="speed" class="card-value">0.0</div>
+            <div class="card-unit">KM / H</div>
+        </div>
+
+        <div class="hud-card card-rpm" id="cardRpm">
+            <div class="card-header">
+                <span>Drehzahl</span>
+                <span id="gearBadge">N</span>
+            </div>
+            <div id="rpm" class="card-value">0</div>
+            <div class="card-unit">U / MIN</div>
+        </div>
+
+        <div class="hud-card card-afr" id="cardAfr">
+            <div class="card-header">
+                <span>Lambda</span>
+                <span id="afrZone">--</span>
+            </div>
+            <div id="afr" class="card-value">0.00</div>
+            <div class="card-unit">AFR (12.8 OPT)</div>
+        </div>
+
+        <div class="hud-card card-egt" id="cardEgt">
+            <div class="card-header">
+                <span>Abgastemp</span>
+                <span>MAX 630°C</span>
+            </div>
+            <div id="egt" class="card-value">0</div>
+            <div class="card-unit">°C (EGT)</div>
+        </div>
+    </div>
+
+    <!-- Bottom Action Controls -->
+    <div class="bottom-bar">
+        <button id="recBtn" class="btn-rec" onclick="toggleLogging()">
+            🔴 PULL LOGGING STARTEN
+        </button>
+        <a href="/logs" class="btn-nav">📂 LOGS</a>
+    </div>
+
+    <script>
+        let wakeLock = null;
+
+        // Auto WakeLock (keeps phone screen on)
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {
+                console.log('WakeLock error:', err);
+            }
+        }
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                await requestWakeLock();
+            }
+        });
+        window.addEventListener('click', requestWakeLock, { once: true });
+        requestWakeLock();
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else {
+                document.exitFullscreen().catch(() => {});
+            }
+        }
+
+        function toggleLogging() {
+            fetch('/api/toggle_logging')
+                .then(r => r.json())
+                .then(d => {
+                    updateRecState(d.is_logging);
+                })
+                .catch(e => console.error(e));
+        }
+
+        function updateRecState(isLogging) {
+            const btn = document.getElementById('recBtn');
+            const dot = document.getElementById('recDot');
+            if (isLogging) {
+                btn.classList.add('recording');
+                btn.innerText = '⏹️ LOGGING STOPPEN';
+                dot.classList.add('active');
+            } else {
+                btn.classList.remove('recording');
+                btn.innerText = '🔴 PULL LOGGING STARTEN';
+                dot.classList.remove('active');
+            }
+        }
+
+        // Live 10Hz Polling
+        setInterval(() => {
+            fetch('/api/data')
+                .then(r => r.json())
+                .then(d => {
+                    const rpm = d.rpm || 0;
+                    const speed = d.speed || 0.0;
+                    const afr = d.afr || 0.0;
+                    const egt = d.egt || 0.0;
+
+                    // Numeric values
+                    document.getElementById('speed').innerText = speed.toFixed(1);
+                    document.getElementById('rpm').innerText = rpm.toFixed(0);
+                    document.getElementById('afr').innerText = afr.toFixed(2);
+                    document.getElementById('egt').innerText = egt.toFixed(0);
+
+                    // Rev Bar & Shift Light (>8000 RPM)
+                    const revPct = Math.min(100, Math.max(0, (rpm / 9000) * 100));
+                    document.getElementById('revBar').style.width = revPct + '%';
+
+                    const shiftLight = document.getElementById('shiftLight');
+                    if (rpm >= 8000) {
+                        shiftLight.classList.add('flash');
+                    } else {
+                        shiftLight.classList.remove('flash');
+                    }
+
+                    // AFR Color Zone & Lean Alert (>14.5 under load)
+                    const cardAfr = document.getElementById('cardAfr');
+                    const afrZone = document.getElementById('afrZone');
+                    if (afr > 14.5 && speed > 8) {
+                        cardAfr.classList.add('card-danger');
+                        afrZone.innerText = '⚠️ MAGER!';
+                    } else {
+                        cardAfr.classList.remove('card-danger');
+                        if (afr >= 12.5 && afr <= 13.5) {
+                            afrZone.innerText = '🟢 OPTIMAL';
+                            cardAfr.style.borderColor = '#00e676';
+                        } else if (afr < 12.5 && afr > 10.0) {
+                            afrZone.innerText = '🔵 FETT';
+                            cardAfr.style.borderColor = '#29b6f6';
+                        } else {
+                            afrZone.innerText = '--';
+                            cardAfr.style.borderColor = '#1c1c24';
+                        }
+                    }
+
+                    // EGT Overheat Alert (>630°C)
+                    const cardEgt = document.getElementById('cardEgt');
+                    if (egt >= 630.0) {
+                        cardEgt.classList.add('card-danger');
+                    } else {
+                        cardEgt.classList.remove('card-danger');
+                    }
+
+                    // GPS & Status
+                    const gpsText = document.getElementById('gpsText');
+                    gpsText.innerText = d.fix ? '3D FIX' : 'SUCHE...';
+                    gpsText.style.color = d.fix ? '#00e676' : '#ffea00';
+
+                    const statusText = document.getElementById('statusText');
+                    statusText.innerText = d.status;
+
+                    const isLogging = d.status.includes('REC');
+                    updateRecState(isLogging);
+                })
+                .catch(() => {});
+        }, 150);
     </script>
 </body>
 </html>
@@ -126,15 +515,451 @@ def index(): return render_template_string(DASH_HTML)
 @app.route('/api/data')
 def api_data(): return jsonify(telemetry)
 
+@app.route('/api/toggle_logging')
+def api_toggle_logging():
+    global global_logger
+    if 'global_logger' in globals() and global_logger:
+        if global_logger.is_logging:
+            global_logger.stop()
+            telemetry["status"] = "🟢 IDLE"
+        else:
+            global_logger.start()
+            telemetry["status"] = "🔴 REC"
+        return jsonify({"is_logging": global_logger.is_logging, "status": telemetry["status"]})
+    return jsonify({"error": "Logger not initialized"}), 500
+
 @app.route('/logs')
 def list_logs():
     files = sorted([os.path.basename(x) for x in glob.glob(os.path.join(LOG_DIR, '*.csv'))], reverse=True)
-    rows = "".join([f'<div style="background:#222; margin-bottom:12px; padding:15px; border-radius:10px; border:1px solid #444;">'
-                    f'<b>{f}</b><br><div style="margin-top:10px; display:flex; gap:10px;">'
-                    f'<a href="/analyze?file={f}" style="flex:1; background:#00ffcc; color:#111; text-align:center; padding:10px; text-decoration:none; border-radius:5px; font-weight:bold;">ANALYSE</a>'
-                    f'<a href="/download/{f}" style="flex:1; background:#ff9800; color:#111; text-align:center; padding:10px; text-decoration:none; border-radius:5px; font-weight:bold;">DOWN</a>'
-                    f'</div></div>' for f in files])
-    return f"<body style='background:#111; color:#fff; font-family:sans-serif; padding:15px;'><h2>Logs</h2>{rows}<br><a href='/' style='color:#00ffcc;'>Zurück</a></body>"
+    
+    rows = []
+    for f in files:
+        fpath = os.path.join(LOG_DIR, f)
+        size_kb = os.path.getsize(fpath) / 1024.0
+        mtime = datetime.fromtimestamp(os.path.getmtime(fpath)).strftime('%d.%m.%Y %H:%M')
+        
+        rows.append(f"""
+        <div class="log-item">
+            <div class="log-check">
+                <input type="checkbox" class="compare-checkbox" value="{f}" onchange="updateCompareBtn()">
+            </div>
+            <div class="log-info">
+                <div class="log-name">{f}</div>
+                <div class="log-meta">📅 {mtime} &nbsp;|&nbsp; 💾 {size_kb:.1f} KB</div>
+            </div>
+            <div class="log-actions">
+                <a href="/analyze?file={f}" class="btn-sm btn-analyze">⚡ ANALYSE</a>
+                <a href="/download/{f}" class="btn-sm btn-down">⬇️ CSV</a>
+            </div>
+        </div>
+        """)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>StreetDyno 2.0 - Log-Archiv</title>
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+        <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            body {{
+                background: #0d0d11;
+                color: #f5f5f7;
+                font-family: 'Outfit', sans-serif;
+                padding: 15px;
+            }}
+            .header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid #222;
+            }}
+            h1 {{ font-size: 1.4rem; font-weight: 800; color: #00ffcc; }}
+            .back-btn {{
+                background: #1f1f24;
+                color: #fff;
+                padding: 8px 14px;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: 700;
+                font-size: 0.9rem;
+            }}
+            .compare-banner {{
+                background: #18181c;
+                border: 2px solid #00ffcc;
+                border-radius: 12px;
+                padding: 12px 16px;
+                margin-bottom: 15px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                box-shadow: 0 4px 20px rgba(0,255,204,0.15);
+            }}
+            .btn-compare {{
+                background: #00ffcc;
+                color: #000;
+                border: none;
+                padding: 10px 18px;
+                border-radius: 8px;
+                font-weight: 800;
+                font-size: 0.95rem;
+                cursor: pointer;
+                transition: opacity 0.2s;
+            }}
+            .btn-compare:disabled {{
+                background: #333;
+                color: #777;
+                cursor: not-allowed;
+            }}
+            .log-list {{ display: flex; flex-direction: column; gap: 10px; }}
+            .log-item {{
+                background: #16161a;
+                border: 1px solid #27272e;
+                border-radius: 12px;
+                padding: 12px 14px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }}
+            .log-check input {{
+                width: 22px;
+                height: 22px;
+                accent-color: #00ffcc;
+                cursor: pointer;
+            }}
+            .log-info {{ flex: 1; overflow: hidden; }}
+            .log-name {{
+                font-family: monospace;
+                font-size: 0.95rem;
+                font-weight: 700;
+                color: #fff;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }}
+            .log-meta {{ font-size: 0.75rem; color: #888; margin-top: 3px; }}
+            .log-actions {{ display: flex; gap: 6px; }}
+            .btn-sm {{
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-weight: 700;
+                font-size: 0.8rem;
+                text-decoration: none;
+            }}
+            .btn-analyze {{ background: #00ffcc; color: #000; }}
+            .btn-down {{ background: #27272e; color: #ff9800; border: 1px solid #333; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📂 LOG-ARCHIV</h1>
+            <a href="/" class="back-btn">⬅️ COCKPIT</a>
+        </div>
+
+        <div class="compare-banner">
+            <div>
+                <strong style="color:#00ffcc;">⚖️ 2 Runs Vergleichen</strong>
+                <div style="font-size:0.75rem; color:#aaa;" id="compareCount">0 von 2 ausgewählt</div>
+            </div>
+            <button id="compareBtn" class="btn-compare" disabled onclick="launchComparison()">
+                VERGLEICHEN
+            </button>
+        </div>
+
+        <div class="log-list">
+            {''.join(rows)}
+        </div>
+
+        <script>
+            function updateCompareBtn() {{
+                const checked = Array.from(document.querySelectorAll('.compare-checkbox:checked')).map(cb => cb.value);
+                const btn = document.getElementById('compareBtn');
+                const count = document.getElementById('compareCount');
+                
+                count.innerText = checked.length + ' von 2 ausgewählt';
+                if (checked.length === 2) {{
+                    btn.disabled = false;
+                }} else {{
+                    btn.disabled = true;
+                }}
+            }}
+
+            function launchComparison() {{
+                const checked = Array.from(document.querySelectorAll('.compare-checkbox:checked')).map(cb => cb.value);
+                if (checked.length === 2) {{
+                    window.location.href = '/compare?file1=' + encodeURIComponent(checked[0]) + '&file2=' + encodeURIComponent(checked[1]);
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
+
+@app.route('/compare')
+def compare_runs():
+    file1 = request.args.get('file1')
+    file2 = request.args.get('file2')
+    if not file1 or not file2:
+        return "<body style='background:#111; color:#fff; padding:20px;'><h3>Bitte 2 Dateien auswählen.</h3><a href='/logs'>Zurück</a></body>"
+
+    p1 = os.path.join(LOG_DIR, file1)
+    p2 = os.path.join(LOG_DIR, file2)
+    if not os.path.exists(p1) or not os.path.exists(p2):
+        return "<body style='background:#111; color:#fff; padding:20px;'><h3>Dateien nicht gefunden.</h3><a href='/logs'>Zurück</a></body>"
+
+    try:
+        # Load and compute Run 1
+        df1 = pd.read_csv(p1)
+        df1.columns = [c.strip() for c in df1.columns]
+        df1 = clean_egt_data(df1)
+        df1 = calculate_telemetry_metrics(df1)
+        t1, det1 = detect_dyno_pull(df1)
+        
+        # Load and compute Run 2
+        df2 = pd.read_csv(p2)
+        df2.columns = [c.strip() for c in df2.columns]
+        df2 = clean_egt_data(df2)
+        df2 = calculate_telemetry_metrics(df2)
+        t2, det2 = detect_dyno_pull(df2)
+
+        gear1 = int(t1.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in t1.columns else 3
+        gear2 = int(t2.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in t2.columns else 3
+
+        max_ps1 = float(t1['PS'].max()) if 'PS' in t1.columns else 0.0
+        max_ps2 = float(t2['PS'].max()) if 'PS' in t2.columns else 0.0
+        max_nm1 = float(t1['Nm'].max()) if 'Nm' in t1.columns else 0.0
+        max_nm2 = float(t2['Nm'].max()) if 'Nm' in t2.columns else 0.0
+        avg_afr1 = float(t1['AFR'].mean()) if 'AFR' in t1.columns else 0.0
+        avg_afr2 = float(t2['AFR'].mean()) if 'AFR' in t2.columns else 0.0
+
+        # Delta metrics
+        delta_ps = max_ps2 - max_ps1
+        delta_nm = max_nm2 - max_nm1
+
+        # Data arrays for Chart.js
+        chart_data1 = t1[['RPM_smoothed', 'PS', 'Nm', 'AFR']].dropna().sort_values('RPM_smoothed').to_dict(orient='records')
+        chart_data2 = t2[['RPM_smoothed', 'PS', 'Nm', 'AFR']].dropna().sort_values('RPM_smoothed').to_dict(orient='records')
+
+        html = f"""
+        <!DOCTYPE html>
+        <html lang="de">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <title>StreetDyno 2.0 - Run Vergleich</title>
+            <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+                * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+                body {{
+                    background: #0d0d11;
+                    color: #f5f5f7;
+                    font-family: 'Outfit', sans-serif;
+                    padding: 15px;
+                }}
+                .header {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 15px;
+                    padding-bottom: 10px;
+                    border-bottom: 1px solid #222;
+                }}
+                h1 {{ font-size: 1.3rem; font-weight: 800; color: #00ffcc; }}
+                .back-btn {{
+                    background: #1f1f24;
+                    color: #ff9800;
+                    padding: 8px 14px;
+                    border-radius: 8px;
+                    text-decoration: none;
+                    font-weight: 700;
+                    font-size: 0.9rem;
+                }}
+                .compare-grid {{
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 10px;
+                    margin-bottom: 15px;
+                }}
+                .comp-card {{
+                    background: #16161a;
+                    border: 2px solid #27272e;
+                    border-radius: 12px;
+                    padding: 12px;
+                }}
+                .comp-card.run1 {{ border-color: #00ffcc; }}
+                .comp-card.run2 {{ border-color: #e040fb; }}
+                .run-title {{ font-size: 0.8rem; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }}
+                .run1 .run-title {{ color: #00ffcc; }}
+                .run2 .run-title {{ color: #e040fb; }}
+                .run-file {{ font-family: monospace; font-size: 0.75rem; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }}
+                .metric-row {{ display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px; }}
+                .metric-val {{ font-weight: 800; color: #fff; }}
+                .chart-box {{
+                    background: #16161a;
+                    border: 1px solid #27272e;
+                    border-radius: 12px;
+                    padding: 12px;
+                    margin-bottom: 15px;
+                    height: 380px;
+                }}
+                .delta-badge {{
+                    display: inline-block;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 0.75rem;
+                    font-weight: 800;
+                    margin-left: 4px;
+                }}
+                .delta-pos {{ background: rgba(0,230,118,0.2); color: #00e676; }}
+                .delta-neg {{ background: rgba(255,23,68,0.2); color: #ff1744; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>⚖️ DYNO RUN VERGLEICH</h1>
+                <a href="/logs" class="back-btn">📂 LOGS</a>
+            </div>
+
+            <div class="compare-grid">
+                <div class="comp-card run1">
+                    <div class="run-title">🔵 Run 1 ({gear1}. Gang)</div>
+                    <div class="run-file">{file1}</div>
+                    <div class="metric-row"><span>Peak Leistung:</span><span class="metric-val">{max_ps1:.1f} PS</span></div>
+                    <div class="metric-row"><span>Peak Drehmoment:</span><span class="metric-val">{max_nm1:.1f} Nm</span></div>
+                    <div class="metric-row"><span>Ø AFR:</span><span class="metric-val">{avg_afr1:.2f}</span></div>
+                </div>
+
+                <div class="comp-card run2">
+                    <div class="run-title">🟣 Run 2 ({gear2}. Gang)</div>
+                    <div class="run-file">{file2}</div>
+                    <div class="metric-row">
+                        <span>Peak Leistung:</span>
+                        <span class="metric-val">
+                            {max_ps2:.1f} PS
+                            <span class="delta-badge {('delta-pos' if delta_ps >= 0 else 'delta-neg')}">{('+' if delta_ps >= 0 else '')}{delta_ps:.1f} PS</span>
+                        </span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Peak Drehmoment:</span>
+                        <span class="metric-val">
+                            {max_nm2:.1f} Nm
+                            <span class="delta-badge {('delta-pos' if delta_nm >= 0 else 'delta-neg')}">{('+' if delta_nm >= 0 else '')}{delta_nm:.1f} Nm</span>
+                        </span>
+                    </div>
+                    <div class="metric-row"><span>Ø AFR:</span><span class="metric-val">{avg_afr2:.2f}</span></div>
+                </div>
+            </div>
+
+            <div class="chart-box">
+                <canvas id="compareChart"></canvas>
+            </div>
+
+            <script>
+                const data1 = {chart_data1};
+                const data2 = {chart_data2};
+
+                const ctx = document.getElementById('compareChart').getContext('2d');
+                new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                        datasets: [
+                            {{
+                                label: 'Run 1 Leistung (PS)',
+                                data: data1.map(d => ({{ x: d.RPM_smoothed, y: d.PS }})),
+                                borderColor: '#00ffcc',
+                                backgroundColor: '#00ffcc',
+                                borderWidth: 2.5,
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y'
+                            }},
+                            {{
+                                label: 'Run 2 Leistung (PS)',
+                                data: data2.map(d => ({{ x: d.RPM_smoothed, y: d.PS }})),
+                                borderColor: '#e040fb',
+                                backgroundColor: '#e040fb',
+                                borderWidth: 2.5,
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y'
+                            }},
+                            {{
+                                label: 'Run 1 Drehmoment (Nm)',
+                                data: data1.map(d => ({{ x: d.RPM_smoothed, y: d.Nm }})),
+                                borderColor: '#ff9800',
+                                backgroundColor: '#ff9800',
+                                borderWidth: 2.0,
+                                borderDash: [4, 4],
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y1'
+                            }},
+                            {{
+                                label: 'Run 2 Drehmoment (Nm)',
+                                data: data2.map(d => ({{ x: d.RPM_smoothed, y: d.Nm }})),
+                                borderColor: '#ffd600',
+                                backgroundColor: '#ffd600',
+                                borderWidth: 2.0,
+                                borderDash: [4, 4],
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y1'
+                            }}
+                        ]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {{ mode: 'index', intersect: false }},
+                        scales: {{
+                            x: {{
+                                type: 'linear',
+                                title: {{ display: true, text: 'Drehzahl (U/min)', color: '#888' }},
+                                grid: {{ color: '#222' }},
+                                ticks: {{ color: '#aaa' }}
+                            }},
+                            y: {{
+                                type: 'linear',
+                                position: 'left',
+                                title: {{ display: true, text: 'Leistung (PS)', color: '#00ffcc' }},
+                                grid: {{ color: '#222' }},
+                                ticks: {{ color: '#00ffcc' }},
+                                min: 0
+                            }},
+                            y1: {{
+                                type: 'linear',
+                                position: 'right',
+                                title: {{ display: true, text: 'Drehmoment (Nm)', color: '#ff9800' }},
+                                grid: {{ drawOnChartArea: false }},
+                                ticks: {{ color: '#ff9800' }},
+                                min: 0
+                            }}
+                        }},
+                        plugins: {{
+                            legend: {{ labels: {{ color: '#fff', boxWidth: 12, font: {{ size: 10 }} }} }},
+                            tooltip: {{
+                                backgroundColor: '#18181c',
+                                borderColor: '#444',
+                                borderWidth: 1,
+                                titleColor: '#fff',
+                                bodyColor: '#ccc'
+                            }}
+                        }}
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        return render_template_string(html)
+    except Exception as e:
+        return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehler beim Vergleich: {str(e)}</h3><a href='/logs'>Zurück</a></body>"
 
 @app.route('/download/<filename>')
 def download(filename): return send_from_directory(LOG_DIR, filename, as_attachment=True)
@@ -630,8 +1455,12 @@ def api_get_pull_data():
 @app.route('/plots/<path:filename>')
 def send_plot(filename): return send_from_directory(PLOT_DIR, filename)
 
+global_logger = None
+
 def hardware_loop():
+    global global_logger
     gps, logger, oled = GPS_L76K(), CSVLogger(log_dir=LOG_DIR), OLEDDisplay()
+    global_logger = logger
     gps.start()
     l_data_t = last_upd = time.time()
     current_filtered_rpm = last_raw_rpm = current_filtered_afr = 0
@@ -675,16 +1504,16 @@ def hardware_loop():
                         
                         telemetry.update({"rpm":ui_rpm, "afr":current_filtered_afr, "egt":p_egt, "speed":spd, "fix":g.fix if g else False})
                         
-                        # LOGGING (Trigger und Log auf GEGLÄTTETE Daten!)
+                        # LOGGING (Auto-Trigger oder Manuell über Web UI)
                         if not logger.is_logging:
                             if current_filtered_rpm > AUTO_START_RPM and spd > MIN_SPEED_KMH:
                                 log_time = g.timestamp if (g and g.fix and g.timestamp) else datetime.now()
                                 log_filename = os.path.join(LOG_DIR, f"dyno_log_{log_time.strftime('%Y%m%d-%H%M%S')}.csv")
                                 logger.start(log_filename); telemetry["status"]="🔴 REC"
                         else:
-                            # HIER IST DER FIX: Loggt 'current_filtered_rpm' statt 'target_rpm'
-                            logger.log(round(current_filtered_rpm, 1), current_filtered_afr, p_egt, spd, g.lat, g.lon, g.fix if g else False)
+                            logger.log(round(current_filtered_rpm, 1), current_filtered_afr, p_egt, spd, g.lat if g else 0.0, g.lon if g else 0.0, g.fix if g else False)
                             
+                            # Auto-Stop nur wenn Drehzahl und Speed auf Standgas abfallen
                             if current_filtered_rpm < 1100 and spd < 1.0:
                                 logger.stop(); telemetry["status"]="🟢 IDLE"
         except: ser = None
