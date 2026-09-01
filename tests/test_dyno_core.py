@@ -130,5 +130,37 @@ class TestWebEndpoints(unittest.TestCase):
         self.assertEqual(data["setup"]["main_jet_hd"], 135)
 
 
+class TestCSVLogger(unittest.TestCase):
+
+    def test_logger_prebuffer_and_discard(self):
+        """Verify CSVLogger pre-trigger buffer recording and discard functionality."""
+        import tempfile
+        import shutil
+        from data.logger import CSVLogger
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = CSVLogger(log_dir=temp_dir)
+            pre_buffer = [
+                {"time": "12:00:00", "rpm": 2800.0, "afr": 13.0, "egt": 500.0, "speed": 35.0, "fix": True},
+                {"time": "12:00:01", "rpm": 3100.0, "afr": 12.8, "egt": 510.0, "speed": 38.0, "fix": True}
+            ]
+            fpath = logger.start(trigger="AUTO", pre_buffer=pre_buffer)
+            self.assertTrue(logger.is_logging)
+            self.assertEqual(logger.trigger_mode, "AUTO")
+            self.assertEqual(logger.samples_count, 2)
+
+            logger.log(rpm=3500.0, afr=12.6, egt=520.0, speed=42.0, fix=True)
+            self.assertEqual(logger.samples_count, 3)
+
+            # Test discard
+            logger.discard_current()
+            self.assertFalse(logger.is_logging)
+            self.assertFalse(os.path.exists(fpath))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 if __name__ == '__main__':
     unittest.main()
+

@@ -8,8 +8,9 @@ from __future__ import annotations
 import os
 import time
 import threading
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Deque
 
 try:
     import serial
@@ -21,7 +22,10 @@ from config import (
     SERIAL_BAUD,
     LOG_DIR,
     ALPHA_RPM,
-    ALPHA_AFR
+    ALPHA_AFR,
+    TIRE_CIRCUMFERENCE_M,
+    GEAR_RATIOS,
+    PRIMARY_RATIO
 )
 from hw.gps_l76k import GPS_L76K, GPSData
 from hw.display_oled import OLEDDisplay
@@ -56,14 +60,15 @@ class TelemetryState:
             "alt": self.alt,
             "fix": self.gps_fix,
             "is_logging": self.is_logging,
-            "status": "REC" if self.is_logging else "IDLE"
+            "status": self.status
         }
 
 
 class HardwareService:
     """
     Manages background serial communication with Arduino Nano,
-    GPS daemon polling, and hardware OLED display updates.
+    GPS daemon polling, hardware OLED display updates,
+    and intelligent automatic WOT pull detection.
     """
 
     def __init__(self, log_dir: str = LOG_DIR) -> None:
@@ -76,6 +81,10 @@ class HardwareService:
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+        # Pre-trigger rolling buffer (stores the last 1.0s / 10 samples)
+        self._pre_buffer: Deque[Dict[str, Any]] = deque(maxlen=10)
+        self.auto_trigger_enabled: bool = True
 
     def start(self) -> None:
         """Starts the background hardware polling loop."""
@@ -96,13 +105,14 @@ class HardwareService:
         print("🛑 [HardwareService] Background hardware daemon stopped.")
 
     def toggle_logging(self) -> bool:
-        """Toggles CSV pull logging on/off."""
+        """Manually toggles CSV pull logging on/off."""
         with self._lock:
             if self.logger.is_logging:
                 self.logger.stop()
             else:
-                self.logger.start()
+                self.logger.start(trigger="MANUAL")
             self.state.is_logging = self.logger.is_logging
+            self.state.status = "REC" if self.logger.is_logging else "IDLE"
             return self.logger.is_logging
 
     def get_telemetry(self) -> TelemetryState:
@@ -120,7 +130,7 @@ class HardwareService:
                 alt=self.state.alt,
                 gps_fix=self.state.gps_fix,
                 is_logging=self.logger.is_logging,
-                status="REC" if self.logger.is_logging else "IDLE",
+                status=self.state.status,
                 last_update=self.state.last_update
             )
 
@@ -137,11 +147,29 @@ class HardwareService:
         """Core background thread reading Arduino Serial, GPS, and logging."""
         ser: Optional[serial.Serial] = None
         last_display_update = 0.0
+        last_loop_time = time.time()
 
         filtered_rpm = 0.0
         filtered_afr = 0.0
+        prev_rpm = 0.0
+
+        # WOT Auto-Trigger Tracking State
+        accel_streak = 0
+        auto_pull_active = False
+        pull_start_rpm = 0.0
+        pull_peak_rpm = 0.0
+        pull_start_time = 0.0
+        last_pull_stop_time = 0.0
+
+        # Expected 3rd gear RPM/Speed ratio: ~81.6 (tolerance 65.0 - 105.0)
+        i_gear3 = PRIMARY_RATIO * GEAR_RATIOS.get(3, 38.0 / 17.0)
+        gear3_ratio_nominal = (60.0 * i_gear3) / (TIRE_CIRCUMFERENCE_M * 3.6)
 
         while self._running:
+            loop_now = time.time()
+            dt = max(0.01, loop_now - last_loop_time)
+            last_loop_time = loop_now
+
             # 1. Connect to Arduino Serial if not connected
             if ser is None and serial is not None:
                 try:
@@ -151,7 +179,7 @@ class HardwareService:
                         print(f"🔌 [HardwareService] Connected to Arduino on {SERIAL_PORT}")
                     else:
                         time.sleep(1.0)
-                except Exception as e:
+                except Exception:
                     ser = None
                     time.sleep(1.0)
 
@@ -177,7 +205,7 @@ class HardwareService:
                         pass
                     ser = None
 
-            # 3. EMA Filtering for smooth visual display
+            # 3. EMA Filtering for smooth visual display & gradient calculation
             if raw_rpm > 0:
                 filtered_rpm = (ALPHA_RPM * raw_rpm) + ((1.0 - ALPHA_RPM) * filtered_rpm)
             else:
@@ -188,6 +216,9 @@ class HardwareService:
             else:
                 filtered_afr = 0.0
 
+            drpm_dt = (filtered_rpm - prev_rpm) / dt if dt > 0 else 0.0
+            prev_rpm = filtered_rpm
+
             # 4. GPS Telemetry Polling
             gps_data: GPSData = self.gps.get_data()
             spd = gps_data.speed_kmh if gps_data else 0.0
@@ -196,7 +227,79 @@ class HardwareService:
             alt = gps_data.alt if gps_data and gps_data.alt is not None else 0.0
             fix = gps_data.fix if gps_data else False
 
-            # 5. Thread-safe state update
+            # Update rolling pre-trigger buffer
+            sample_entry = {
+                "time": time.strftime("%H:%M:%S"),
+                "rpm": filtered_rpm,
+                "afr": filtered_afr,
+                "egt": raw_egt,
+                "speed": spd,
+                "lat": lat,
+                "lon": lon,
+                "alt": alt,
+                "fix": fix
+            }
+            self._pre_buffer.append(sample_entry)
+
+            # 5. Intelligent WOT Dyno Pull Auto-Detection (3. Gang)
+            if self.auto_trigger_enabled:
+                if not self.logger.is_logging:
+                    # Check 3rd gear ratio if moving
+                    in_gear3 = True
+                    if spd >= 20.0:
+                        ratio = filtered_rpm / spd
+                        in_gear3 = (60.0 <= ratio <= 110.0)
+
+                    # WOT Acceleration Trigger Condition
+                    cooldown_ok = (loop_now - last_pull_stop_time) >= 2.5
+                    if cooldown_ok and filtered_rpm >= 2800.0 and in_gear3 and drpm_dt >= 200.0:
+                        accel_streak += 1
+                        if accel_streak >= 3:  # ~300ms continuous acceleration
+                            auto_pull_active = True
+                            pull_start_rpm = filtered_rpm
+                            pull_peak_rpm = filtered_rpm
+                            pull_start_time = loop_now
+                            accel_streak = 0
+
+                            with self._lock:
+                                self.logger.start(trigger="AUTO", pre_buffer=list(self._pre_buffer))
+                                self.state.is_logging = True
+                                self.state.status = "REC (AUTO)"
+                            print(f"\n⚡ [AUTO-DYNO] 🎯 WOT-Pull im 3. Gang erkannt ({pull_start_rpm:.0f} RPM, {spd:.1f} km/h)! Aufzeichnung aktiv.")
+                    else:
+                        accel_streak = max(0, accel_streak - 1)
+
+                elif auto_pull_active:
+                    # Ongoing Auto-Pull Tracking
+                    pull_peak_rpm = max(pull_peak_rpm, filtered_rpm)
+                    pull_duration = loop_now - pull_start_time
+
+                    # Auto-Stop Conditions (Throttle closed / shift / rev limiter)
+                    rpm_drop = pull_peak_rpm - filtered_rpm
+                    should_stop = (
+                        (pull_duration >= 0.8 and rpm_drop >= 350.0) or
+                        (pull_duration >= 1.2 and drpm_dt <= -250.0) or
+                        (filtered_rpm < 2600.0) or
+                        (pull_duration >= 15.0)
+                    )
+
+                    if should_stop:
+                        auto_pull_active = False
+                        last_pull_stop_time = loop_now
+                        rpm_gain = pull_peak_rpm - pull_start_rpm
+
+                        with self._lock:
+                            if pull_duration >= 1.0 and rpm_gain >= 1200.0:
+                                saved_file = self.logger.stop()
+                                print(f"🏁 [AUTO-DYNO] ✅ Prüflauf erfolgreich abgeschlossen (+{rpm_gain:.0f} RPM in {pull_duration:.1f}s): {saved_file}")
+                            else:
+                                self.logger.discard_current()
+                                print(f"⚠️ [AUTO-DYNO] Verworfener Lauf (nur +{rpm_gain:.0f} RPM in {pull_duration:.1f}s).")
+
+                            self.state.is_logging = False
+                            self.state.status = "IDLE"
+
+            # 6. Thread-safe state update
             with self._lock:
                 self.state.rpm = raw_rpm
                 self.state.rpm_filtered = filtered_rpm
@@ -209,9 +312,11 @@ class HardwareService:
                 self.state.alt = alt
                 self.state.gps_fix = fix
                 self.state.is_logging = self.logger.is_logging
-                self.state.last_update = time.time()
+                if not self.logger.is_logging:
+                    self.state.status = "IDLE"
+                self.state.last_update = loop_now
 
-            # 6. Periodic CSV Logging
+            # 7. Periodic CSV Logging
             if self.logger.is_logging:
                 self.logger.log(
                     rpm=round(filtered_rpm, 1),
@@ -224,10 +329,9 @@ class HardwareService:
                     fix=fix
                 )
 
-            # 7. Update Hardware OLED (max 10Hz)
-            now = time.time()
-            if now - last_display_update >= 0.1:
-                last_display_update = now
+            # 8. Update Hardware OLED (max 10Hz)
+            if loop_now - last_display_update >= 0.1:
+                last_display_update = loop_now
                 try:
                     self.display.show_status(
                         rpm=filtered_rpm,
@@ -242,3 +346,4 @@ class HardwareService:
                     pass
 
             time.sleep(0.02)
+
