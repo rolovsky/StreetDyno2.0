@@ -6,9 +6,9 @@
 [![Physics: Savitzky--Golay & DIN 70020](https://img.shields.io/badge/Physics-DIN%2070020%20%2B%20SG%20Filter-orange.svg)]()
 [![Architecture: Clean Code & Modular](https://img.shields.io/badge/Architecture-Clean%20Code%20%26%20Modular-success.svg)]()
 [![Cockpit: iPhone 15 Pro Max](https://img.shields.io/badge/Cockpit-iPhone%2015%20Pro%20Max%20Optimized-purple.svg)]()
-[![Tests: 11/11 Passing](https://img.shields.io/badge/Tests-11%2F11%20Passed%20(100%25)-brightgreen.svg)]()
+[![Tests: 13/13 Passing](https://img.shields.io/badge/Tests-13%2F13%20Passed%20(100%25)-brightgreen.svg)]()
 
-**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, automatischer Straßenneigungskompensation, 4-Zonen-Vergaserbedüsungsdiagnose, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
+**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, automatischer Straßenneigungskompensation, **4-Zonen SI 24/24 Vergaser-Matrix mit Ethanol-Stöchiometrie**, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
 
 ---
 
@@ -17,7 +17,7 @@
 2. [Clean-Code Repository-Struktur](#-clean-code-repository-struktur)
 3. [Kernfunktionen](#-kernfunktionen)
 4. [Physik- & Dyno-Engine](#-physik---dyno-engine)
-5. [Dell'Orto / BGM SI 24/24 Jetting Advisor](#-dellorto--bgm-si-2424-jetting-advisor)
+5. [Dell'Orto / BGM SI 24/24 Jetting Advisor & Setup-Matrix](#-dellorto--bgm-si-2424-jetting-advisor--setup-matrix)
 6. [Hardware & Pinbelegung](#-hardware--pinbelegung)
 7. [Web Interface & Endpunkte](#-web-interface--endpunkte)
 8. [Automatisierte Tests & Verifikation](#-automatisierte-tests--verifikation)
@@ -76,11 +76,11 @@ streetdyno2.0/
 │   └── src/
 │       └── main.cpp         # Modern C++ Firmware mit Multi-Period Akkumulator
 ├── src/
-│   ├── config.py            # Zentrale Fahrzeugparameter, Übersetzungen, Konstanten
+│   ├── config.py            # Zentrale Fahrzeugparameter, Bauteil-Mappings & Konstanten
 │   ├── main.py              # Schlanke WSGI Application Factory (< 55 Zeilen)
 │   ├── data/
 │   │   ├── analyzer_logic.py# Physik-Engine, SG-Filter, Neigung & DIN 70020
-│   │   ├── jetting_advisor.py# 4-Zonen Vergaser-Diagnose für Dell'Orto SI 24
+│   │   ├── jetting_advisor.py# 4-Zonen Vergaser-Diagnose & Lambda-Stöchiometrie
 │   │   └── logger.py        # Threadsicherer 10Hz CSV-Logger mit Pre-Trigger Puffer
 │   ├── hw/
 │   │   ├── hardware_service.py # Threadsicherer Hardware-Daemon & WOT Auto-Trigger
@@ -92,14 +92,14 @@ streetdyno2.0/
 │   │   ├── logs.html        # Log-Archiv mit Multi-Select Vergleichs-Starter
 │   │   ├── analyze.html     # Einzel-Run Analyse mit P4-Kurve, Neigung & Wetter
 │   │   ├── compare.html     # Interaktiver 2-Run Chart.js Vergleich
-│   │   ├── tuning.html      # Vergaser-Setup Formular & Live-Diagnose
+│   │   ├── tuning.html      # Vergaser-Setup Formular mit Bauteil-Dropdowns
 │   │   └── dyno_sheet.html  # Druckfertiger A4 Motorsport-Prüfstandsbericht
 │   └── web/
 │       └── routes.py        # Flask Blueprint mit allen Web- & JSON-API-Routen
 ├── systemd/
 │   └── streetdyno.service   # Systemd Service-Definition
 └── tests/
-    └── test_dyno_core.py    # Automatisierte Unit-Test-Suite (11 Tests, 100% Pass)
+    └── test_dyno_core.py    # Automatisierte Unit-Test-Suite (13 Tests, 100% Pass)
 ```
 
 ---
@@ -126,9 +126,11 @@ streetdyno2.0/
   * Optischer Lean-AFR-Alarm (Blitzen bei AFR > 14.5 unter Last) und Abgastemperatur-Alarm (EGT $\ge 630^\circ\text{C}$).
   * **Screen WakeLock API** (verhindert Standby beim Fahren).
 
-* 🔬 **Dell'Orto / BGM SI 24/24 Carburetor Jetting Advisor**:
-  * Teilt jeden Dyno-Pull automatisch in 4 Vergaser-Betriebsbereiche ein (**ND**, **Schieber**, **Mischrohr/HLKD**, **HD**).
-  * Liefert konkrete Bedüsungsempfehlungen (z.B. HD 135 $\rightarrow$ 138/140 bei Magerlauf).
+* 🔬 **Dell'Orto / BGM SI 24/24 Carburetor Jetting Advisor & Setup-Matrix**:
+  * **Stöchiometrie-Skalierung**: Unterstützt Super E5 ($14{,}30$), Super E10 ($14{,}10$) und SuperPlus E0 ($14{,}70$). Alle 4 Zonen skalieren nach 2-Takt-Volllast-$\lambda$ ($\lambda \approx 0{,}86$).
+  * **Gasschieber-Matrix**: Lemarxon Low (fett), Lemarxon Mid, BGM FastFlow Standard mit Cutaway (mager).
+  * **Ansaugung & Trichter**: Polini Venturi Trichter (+6 bis +10 HD-Kompensation), 22mm Lemarxon Reduzierhülse, gebohrter Filter (5/8mm), Offen.
+  * **Vergaserwanne / Deckel**: Polini Airbox (großer Deckel), Originaldeckel, Ohne Deckel.
   * Dediziertes Web-Dashboard ([`/tuning`](http://streetdyno.local:8080/tuning)) mit persistentem JSON-Speicher auf dem Pi.
 
 * 🏔️ **GPS Straßenneigungs- & Hangabtriebskompensation**:
@@ -142,7 +144,7 @@ streetdyno2.0/
 
 * 📄 **Druckfähiger A4 Prüfstandsbericht (`/dyno_sheet`)**:
   * Offizieller Motorsport-Prüfstandsbericht mit Vektorkurven (Leistung, Drehmoment, AFR).
-  * Vollständige Setup-Tabelle (Düsengrößen, Mischrohr, Auspuff, Gesamtgewicht).
+  * Vollständige Setup-Tabelle (Düsengrößen, Mischrohr, Schieber, Ansaugung, Airbox, Gesamtgewicht).
   * Ein-Klick iOS Safari **"Als PDF sichern"** und AirPrint.
 
 * 📊 **In-Browser Run-Vergleich (`/compare`)**:
@@ -174,16 +176,16 @@ $$P_{\text{engine}} = \frac{F_{\text{wheel}} \cdot v}{\eta_{\text{trans}}} \cdot
 
 ---
 
-## 🔬 Dell'Orto / BGM SI 24/24 Jetting Advisor
+## 🔬 Dell'Orto / BGM SI 24/24 Jetting Advisor & Setup-Matrix
 
-Der Vergaser-Berater wertet das gemessene Lambda/AFR in 4 Drehzahl- und Lastfenstern aus:
+Der Vergaser-Berater wertet das gemessene Lambda/AFR in 4 Drehzahl- und Lastfenstern auf Basis der Kraftstoff-Stöchiometrie aus:
 
-| Zone | Drehzahlbereich | Bauteil / Einfluss | Ziel-AFR | Diagnose & Auswirkung |
-|---|---|---|---|---|
-| **Zone 1** | 1.500 – 3.200 U/min | **Nebendüse (ND 60/160)** & Gemischschraube | **12.8 – 13.3** | Standgas, Ansprechverhalten & Schiebebetrieb |
-| **Zone 2** | 3.200 – 4.800 U/min | **Gasschieber (Lemarxon Low)** Cutaway | **12.6 – 13.0** | Teillastübergang, verhindert Teillast-Magerklingeln |
-| **Zone 3** | 4.800 – 6.500 U/min | **Mischrohr (x234)** & **HLKD (160)** | **12.5 – 12.9** | Vorzerstäubung beim Eintritt in die Auspuffresonanz |
-| **Zone 4** | 6.500 – 9.000+ U/min | **Hauptdüse (HD 135)** | **12.4 – 12.8** | Volllast Spitzenleistung & thermischer Klemmschutz |
+| Zone | Drehzahlbereich | Bauteil / Einfluss | Ziel-Lambda ($\lambda$) | Ziel-AFR (Super E5) | Diagnose & Auswirkung |
+|---|---|---|---|---|---|
+| **Zone 1** | 1.500 – 3.200 U/min | **Nebendüse (ND 60/160)** & Gemischschraube | $0{,}895\text{--}0{,}930$ | **12.8 – 13.3** | Standgas, Ansprechverhalten & Schiebebetrieb |
+| **Zone 2** | 3.200 – 4.800 U/min | **Gasschieber (Lemarxon Low/Mid)** | $0{,}881\text{--}0{,}909$ | **12.6 – 13.0** | Teillastübergang (1/4–1/2 Gas), verhindert Magerlöcher |
+| **Zone 3** | 4.800 – 6.500 U/min | **Mischrohr (x234)** & **HLKD (160)** | $0{,}874\text{--}0{,}902$ | **12.5 – 12.9** | Vorzerstäubung beim Eintritt in die Auspuffresonanz |
+| **Zone 4** | 6.500 – 9.500 U/min | **Hauptdüse (HD 135)** & **Polini Venturi** | $0{,}867\text{--}0{,}895$ | **12.4 – 12.8** | Volllast Spitzenleistung & thermischer Klemmschutz |
 
 ---
 
@@ -219,7 +221,7 @@ Das Flask-Webinterface läuft auf Port **8080** auf dem Raspberry Pi und ist im 
 | **`/logs`** | `GET` | Aufgeräumtes Log-Archiv mit Multi-Select Vergleichs-Starter |
 | **`/analyze?file=...`** | `GET` | P4-Dynokurve, Vergaser-Diagnose, Neigung & Wetter-Normierung |
 | **`/compare?file1=...&file2=...`** | `GET` | Interaktiver 2-Run Kurvenvergleich mit Tooltips & Delta-Badges |
-| **`/tuning`** | `GET` | Vergaser-Setup Formular & Live-Diagnose des letzten Pulls |
+| **`/tuning`** | `GET` | Vergaser-Setup Formular mit Bauteil-Dropdowns & Live-Diagnose |
 | **`/dyno_sheet?file=...`** | `GET` | Druckfertiger A4 Prüfstandsbericht für AirPrint & PDF-Export |
 | **`/api/data`** | `GET` | Live JSON Telemetriestrom (RPM, Speed, AFR, EGT, GPS, Status) |
 | **`/api/toggle_logging`** | `GET` | Startet / stoppt die CSV-Aufzeichnung manuell |
@@ -237,9 +239,11 @@ Das gesamte System wird durch eine automatisierte Test-Suite abgesichert:
 python3 -m unittest discover tests -v
 ```
 
-### Testergebnisse (11/11 Passed):
+### Testergebnisse (13/13 Passed):
 * `test_logger_prebuffer_and_discard` $\rightarrow$ **OK** (1.0s Pre-Trigger & Auto-Discard)
 * `test_carb_jetting_advisor` $\rightarrow$ **OK** (4-Zonen Vergaser-Diagnoseregeln)
+* `test_fuel_stoichiometry_scaling` $\rightarrow$ **OK** (Dynamische Ziel-AFR Skalierung für E5, E10, E0)
+* `test_slide_and_intake_diagnostics` $\rightarrow$ **OK** (BGM Cutaway $\leftrightarrow$ Lemarxon & Polini Venturi Empfehlungen)
 * `test_din70020_weather_factor` $\rightarrow$ **OK** (DIN 70020 & SAE J1349 Faktoren)
 * `test_gear_ratios` $\rightarrow$ **OK** (Getriebeuntersetzungen & Gangerkennung)
 * `test_nd_ratio_parser` $\rightarrow$ **OK** (Nebendüsen-Verhältnisberechnung)
