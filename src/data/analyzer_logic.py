@@ -99,6 +99,38 @@ def detect_gear_ratio(df, tire_circumference=None, primary_ratio=None, gear_rati
     return best_gear, i_total, median_ratio, confidence
 
 
+def calculate_weather_correction_factor(temp_c=20.0, pressure_hpa=1013.25, standard="DIN70020"):
+    """
+    Berechnet den atmosphärischen Wetter-Korrekturfaktor nach DIN 70020 oder SAE J1349.
+    
+    DIN 70020 (Referenz: 20°C / 293.15 K, 1013.25 hPa):
+    k_DIN = (1013.25 / p) * sqrt((T + 273.15) / 293.15)
+    
+    SAE J1349 (Referenz: 25°C / 298.15 K, 990.0 hPa):
+    k_SAE = (990.0 / p) * ((T + 273.15) / 298.15)^0.6
+    """
+    try:
+        t = float(temp_c) if temp_c is not None else 20.0
+        p = float(pressure_hpa) if pressure_hpa is not None else 1013.25
+        if p <= 500.0 or p >= 1200.0:
+            p = 1013.25
+        if t <= -40.0 or t >= 60.0:
+            t = 20.0
+            
+        std = str(standard).upper() if standard else "DIN70020"
+        
+        if "SAE" in std:
+            k = (990.0 / p) * (((t + 273.15) / 298.15) ** 0.6)
+        elif "RAW" in std or "NONE" in std:
+            k = 1.0
+        else:  # Standard: DIN 70020
+            k = (1013.25 / p) * math.sqrt((t + 273.15) / 293.15)
+            
+        return float(max(0.75, min(1.30, k)))
+    except Exception:
+        return 1.0
+
+
 def calculate_road_slope_percent(df, manual_slope_pct=None):
     """
     Berechnet die prozentuale Straßenneigung (Slope %) entweder automatisch
@@ -179,6 +211,7 @@ def clean_egt_data(df):
 
 
 def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
+                                temp_c=20.0, pressure_hpa=1013.25, norm_standard="DIN70020",
                                 mass_kg=None, cw_a=None, cr=None,
                                 tire_circumference_m=None,
                                 primary_ratio=None, gear_ratios=None,
@@ -277,17 +310,27 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
 
     f_total = f_acc + f_aero + f_roll + f_slope
 
-    # 6. Power Calculations (Watts -> PS)
+    # 6. Power Calculations (Watts -> PS) & DIN 70020 Weather Normalization
     p_wheel_watts = f_total * df['Velocity_ms']
     p_engine_watts = p_wheel_watts / eta
 
-    # 1 Metric Horsepower (PS) = 735.49875 Watts
-    df['PS'] = p_engine_watts / 735.49875
-    df['PS'] = df['PS'].clip(lower=0.0)
+    # Atmosphärischer Korrekturfaktor (DIN 70020 / SAE J1349)
+    k_norm = calculate_weather_correction_factor(temp_c, pressure_hpa, norm_standard)
+    df['Weather_K_Norm'] = k_norm
+    df['Ambient_Temp_C'] = float(temp_c) if temp_c is not None else 20.0
+    df['Ambient_Pressure_hPa'] = float(pressure_hpa) if pressure_hpa is not None else 1013.25
+    df['Norm_Standard'] = str(norm_standard)
+
+    # Unkorrigierte & Normierte Leistung
+    df['PS_Raw'] = (p_engine_watts / 735.49875).clip(lower=0.0)
+    df['PS'] = (df['PS_Raw'] * k_norm).clip(lower=0.0)
 
     # 7. Torque Calculation (Nm)
-    # Torque (Nm) = (Power_Watts) / omega_engine = (PS * 735.49875) / (2 * pi * RPM / 60)
-    # Nm = (PS * 7023.5) / RPM
+    df['Nm_Raw'] = np.where(
+        (df['RPM_smoothed'] > 500) & (df['PS_Raw'] > 0),
+        (df['PS_Raw'] * 7023.5) / df['RPM_smoothed'],
+        0.0
+    )
     df['Nm'] = np.where(
         (df['RPM_smoothed'] > 500) & (df['PS'] > 0),
         (df['PS'] * 7023.5) / df['RPM_smoothed'],
@@ -297,7 +340,7 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
     return df
 
 
-def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=None):
+def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=None, temp_c=20.0, pressure_hpa=1013.25, norm_standard="DIN70020"):
     """
     Detects the cleanest dyno acceleration pull in a log file.
     Requirements:
@@ -311,7 +354,7 @@ def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=40
 
     # Ensure EGT and basic metrics are pre-calculated
     df = clean_egt_data(df)
-    df = calculate_telemetry_metrics(df, slope_percent=slope_percent)
+    df = calculate_telemetry_metrics(df, slope_percent=slope_percent, temp_c=temp_c, pressure_hpa=pressure_hpa, norm_standard=norm_standard)
 
     n_samples_required = max(5, int(min_duration_sec / 0.1))
     rpm = df['RPM_smoothed'].values
@@ -361,7 +404,7 @@ def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=40
     trimmed_df = df.iloc[best_start:best_end + 1].copy().reset_index(drop=True)
     
     # Recalculate metrics on the precisely trimmed slice
-    trimmed_df = calculate_telemetry_metrics(trimmed_df, slope_percent=slope_percent)
+    trimmed_df = calculate_telemetry_metrics(trimmed_df, slope_percent=slope_percent, temp_c=temp_c, pressure_hpa=pressure_hpa, norm_standard=norm_standard)
     return trimmed_df, True
 
 

@@ -1318,6 +1318,302 @@ def tuning_dashboard():
     """
     return render_template_string(html)
 
+
+@app.route('/dyno_sheet')
+def dyno_sheet_report():
+    fname = request.args.get('file')
+    if not fname: return "No file selected."
+    fpath = os.path.join(LOG_DIR, fname)
+    if not os.path.exists(fpath): return "File not found."
+
+    slope_param = request.args.get('slope', 'auto')
+    try: temp_param = float(request.args.get('temp', 20.0))
+    except: temp_param = 20.0
+    try: pressure_param = float(request.args.get('pressure', 1013.25))
+    except: pressure_param = 1013.25
+    norm_param = request.args.get('norm', 'DIN70020')
+
+    try:
+        df = pd.read_csv(fpath)
+        df.columns = [c.strip() for c in df.columns]
+        df = clean_egt_data(df)
+        df = calculate_telemetry_metrics(df, slope_percent=slope_param, temp_c=temp_param, pressure_hpa=pressure_param, norm_standard=norm_param)
+        trimmed, _ = detect_dyno_pull(df, slope_percent=slope_param, temp_c=temp_param, pressure_hpa=pressure_param, norm_standard=norm_param)
+
+        carb = load_carb_setup()
+        carb_diag = analyze_carb_jetting(trimmed, carb)
+
+        gear = int(trimmed.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in trimmed.columns else 3
+        max_ps = float(trimmed['PS'].max()) if 'PS' in trimmed.columns else 0.0
+        max_ps_raw = float(trimmed['PS_Raw'].max()) if 'PS_Raw' in trimmed.columns else max_ps
+        max_nm = float(trimmed['Nm'].max()) if 'Nm' in trimmed.columns else 0.0
+        avg_afr = float(trimmed['AFR'].mean()) if 'AFR' in trimmed.columns else 0.0
+        max_egt = float(trimmed['EGT_cleaned'].max()) if 'EGT_cleaned' in trimmed.columns else 0.0
+        
+        peak_ps_idx = trimmed['PS'].idxmax() if 'PS' in trimmed.columns else None
+        peak_ps_rpm = trimmed.loc[peak_ps_idx, 'RPM_smoothed'] if (peak_ps_idx is not None and not pd.isna(peak_ps_idx)) else 0.0
+        
+        peak_nm_idx = trimmed['Nm'].idxmax() if 'Nm' in trimmed.columns else None
+        peak_nm_rpm = trimmed.loc[peak_nm_idx, 'RPM_smoothed'] if (peak_nm_idx is not None and not pd.isna(peak_nm_idx)) else 0.0
+
+        k_norm = float(trimmed['Weather_K_Norm'].iloc[0]) if 'Weather_K_Norm' in trimmed.columns else 1.0
+        detected_slope = float(trimmed['Slope_Pct'].iloc[0]) if 'Slope_Pct' in trimmed.columns else 0.0
+
+        chart_data = trimmed[['RPM_smoothed', 'PS', 'Nm', 'AFR']].dropna().sort_values('RPM_smoothed').to_dict(orient='records')
+        mtime = datetime.fromtimestamp(os.path.getmtime(fpath)).strftime('%d.%m.%Y - %H:%M:%S')
+
+        html = f"""
+        <!DOCTYPE html>
+        <html lang="de">
+        <head>
+            <meta charset="UTF-8">
+            <title>StreetDyno 2.0 - Prüfstandsbericht ({fname})</title>
+            <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+                * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+                body {{
+                    background: #ffffff;
+                    color: #111111;
+                    font-family: 'Outfit', sans-serif;
+                    padding: 25px;
+                    max-width: 900px;
+                    margin: 0 auto;
+                }}
+                .print-actions {{
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 20px;
+                    padding-bottom: 12px;
+                    border-bottom: 2px solid #eee;
+                }}
+                .btn-print {{
+                    background: #000;
+                    color: #fff;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    font-weight: 800;
+                    border: none;
+                    cursor: pointer;
+                    font-size: 0.95rem;
+                }}
+                .btn-back {{
+                    background: #eee;
+                    color: #333;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    font-weight: 800;
+                    text-decoration: none;
+                    font-size: 0.95rem;
+                }}
+                .report-header {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    border-bottom: 3px solid #000;
+                    padding-bottom: 15px;
+                    margin-bottom: 20px;
+                }}
+                .logo-title {{ font-size: 1.8rem; font-weight: 900; letter-spacing: -0.03em; }}
+                .meta-table {{ font-size: 0.85rem; color: #555; text-align: right; }}
+                
+                .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }}
+                .box {{
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    padding: 12px 15px;
+                    background: #fafafa;
+                }}
+                .box-title {{ font-size: 0.8rem; font-weight: 800; text-transform: uppercase; color: #666; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }}
+                .spec-row {{ display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px; }}
+                .spec-val {{ font-weight: bold; color: #000; font-family: monospace; }}
+
+                .results-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 10px;
+                    margin-bottom: 20px;
+                }}
+                .result-card {{
+                    background: #000;
+                    color: #fff;
+                    padding: 12px;
+                    border-radius: 8px;
+                    text-align: center;
+                }}
+                .res-label {{ font-size: 0.75rem; text-transform: uppercase; color: #aaa; font-weight: 700; }}
+                .res-val {{ font-size: 1.8rem; font-weight: 900; font-family: 'JetBrains Mono', monospace; margin: 4px 0; color: #00ffcc; }}
+                .res-sub {{ font-size: 0.75rem; color: #ccc; }}
+
+                .chart-container {{
+                    height: 380px;
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    padding: 10px;
+                    margin-bottom: 20px;
+                    background: #fff;
+                }}
+                
+                @media print {{
+                    .print-actions {{ display: none; }}
+                    body {{ padding: 0; }}
+                    @page {{ size: A4; margin: 1.2cm; }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="print-actions">
+                <a href="/analyze?file={fname}&slope={slope_param}&temp={temp_param}&pressure={pressure_param}&norm={norm_param}" class="btn-back">⬅️ ZURÜCK</a>
+                <button class="btn-print" onclick="window.print()">🖨️ DRUCKEN / ALS PDF SPEICHERN</button>
+            </div>
+
+            <div class="report-header">
+                <div>
+                    <div class="logo-title">STREETDYNO 2.0</div>
+                    <div style="font-weight:700; color:#444; font-size:1.05rem;">LEISTUNGSPRÜFSTANDSBERICHT</div>
+                </div>
+                <div class="meta-table">
+                    <div><b>Datum:</b> {mtime}</div>
+                    <div><b>Datei:</b> {fname}</div>
+                    <div><b>Messgang:</b> {gear}. Gang</div>
+                </div>
+            </div>
+
+            <div class="results-grid">
+                <div class="result-card">
+                    <div class="res-label">Pmax ({norm_param})</div>
+                    <div class="res-val">{max_ps:.1f} PS</div>
+                    <div class="res-sub">@{int(peak_ps_rpm)} U/min (Raw: {max_ps_raw:.1f})</div>
+                </div>
+                <div class="result-card">
+                    <div class="res-label">Mmax ({norm_param})</div>
+                    <div class="res-val" style="color:#ff9800;">{max_nm:.1f} Nm</div>
+                    <div class="res-sub">@{int(peak_nm_rpm)} U/min</div>
+                </div>
+                <div class="result-card">
+                    <div class="res-label">Mittel AFR</div>
+                    <div class="res-val" style="color:#00e676;">{avg_afr:.2f}</div>
+                    <div class="res-sub">im Volllastzug</div>
+                </div>
+                <div class="result-card">
+                    <div class="res-label">Peak EGT</div>
+                    <div class="res-val" style="color:#ffd600;">{max_egt:.0f}°C</div>
+                    <div class="res-sub">Abgastemperatur</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="dynoCanvas"></canvas>
+            </div>
+
+            <div class="grid-2">
+                <div class="box">
+                    <div class="box-title">⚙️ FAHRZEUG & VERGASER-SETUP</div>
+                    <div class="spec-row"><span>Fahrzeug:</span><span class="spec-val">Vespa PX 125 (VMC 177)</span></div>
+                    <div class="spec-row"><span>Gesamtmasse:</span><span class="spec-val">190.0 kg (Roller + Fahrer)</span></div>
+                    <div class="spec-row"><span>Vergaser:</span><span class="spec-val">{carb.get('carburetor_type', 'BGM 24/24')}</span></div>
+                    <div class="spec-row"><span>Bedüsung:</span><span class="spec-val">HD {carb.get('main_jet_hd', 135)} | ND {carb.get('idle_jet_nd', '60/160')} | HLKD {carb.get('air_corrector_hlkd', 160)}</span></div>
+                    <div class="spec-row"><span>Mischrohr / Schieber:</span><span class="spec-val">{carb.get('emulsion_tube', 'x234')} | {carb.get('throttle_slide', 'Low')}</span></div>
+                    <div class="spec-row"><span>Ansaugung / Auspuff:</span><span class="spec-val">{carb.get('intake_funnel', 'Venturi')} | {carb.get('exhaust', 'Polini Box')}</span></div>
+                </div>
+
+                <div class="box">
+                    <div class="box-title">🌤️ ATMOSPHÄRE & KORREKTURFAKTOREN</div>
+                    <div class="spec-row"><span>Korrektur-Norm:</span><span class="spec-val">{norm_param}</span></div>
+                    <div class="spec-row"><span>Temperatur:</span><span class="spec-val">{temp_param:.1f}°C</span></div>
+                    <div class="spec-row"><span>Luftdruck:</span><span class="spec-val">{pressure_param:.1f} hPa</span></div>
+                    <div class="spec-row"><span>Korrekturfaktor (k):</span><span class="spec-val">{k_norm:.3f} ({((k_norm-1.0)*100):+.1f}%)</span></div>
+                    <div class="spec-row"><span>Straßenneigung:</span><span class="spec-val">{detected_slope:+.1f}%</span></div>
+                    <div class="spec-row"><span>Vergaser-Status:</span><span class="spec-val" style="color:#000;">{carb_diag.get('overall_status', 'OK')}</span></div>
+                </div>
+            </div>
+
+            <script>
+                const d = {chart_data};
+                const ctx = document.getElementById('dynoCanvas').getContext('2d');
+                new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                        datasets: [
+                            {{
+                                label: 'Leistung (PS)',
+                                data: d.map(p => ({{ x: p.RPM_smoothed, y: p.PS }})),
+                                borderColor: '#0088cc',
+                                backgroundColor: '#0088cc',
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y'
+                            }},
+                            {{
+                                label: 'Drehmoment (Nm)',
+                                data: d.map(p => ({{ x: p.RPM_smoothed, y: p.Nm }})),
+                                borderColor: '#e65100',
+                                backgroundColor: '#e65100',
+                                borderWidth: 2.5,
+                                borderDash: [4, 4],
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y1'
+                            }},
+                            {{
+                                label: 'AFR (Lambda)',
+                                data: d.map(p => ({{ x: p.RPM_smoothed, y: p.AFR }})),
+                                borderColor: '#c2185b',
+                                backgroundColor: '#c2185b',
+                                borderWidth: 1.5,
+                                pointRadius: 0,
+                                tension: 0.3,
+                                yAxisID: 'y2'
+                            }}
+                        ]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {{ mode: 'index', intersect: false }},
+                        scales: {{
+                            x: {{
+                                type: 'linear',
+                                title: {{ display: true, text: 'Drehzahl (U/min)', font: {{ weight: 'bold' }} }},
+                                grid: {{ color: '#eee' }}
+                            }},
+                            y: {{
+                                type: 'linear',
+                                position: 'left',
+                                title: {{ display: true, text: 'Leistung (PS)', font: {{ weight: 'bold' }}, color: '#0088cc' }},
+                                min: 0,
+                                ticks: {{ color: '#0088cc' }}
+                            }},
+                            y1: {{
+                                type: 'linear',
+                                position: 'right',
+                                title: {{ display: true, text: 'Drehmoment (Nm)', font: {{ weight: 'bold' }}, color: '#e65100' }},
+                                min: 0,
+                                grid: {{ drawOnChartArea: false }},
+                                ticks: {{ color: '#e65100' }}
+                            }},
+                            y2: {{
+                                type: 'linear',
+                                position: 'right',
+                                display: false,
+                                min: 9.0,
+                                max: 18.0
+                            }}
+                        }},
+                        plugins: {{
+                            legend: {{ labels: {{ font: {{ weight: 'bold', size: 11 }} }} }}
+                        }}
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        return render_template_string(html)
+    except Exception as e:
+        return f"<h3>Fehler beim Erstellen des Dyno-Sheets: {str(e)}</h3><br><a href='/analyze?file={fname}'>Zurück</a>"
+
 @app.route('/download/<filename>')
 def download(filename): return send_from_directory(LOG_DIR, filename, as_attachment=True)
 
@@ -1325,6 +1621,11 @@ def download(filename): return send_from_directory(LOG_DIR, filename, as_attachm
 def analyze_file():
     fname = request.args.get('file')
     slope_param = request.args.get('slope', 'auto')
+    try: temp_param = float(request.args.get('temp', 20.0))
+    except: temp_param = 20.0
+    try: pressure_param = float(request.args.get('pressure', 1013.25))
+    except: pressure_param = 1013.25
+    norm_param = request.args.get('norm', 'DIN70020')
     if not fname: return "No file selected."
     fpath = os.path.join(LOG_DIR, fname)
     if not os.path.exists(fpath):
@@ -1343,10 +1644,10 @@ def analyze_file():
             return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehlende Spalten in CSV: {missing_cols}</h3><br><a href='/logs'>Zurück</a></body>"
             
         df = clean_egt_data(df)
-        df = calculate_telemetry_metrics(df, slope_percent=slope_param)
+        df = calculate_telemetry_metrics(df, slope_percent=slope_param, temp_c=temp_param, pressure_hpa=pressure_param, norm_standard=norm_param)
         
         # Dyno-Pull automatisch erkennen
-        trimmed_df, detected = detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=slope_param)
+        trimmed_df, detected = detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=slope_param, temp_c=temp_param, pressure_hpa=pressure_param, norm_standard=norm_param)
         detected_gear = int(trimmed_df.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in trimmed_df.columns else 3
         title_suffix = f" (🎯 {detected_gear}. Gang)" if detected else " (Gesamtes Log)"
         
@@ -1373,6 +1674,19 @@ def analyze_file():
         # Straßenneigung & Hangabtriebskompensation
         detected_slope = float(trimmed_df['Slope_Pct'].iloc[0]) if 'Slope_Pct' in trimmed_df.columns else 0.0
         avg_slope_ps = float(trimmed_df['Slope_Power_PS'].mean()) if 'Slope_Power_PS' in trimmed_df.columns else 0.0
+        
+        # DIN 70020 Wetter-Normierung
+        k_norm = float(trimmed_df['Weather_K_Norm'].iloc[0]) if 'Weather_K_Norm' in trimmed_df.columns else 1.0
+        ps_raw = float(trimmed_df['PS_Raw'].max()) if 'PS_Raw' in trimmed_df.columns else max_ps
+        
+        # GPS-Koordinaten für Smartphone Open-Meteo Fetch
+        gps_lat = 0.0
+        gps_lon = 0.0
+        if 'Lat' in df.columns and 'Lon' in df.columns:
+            valid_coords = df[(df['Lat'] != 0.0) & (df['Lon'] != 0.0)]
+            if len(valid_coords) > 0:
+                gps_lat = float(valid_coords['Lat'].iloc[0])
+                gps_lon = float(valid_coords['Lon'].iloc[0])
         
         # Vergaser-Bedüsungs-Diagnose
         carb_setup = load_carb_setup()
@@ -1628,23 +1942,65 @@ def analyze_file():
         Datei: {fname} {title_suffix}
     </div>
     
-    <!-- Slope Compensation Selector -->
-    <div style="background:#141418; border:1px solid #27272e; border-radius:12px; padding:12px 15px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div>
-            <span style="font-size:0.85rem; font-weight:800; color:#00ffcc;">🏔️ STRASSENNEIGUNG:</span>
-            <span style="font-family:monospace; font-weight:bold; color:#fff; font-size:0.95rem; margin-left:6px;">{detected_slope:+.1f}%</span>
-            <span style="font-size:0.75rem; color:#aaa; margin-left:6px;">(Kompensation: <b>{avg_slope_ps:+.1f} PS</b>)</span>
+    <!-- DIN 70020 Weather & Slope Normalization Section -->
+    <div style="background:#141418; border:2px solid #27272e; border-radius:14px; padding:14px; margin-bottom:15px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+            <div>
+                <strong style="color:#00ffcc; font-size:0.95rem;">🌤️ DIN 70020 WETTER-NORM:</strong>
+                <span style="font-family:monospace; font-weight:bold; color:#fff; font-size:1.0rem; margin-left:6px;">k = {k_norm:.3f}</span>
+                <span style="font-size:0.8rem; color:#aaa; margin-left:4px;">({((k_norm-1.0)*100):+.1f}%)</span>
+            </div>
+            <a href="/dyno_sheet?file={fname}&slope={slope_param}&temp={temp_param}&pressure={pressure_param}&norm={norm_param}" target="_blank" 
+               style="background:#00ffcc; color:#000; padding:6px 12px; border-radius:8px; font-weight:800; font-size:0.8rem; text-decoration:none; display:flex; align-items:center; gap:4px;">
+                📄 A4 DYNO-SHEET
+            </a>
         </div>
-        <div style="display:flex; align-items:center; gap:6px;">
-            <label style="font-size:0.75rem; color:#888; font-weight:bold;">PRESET:</label>
-            <select id="slopeSelect" onchange="changeSlope()" style="background:#0d0d11; border:1px solid #444; color:#00ffcc; padding:6px 10px; border-radius:6px; font-weight:bold; font-size:0.8rem;">
-                <option value="auto" {('selected' if slope_param == 'auto' else '')}>🛰️ Auto-GPS</option>
-                <option value="0.0" {('selected' if slope_param == '0.0' else '')}>0.0% Ebene</option>
-                <option value="0.8" {('selected' if slope_param == '0.8' else '')}>+0.8% Hausstrecke</option>
-                <option value="1.5" {('selected' if slope_param == '1.5' else '')}>+1.5% Bergauf</option>
-                <option value="-0.8" {('selected' if slope_param == '-0.8' else '')}>-0.8% Gegenhang</option>
-                <option value="-1.5" {('selected' if slope_param == '-1.5' else '')}>-1.5% Bergab</option>
-            </select>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px;">
+            <div>
+                <label style="font-size:0.7rem; color:#888; font-weight:bold; display:block;">TEMPERATUR:</label>
+                <input type="number" step="0.5" id="tempInput" value="{temp_param}" style="width:100%; background:#0d0d11; border:1px solid #333; color:#fff; padding:6px; border-radius:6px; font-family:monospace; font-weight:bold;">
+            </div>
+            <div>
+                <label style="font-size:0.7rem; color:#888; font-weight:bold; display:block;">LUFTDRUCK:</label>
+                <input type="number" step="0.5" id="pressInput" value="{pressure_param}" style="width:100%; background:#0d0d11; border:1px solid #333; color:#fff; padding:6px; border-radius:6px; font-family:monospace; font-weight:bold;">
+            </div>
+            <div>
+                <label style="font-size:0.7rem; color:#888; font-weight:bold; display:block;">NORM:</label>
+                <select id="normSelect" style="width:100%; background:#0d0d11; border:1px solid #333; color:#00ffcc; padding:6px; border-radius:6px; font-weight:bold; font-size:0.8rem;">
+                    <option value="DIN70020" {('selected' if norm_param == 'DIN70020' else '')}>DIN 70020 (20°C)</option>
+                    <option value="SAE_J1349" {('selected' if norm_param == 'SAE_J1349' else '')}>SAE J1349 (25°C)</option>
+                    <option value="RAW" {('selected' if norm_param == 'RAW' else '')}>RAW (Keine)</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" onclick="fetchLiveWeather({gps_lat}, {gps_lon})" 
+                    style="flex:2; background:#1c1c24; border:1px solid #00ffcc; color:#00ffcc; padding:8px; border-radius:8px; font-weight:bold; font-size:0.8rem; cursor:pointer;">
+                🛰️ Wetter via Smartphone laden
+            </button>
+            <button type="button" onclick="applyWeather()" 
+                    style="flex:1; background:#00e676; border:none; color:#000; padding:8px; border-radius:8px; font-weight:800; font-size:0.8rem; cursor:pointer;">
+                🔄 NEU BERECHNEN
+            </button>
+        </div>
+
+        <div style="margin-top:10px; padding-top:8px; border-top:1px solid #222; display:flex; justify-content:space-between; align-items:center; font-size:0.8rem;">
+            <div>
+                <span style="color:#888; font-weight:bold;">🏔️ NEIGUNG:</span>
+                <span style="color:#fff; font-weight:bold; font-family:monospace;">{detected_slope:+.1f}%</span>
+                <span style="color:#aaa;">({avg_slope_ps:+.1f} PS)</span>
+            </div>
+            <div>
+                <select id="slopeSelect" onchange="changeSlope()" style="background:#0d0d11; border:1px solid #444; color:#00ffcc; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">
+                    <option value="auto" {('selected' if slope_param == 'auto' else '')}>🛰️ Auto-GPS</option>
+                    <option value="0.0" {('selected' if slope_param == '0.0' else '')}>0.0% Ebene</option>
+                    <option value="0.8" {('selected' if slope_param == '0.8' else '')}>+0.8% Hausstrecke</option>
+                    <option value="1.5" {('selected' if slope_param == '1.5' else '')}>+1.5% Bergauf</option>
+                    <option value="-0.8" {('selected' if slope_param == '-0.8' else '')}>-0.8% Gegenhang</option>
+                </select>
+            </div>
         </div>
     </div>
     <div class="grid">
