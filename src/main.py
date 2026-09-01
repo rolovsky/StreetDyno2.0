@@ -163,8 +163,9 @@ def analyze_file():
         df = calculate_telemetry_metrics(df)
         
         # Dyno-Pull automatisch erkennen
-        trimmed_df, detected = detect_dyno_pull(df, min_rpm=3000.0, min_duration_sec=1.0, drop_threshold=500.0)
-        title_suffix = " (Automatisch getrimmt)" if detected else " (Gesamtes Log)"
+        trimmed_df, detected = detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0)
+        detected_gear = int(trimmed_df.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in trimmed_df.columns else 3
+        title_suffix = f" (🎯 {detected_gear}. Gang)" if detected else " (Gesamtes Log)"
         
         # Plot generieren
         pname = f"p_{os.path.splitext(fname)[0]}.png"
@@ -172,19 +173,19 @@ def analyze_file():
         plot_telemetry(trimmed_df, title_suffix, plot_path)
         
         # Leistungswerte berechnen
-        max_ps = trimmed_df['PS'].max()
-        max_nm = trimmed_df['Nm'].max()
-        max_egt = trimmed_df['EGT_cleaned'].max()
+        max_ps = trimmed_df['PS'].max() if 'PS' in trimmed_df.columns else 0.0
+        max_nm = trimmed_df['Nm'].max() if 'Nm' in trimmed_df.columns else 0.0
+        max_egt = trimmed_df['EGT_cleaned'].max() if 'EGT_cleaned' in trimmed_df.columns else 0.0
         
         # RPM bei Peak Werten finden
-        peak_ps_idx = trimmed_df['PS'].idxmax()
-        peak_ps_rpm = trimmed_df.loc[peak_ps_idx, 'RPM_smoothed'] if not pd.isna(peak_ps_idx) else 0.0
+        peak_ps_idx = trimmed_df['PS'].idxmax() if 'PS' in trimmed_df.columns else None
+        peak_ps_rpm = trimmed_df.loc[peak_ps_idx, 'RPM_smoothed'] if (peak_ps_idx is not None and not pd.isna(peak_ps_idx)) else 0.0
         
-        peak_nm_idx = trimmed_df['Nm'].idxmax()
-        peak_nm_rpm = trimmed_df.loc[peak_nm_idx, 'RPM_smoothed'] if not pd.isna(peak_nm_idx) else 0.0
+        peak_nm_idx = trimmed_df['Nm'].idxmax() if 'Nm' in trimmed_df.columns else None
+        peak_nm_rpm = trimmed_df.loc[peak_nm_idx, 'RPM_smoothed'] if (peak_nm_idx is not None and not pd.isna(peak_nm_idx)) else 0.0
         
         # Mittlerer AFR während des Pulls
-        avg_afr = trimmed_df['AFR'].mean()
+        avg_afr = trimmed_df['AFR'].mean() if 'AFR' in trimmed_df.columns else 0.0
         
         html = f"""
 <!DOCTYPE html>
@@ -606,10 +607,11 @@ def api_get_pull_data():
         
         df = clean_egt_data(df)
         df = calculate_telemetry_metrics(df)
-        trimmed_df, detected = detect_dyno_pull(df, min_rpm=3000.0, min_duration_sec=1.0, drop_threshold=500.0)
+        trimmed_df, detected = detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0)
+        detected_gear = int(trimmed_df.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in trimmed_df.columns else 3
         
         # Nur relevante Spalten für den Export auswählen
-        cols = ['Time', 'RPM', 'RPM_smoothed', 'AFR', 'EGT', 'EGT_cleaned', 'Speed_kmh', 'PS', 'Nm']
+        cols = ['Time', 'RPM', 'RPM_smoothed', 'AFR', 'EGT', 'EGT_cleaned', 'Speed_kmh', 'PS', 'Nm', 'Detected_Gear']
         for col in cols:
             if col not in trimmed_df.columns:
                 trimmed_df[col] = None
@@ -619,6 +621,7 @@ def api_get_pull_data():
         return jsonify({
             "filename": fname,
             "detected": detected,
+            "detected_gear": detected_gear,
             "data": data
         })
     except Exception as e:
