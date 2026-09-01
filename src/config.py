@@ -38,3 +38,45 @@ GRAVITY = 9.81                # Erdbeschleunigung m/s²
 LOG_DIR = "logs"
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
+
+# --- Vergaser & Bedüsung Setup (BGM 24/24 Fastflow Baseline) ---
+import json
+
+USER_SETUP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "user_setup.json")
+
+DEFAULT_CARB_SETUP = {
+    "carburetor_type": "BGM 24/24 Fastflow",
+    "main_jet_hd": 135,
+    "idle_jet_nd": "60/160",
+    "air_corrector_hlkd": 160,
+    "emulsion_tube": "Lemarxon x234",
+    "throttle_slide": "Lemarxon Low",
+    "intake_funnel": "Polini Venturi Trichter",
+    "exhaust": "Polini Box",
+    "notes": "VMC 177 / 60mm Welle / Baseline Setup"
+}
+
+def load_carb_setup():
+    if os.path.exists(USER_SETUP_FILE):
+        try:
+            with open(USER_SETUP_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                res = DEFAULT_CARB_SETUP.copy()
+                res.update(data)
+                return res
+        except Exception:
+            pass
+    return DEFAULT_CARB_SETUP.copy()
+
+def save_carb_setup(setup_dict):
+    try:
+        current = load_carb_setup()
+        current.update(setup_dict)
+        with open(USER_SETUP_FILE, 'w', encoding='utf-8') as f:
+            json.dump(current, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"[CONFIG ERROR] Failed to save carb setup: {e}")
+        return False
+
+CARB_SETUP = load_carb_setup()

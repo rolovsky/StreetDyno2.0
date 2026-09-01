@@ -12,6 +12,8 @@ from data.analyzer_logic import (
     plot_telemetry,
     export_to_google_sheets
 )
+from data.jetting_advisor import analyze_carb_jetting
+from config import load_carb_setup, save_carb_setup, CARB_SETUP
 
 # ==========================================
 # --- KONFIGURATION v5.1 (STABLE LOGGING + AFR WARN) ---
@@ -389,6 +391,7 @@ DASH_HTML = """
             🔴 PULL LOGGING STARTEN
         </button>
         <a href="/logs" class="btn-nav">📂 LOGS</a>
+        <a href="/tuning" class="btn-nav">🔧 VERGASER</a>
     </div>
 
     <script>
@@ -1022,6 +1025,274 @@ def compare_runs():
     except Exception as e:
         return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehler beim Vergleich: {str(e)}</h3><a href='/logs'>Zurück</a></body>"
 
+
+@app.route('/api/update_carb_setup', methods=['GET', 'POST'])
+def api_update_carb_setup():
+    try:
+        if request.method == 'POST':
+            data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        else:
+            data = request.args.to_dict()
+            
+        if not data:
+            return jsonify({"status": "error", "message": "Keine Daten empfangen"}), 400
+            
+        # Parse numeric types where appropriate
+        cleaned = {}
+        for k, v in data.items():
+            if k in ['main_jet_hd', 'air_corrector_hlkd']:
+                try: cleaned[k] = int(float(v))
+                except: cleaned[k] = v
+            else:
+                cleaned[k] = v
+                
+        success = save_carb_setup(cleaned)
+        if success:
+            updated = load_carb_setup()
+            return jsonify({"status": "success", "setup": updated})
+        else:
+            return jsonify({"status": "error", "message": "Fehler beim Speichern"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/tuning')
+def tuning_dashboard():
+    carb = load_carb_setup()
+    files = sorted(glob.glob(os.path.join(LOG_DIR, '*.csv')), key=os.path.getmtime, reverse=True)
+    
+    analysis = None
+    latest_file = os.path.basename(files[0]) if files else None
+    
+    if latest_file:
+        try:
+            p = os.path.join(LOG_DIR, latest_file)
+            df = pd.read_csv(p)
+            df.columns = [c.strip() for c in df.columns]
+            df = clean_egt_data(df)
+            df = calculate_telemetry_metrics(df)
+            trimmed, _ = detect_dyno_pull(df)
+            analysis = analyze_carb_jetting(trimmed, carb)
+        except Exception as e:
+            analysis = {"valid": False, "error": str(e)}
+            
+    # Format zone cards HTML
+    zone_cards_html = ""
+    if analysis and analysis.get("valid"):
+        for z in analysis.get("zones", []):
+            badge_bg = "#00e676" if "PERFEKT" in z["status_text"] else ("#ff1744" if "KRITISCH" in z["status_text"] else ("#ff9800" if "LEICHT MAGER" in z["status_text"] else "#29b6f6"))
+            zone_cards_html += f"""
+            <div style="background:#16161a; border:1px solid #27272e; border-radius:12px; padding:12px; margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <div>
+                        <strong style="color:#fff; font-size:0.9rem;">{z['name']}</strong>
+                        <div style="font-size:0.75rem; color:#888;">{z['rpm_range']} &nbsp;|&nbsp; {z['component']}</div>
+                    </div>
+                    <div style="background:{badge_bg}; color:#000; font-weight:800; font-size:0.75rem; padding:3px 8px; border-radius:4px;">
+                        {z['status_text']}
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin:6px 0;">
+                    <span>Gemessen: <b style="color:#fff;">{z['mean_afr'] if z['mean_afr'] else '--'} AFR</b></span>
+                    <span style="color:#aaa;">Ziel: {z['target']} AFR</span>
+                </div>
+                <div style="background:#09090c; padding:8px 10px; border-radius:6px; font-size:0.8rem; color:#ddd; border-left:3px solid {badge_bg};">
+                    💡 {z['advice']}
+                </div>
+            </div>
+            """
+    else:
+        zone_cards_html = "<div style='color:#888; font-size:0.85rem;'>Noch kein Dyno-Pull für Live-Diagnose vorhanden. Starte einen Pull!</div>"
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+        <title>StreetDyno 2.0 - Vergaser Setup</title>
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+        <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            body {{
+                background: #0d0d11;
+                color: #f5f5f7;
+                font-family: 'Outfit', sans-serif;
+                padding: 15px;
+            }}
+            .header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid #222;
+            }}
+            h1 {{ font-size: 1.3rem; font-weight: 800; color: #00ffcc; }}
+            .back-btn {{
+                background: #1f1f24;
+                color: #ff9800;
+                padding: 8px 14px;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: 700;
+                font-size: 0.9rem;
+            }}
+            .section-card {{
+                background: #16161a;
+                border: 2px solid #27272e;
+                border-radius: 16px;
+                padding: 15px;
+                margin-bottom: 15px;
+            }}
+            .form-grid {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                margin-top: 10px;
+            }}
+            .form-group {{
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }}
+            .form-group.full {{ grid-column: span 2; }}
+            label {{ font-size: 0.75rem; font-weight: 700; color: #888; text-transform: uppercase; }}
+            input, select {{
+                background: #0d0d11;
+                border: 1px solid #333;
+                color: #fff;
+                padding: 10px;
+                border-radius: 8px;
+                font-family: monospace;
+                font-size: 0.95rem;
+                font-weight: bold;
+            }}
+            input:focus {{ border-color: #00ffcc; outline: none; }}
+            .btn-save {{
+                width: 100%;
+                background: #00ffcc;
+                color: #000;
+                border: none;
+                padding: 14px;
+                border-radius: 10px;
+                font-weight: 900;
+                font-size: 1.0rem;
+                cursor: pointer;
+                margin-top: 15px;
+                transition: transform 0.1s;
+            }}
+            .btn-save:active {{ transform: scale(0.98); }}
+            .toast {{
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #00e676;
+                color: #000;
+                padding: 12px 24px;
+                border-radius: 30px;
+                font-weight: 800;
+                box-shadow: 0 4px 20px rgba(0,230,118,0.5);
+                display: none;
+                z-index: 9999;
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="toast" class="toast">✅ Setup gespeichert!</div>
+
+        <div class="header">
+            <h1>🔧 VERGASER SETUP</h1>
+            <a href="/" class="back-btn">⬅️ COCKPIT</a>
+        </div>
+
+        <!-- Setup Form -->
+        <div class="section-card">
+            <h2 style="font-size:1.1rem; color:#00ffcc; font-weight:800; margin-bottom:6px;">⚙️ Aktuell montierte Bedüsung</h2>
+            <div style="font-size:0.75rem; color:#888; margin-bottom:10px;">Passe deine Düsen hier an. Der Jetting Advisor nutzt diese Werte als Referenz.</div>
+
+            <form id="carbForm" onsubmit="saveSetup(event)">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Hauptdüse (HD)</label>
+                        <input type="number" name="main_jet_hd" value="{carb.get('main_jet_hd', 135)}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Nebendüse (ND)</label>
+                        <input type="text" name="idle_jet_nd" value="{carb.get('idle_jet_nd', '60/160')}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>HLKD (Luftkorrektur)</label>
+                        <input type="number" name="air_corrector_hlkd" value="{carb.get('air_corrector_hlkd', 160)}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Mischrohr</label>
+                        <input type="text" name="emulsion_tube" value="{carb.get('emulsion_tube', 'Lemarxon x234')}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Gasschieber</label>
+                        <input type="text" name="throttle_slide" value="{carb.get('throttle_slide', 'Lemarxon Low')}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Ansaugung / Trichter</label>
+                        <input type="text" name="intake_funnel" value="{carb.get('intake_funnel', 'Polini Venturi Trichter')}" required>
+                    </div>
+                    <div class="form-group full">
+                        <label>Vergaser-Typ</label>
+                        <input type="text" name="carburetor_type" value="{carb.get('carburetor_type', 'BGM 24/24 Fastflow')}">
+                    </div>
+                    <div class="form-group full">
+                        <label>Notizen / Setup</label>
+                        <input type="text" name="notes" value="{carb.get('notes', 'VMC 177 / 60mm Welle')}">
+                    </div>
+                </div>
+                <button type="submit" class="btn-save">💾 SETUP SPEICHERN</button>
+            </form>
+        </div>
+
+        <!-- Jetting Advisor Diagnosis from Latest Pull -->
+        <div class="section-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h2 style="font-size:1.1rem; color:#ff9800; font-weight:800;">🔬 Live Bedüsungs-Diagnose</h2>
+                <div style="font-size:0.75rem; color:#888; font-family:monospace;">{latest_file if latest_file else ''}</div>
+            </div>
+
+            <div style="background:#1f1f26; padding:10px 12px; border-radius:8px; margin-bottom:12px;">
+                <strong style="color:#fff; font-size:0.85rem;">
+                    {analysis.get('overall_verdict', 'Keine Daten') if analysis else 'Keine Daten'}
+                </strong>
+            </div>
+
+            {zone_cards_html}
+        </div>
+
+        <script>
+            function saveSetup(e) {{
+                e.preventDefault();
+                const form = document.getElementById('carbForm');
+                const formData = new FormData(form);
+                const obj = {{}};
+                formData.forEach((value, key) => {{ obj[key] = value; }});
+
+                fetch('/api/update_carb_setup', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify(obj)
+                }})
+                .then(r => r.json())
+                .then(d => {{
+                    const toast = document.getElementById('toast');
+                    toast.style.display = 'block';
+                    setTimeout(() => {{ toast.style.display = 'none'; }}, 2500);
+                }})
+                .catch(err => alert('Fehler beim Speichern: ' + err));
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
+
 @app.route('/download/<filename>')
 def download(filename): return send_from_directory(LOG_DIR, filename, as_attachment=True)
 
@@ -1072,6 +1343,33 @@ def analyze_file():
         
         # Mittlerer AFR während des Pulls
         avg_afr = trimmed_df['AFR'].mean() if 'AFR' in trimmed_df.columns else 0.0
+        
+        # Vergaser-Bedüsungs-Diagnose
+        carb_setup = load_carb_setup()
+        carb_diag = analyze_carb_jetting(trimmed_df, carb_setup)
+        
+        diag_rows = ""
+        if carb_diag.get("valid"):
+            for z in carb_diag.get("zones", []):
+                badge_bg = "#00e676" if "PERFEKT" in z["status_text"] else ("#ff1744" if "KRITISCH" in z["status_text"] else ("#ff9800" if "LEICHT MAGER" in z["status_text"] else "#29b6f6"))
+                diag_rows += f"""
+                <div style="background:#18181c; border:1px solid #27272e; border-radius:10px; padding:10px; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <strong style="color:#fff; font-size:0.85rem;">{z['name']} ({z['rpm_range']})</strong>
+                        <span style="background:{badge_bg}; color:#000; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:4px;">{z['status_text']}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#bbb; margin-bottom:4px;">
+                        <span>Bauteil: {z['component']}</span>
+                        <span>Gemessen: <b style="color:#fff;">{z['mean_afr'] if z['mean_afr'] else '--'} AFR</b></span>
+                    </div>
+                    <div style="font-size:0.75rem; color:#ddd; background:#0c0c0e; padding:6px 8px; border-radius:4px; border-left:3px solid {badge_bg};">
+                        💡 {z['advice']}
+                    </div>
+                </div>
+                """
+        else:
+            diag_rows = "<div style='color:#888; font-size:0.8rem;'>Keine verwertbaren AFR-Punkte für die Vergaserdiagnose.</div>"
+
         
         html = f"""
 <!DOCTYPE html>
@@ -1325,6 +1623,17 @@ def analyze_file():
     
     <div class="plot-container">
         <img src="/plots/{pname}" alt="Leistungsdiagramm">
+    </div>
+    
+    <div style="background:#141418; border:2px solid #27272e; border-radius:16px; padding:16px; margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h3 style="margin:0; font-size:1.1rem; color:#00ffcc; font-weight:800;">🔬 CARBURETOR JETTING ADVISOR</h3>
+            <a href="/tuning" style="font-size:0.8rem; color:#ff9800; text-decoration:none; font-weight:700; background:#222; padding:4px 10px; border-radius:6px; border:1px solid #444;">⚙️ Setup</a>
+        </div>
+        <div style="background:#1f1f26; padding:10px 12px; border-radius:8px; margin-bottom:12px; font-size:0.85rem; color:#fff;">
+            <strong>{carb_diag.get('overall_verdict', '') if carb_diag else ''}</strong>
+        </div>
+        {diag_rows}
     </div>
     
     <div class="cloud-section">
