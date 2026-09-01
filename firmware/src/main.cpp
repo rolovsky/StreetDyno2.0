@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <math.h>
 #include "max6675.h"
 
 // =========================================================================
@@ -35,7 +36,7 @@ float lastValidEgt = -1.0f;
 uint32_t lastEgtMeasurementTime = 0;
 uint32_t lastTelemetryOutputTime = 0;
 
-void IRAM_ATTR rpmInterrupt() {
+void rpmInterrupt() {
     const uint32_t now = micros();
     const uint32_t interval = now - v_lastPulseTime;
 
@@ -74,7 +75,7 @@ void loop() {
         if (!isnan(rawEgt) && rawEgt > 0.0f) {
             if (lastValidEgt < 0.0f) {
                 lastValidEgt = rawEgt;
-            } else if (abs(rawEgt - lastValidEgt) < 50.0f) {
+            } else if (fabsf(rawEgt - lastValidEgt) < 50.0f) {
                 lastValidEgt = rawEgt;
             }
         }
@@ -101,7 +102,7 @@ void loop() {
             calculatedRPM = (60000000.0f / static_cast<float>(currentInterval)) / PULSES_PER_REV;
 
             // Reject physical impossibilities (>3000 RPM jump per 100ms indicates EMI)
-            if (lastValidRPM > 1000.0f && abs(calculatedRPM - lastValidRPM) > 3000.0f) {
+            if (lastValidRPM > 1000.0f && fabsf(calculatedRPM - lastValidRPM) > 3000.0f) {
                 calculatedRPM = lastValidRPM;
             }
         }
