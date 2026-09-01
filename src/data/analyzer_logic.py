@@ -1,17 +1,25 @@
+"""
+StreetDyno 2.0 - Physics & Telemetry Analyzer Logic
+Computes vehicle power (PS), torque (Nm), Savitzky-Golay filtering,
+road gradient slope compensation, DIN 70020 / SAE J1349 weather normalization,
+gear detection, and P4-style visual plotting.
+"""
+
+from __future__ import annotations
 import os
-import sys
+import math
+from typing import Optional, Dict, Tuple, Any, Union
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Try to import scipy for Savitzky-Golay filtering, fallback to rolling window if missing
 try:
     from scipy.signal import savgol_filter
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
 
-# Try to import gspread for cloud integration
 try:
     import gspread
     from google.oauth2.service_account import Credentials
@@ -19,65 +27,60 @@ try:
 except ImportError:
     HAS_GSPREAD = False
 
-# Try to import vehicle parameters from config
-try:
-    import config
-except ImportError:
-    try:
-        from .. import config
-    except Exception:
-        config = None
-
-# Fallback default vehicle parameters (Vespa PX 125 Lusso / VMC 177)
-DEFAULT_TOTAL_MASS_KG = getattr(config, 'TOTAL_MASS_KG', 190.0)
-DEFAULT_ROTATIONAL_MASS_FACTOR = getattr(config, 'ROTATIONAL_MASS_FACTOR', 1.05)
-DEFAULT_TIRE_CIRCUMFERENCE_M = getattr(config, 'TIRE_CIRCUMFERENCE_M', 1.350)
-DEFAULT_PRIMARY_RATIO = getattr(config, 'PRIMARY_RATIO', 68.0 / 23.0)
-DEFAULT_GEAR_RATIOS = getattr(config, 'GEAR_RATIOS', {
-    1: 58.0 / 12.0,
-    2: 42.0 / 13.0,
-    3: 38.0 / 17.0,
-    4: 35.0 / 21.0
-})
-DEFAULT_CW_A = getattr(config, 'CW_A', 0.50)
-DEFAULT_CR = getattr(config, 'CR', 0.015)
-DEFAULT_AIR_DENSITY = getattr(config, 'AIR_DENSITY', 1.205)
-DEFAULT_TRANSMISSION_EFFICIENCY = getattr(config, 'TRANSMISSION_EFFICIENCY', 0.90)
-DEFAULT_GRAVITY = getattr(config, 'GRAVITY', 9.81)
+from config import (
+    TOTAL_MASS_KG,
+    ROTATIONAL_MASS_FACTOR,
+    TIRE_CIRCUMFERENCE_M,
+    PRIMARY_RATIO,
+    GEAR_RATIOS,
+    CW_A,
+    CR,
+    AIR_DENSITY,
+    TRANSMISSION_EFFICIENCY,
+    GRAVITY
+)
 
 
-def get_gear_total_ratio(gear=3, primary_ratio=None, gear_ratios=None):
-    """Calculates total gear ratio (i_total = primary * gear_ratio)."""
-    prim = primary_ratio if primary_ratio is not None else DEFAULT_PRIMARY_RATIO
-    gears = gear_ratios if gear_ratios is not None else DEFAULT_GEAR_RATIOS
+def get_gear_total_ratio(
+    gear: int = 3,
+    primary_ratio: Optional[float] = None,
+    gear_ratios: Optional[Dict[int, float]] = None
+) -> float:
+    """Calculates total gear reduction ratio (i_total = primary * gear_ratio)."""
+    prim = primary_ratio if primary_ratio is not None else PRIMARY_RATIO
+    gears = gear_ratios if gear_ratios is not None else GEAR_RATIOS
     gear_ratio = gears.get(gear, gears.get(3, 38.0 / 17.0))
     return prim * gear_ratio
 
 
-def get_theoretical_rpm_per_kmh(gear=3, tire_circumference=None, primary_ratio=None, gear_ratios=None):
-    """
-    Theoretical ratio of RPM / Speed(km/h) for a given gear.
-    v(km/h) = RPM * (tire_circumference * 3.6) / (60 * i_total)
-    RPM / v(km/h) = (60 * i_total) / (tire_circumference * 3.6) = i_total / (tire_circumference * 0.06)
-    """
-    u = tire_circumference if tire_circumference is not None else DEFAULT_TIRE_CIRCUMFERENCE_M
+def get_theoretical_rpm_per_kmh(
+    gear: int = 3,
+    tire_circumference: Optional[float] = None,
+    primary_ratio: Optional[float] = None,
+    gear_ratios: Optional[Dict[int, float]] = None
+) -> float:
+    """Calculates theoretical engine RPM per km/h vehicle speed for a given gear."""
+    u = tire_circumference if tire_circumference is not None else TIRE_CIRCUMFERENCE_M
     i_total = get_gear_total_ratio(gear, primary_ratio, gear_ratios)
     return (60.0 * i_total) / (u * 3.6)
 
 
-def detect_gear_ratio(df, tire_circumference=None, primary_ratio=None, gear_ratios=None):
+def detect_gear_ratio(
+    df: pd.DataFrame,
+    tire_circumference: Optional[float] = None,
+    primary_ratio: Optional[float] = None,
+    gear_ratios: Optional[Dict[int, float]] = None
+) -> Tuple[int, float, float, float]:
     """
-    Auto-detects the engaged gear (1, 2, 3, or 4) from the RPM and Speed telemetry.
+    Auto-detects the engaged transmission gear (1, 2, 3, or 4) from RPM and speed.
     Returns: (detected_gear_num, i_total, median_rpm_per_kmh, confidence_score)
     """
-    gears = gear_ratios if gear_ratios is not None else DEFAULT_GEAR_RATIOS
-    u = tire_circumference if tire_circumference is not None else DEFAULT_TIRE_CIRCUMFERENCE_M
-    prim = primary_ratio if primary_ratio is not None else DEFAULT_PRIMARY_RATIO
+    gears = gear_ratios if gear_ratios is not None else GEAR_RATIOS
+    u = tire_circumference if tire_circumference is not None else TIRE_CIRCUMFERENCE_M
+    prim = primary_ratio if primary_ratio is not None else PRIMARY_RATIO
 
-    # Filter for valid movement (RPM > 2000 and Speed > 10 km/h)
     valid_mask = (df['RPM'] > 2000) & (df['Speed_kmh'] > 10.0)
     if not valid_mask.any():
-        # Fallback to 3rd gear default
         i_3 = get_gear_total_ratio(3, prim, gears)
         return 3, i_3, get_theoretical_rpm_per_kmh(3, u, prim, gears), 0.0
 
@@ -99,14 +102,18 @@ def detect_gear_ratio(df, tire_circumference=None, primary_ratio=None, gear_rati
     return best_gear, i_total, median_ratio, confidence
 
 
-def calculate_weather_correction_factor(temp_c=20.0, pressure_hpa=1013.25, standard="DIN70020"):
+def calculate_weather_correction_factor(
+    temp_c: float = 20.0,
+    pressure_hpa: float = 1013.25,
+    standard: str = "DIN70020"
+) -> float:
     """
-    Berechnet den atmosphärischen Wetter-Korrekturfaktor nach DIN 70020 oder SAE J1349.
+    Calculates atmospheric weather normalization factor according to DIN 70020 or SAE J1349.
     
-    DIN 70020 (Referenz: 20°C / 293.15 K, 1013.25 hPa):
+    DIN 70020 (Reference: 20°C / 293.15 K, 1013.25 hPa):
     k_DIN = (1013.25 / p) * sqrt((T + 273.15) / 293.15)
     
-    SAE J1349 (Referenz: 25°C / 298.15 K, 990.0 hPa):
+    SAE J1349 (Reference: 25°C / 298.15 K, 990.0 hPa):
     k_SAE = (990.0 / p) * ((T + 273.15) / 298.15)^0.6
     """
     try:
@@ -116,26 +123,28 @@ def calculate_weather_correction_factor(temp_c=20.0, pressure_hpa=1013.25, stand
             p = 1013.25
         if t <= -40.0 or t >= 60.0:
             t = 20.0
-            
+
         std = str(standard).upper() if standard else "DIN70020"
-        
+
         if "SAE" in std:
             k = (990.0 / p) * (((t + 273.15) / 298.15) ** 0.6)
         elif "RAW" in std or "NONE" in std:
             k = 1.0
         else:  # Standard: DIN 70020
             k = (1013.25 / p) * math.sqrt((t + 273.15) / 293.15)
-            
+
         return float(max(0.75, min(1.30, k)))
     except Exception:
         return 1.0
 
 
-def calculate_road_slope_percent(df, manual_slope_pct=None):
+def calculate_road_slope_percent(
+    df: pd.DataFrame,
+    manual_slope_pct: Optional[Union[float, str]] = None
+) -> float:
     """
-    Berechnet die prozentuale Straßenneigung (Slope %) entweder automatisch
-    aus den GPS-Höhendaten (Alt) / Koordinaten (Lat, Lon) oder verwendet
-    einen manuellen Vorgabewert (z.B. +1.0% Steigung oder -1.0% Gefälle).
+    Calculates road gradient percentage (Slope %) either automatically from GPS
+    altitude delta with Savitzky-Golay filtering, or uses a manual preset value.
     """
     if manual_slope_pct is not None and manual_slope_pct != "auto":
         try:
@@ -143,12 +152,10 @@ def calculate_road_slope_percent(df, manual_slope_pct=None):
         except (ValueError, TypeError):
             pass
 
-    # Automatische GPS-Steigungserkennung
     if 'Alt' in df.columns and len(df) >= 6:
         try:
             valid_alt = pd.to_numeric(df['Alt'], errors='coerce')
             if not valid_alt.isna().all() and (valid_alt.max() - valid_alt.min()) >= 0.1:
-                # Höhendaten glätten
                 if HAS_SCIPY and len(valid_alt.dropna()) >= 7:
                     w = min(11, len(valid_alt.dropna()) - (1 if len(valid_alt.dropna()) % 2 == 0 else 0))
                     if w >= 5:
@@ -158,11 +165,10 @@ def calculate_road_slope_percent(df, manual_slope_pct=None):
                 else:
                     alt_smoothed = valid_alt.rolling(5, min_periods=1, center=True).median()
 
-                # Distanz berechnen
                 if 'Speed_kmh' in df.columns:
                     v = df['Speed_kmh'].values / 3.6
                 elif 'RPM' in df.columns:
-                    v = (df['RPM'].values / 60.0 / 6.61) * DEFAULT_TIRE_CIRCUMFERENCE_M
+                    v = (df['RPM'].values / 60.0 / 6.61) * TIRE_CIRCUMFERENCE_M
                 else:
                     v = np.full(len(df), 15.0)
 
@@ -179,43 +185,51 @@ def calculate_road_slope_percent(df, manual_slope_pct=None):
     return 0.0
 
 
-def clean_egt_data(df):
+def clean_egt_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Cleans system-related EGT measurement errors (spikes at 701°C / 705°C
     or sudden jumps > 50°C per timestep) by holding the last valid value.
     """
     cleaned_egt = []
     last_valid_egt = None
-    
+
     for val in df['EGT']:
         is_invalid = (val in [701.0, 705.0] or val <= 0.0 or np.isnan(val))
-        
         if is_invalid:
             if last_valid_egt is not None:
                 cleaned_egt.append(last_valid_egt)
             else:
-                cleaned_egt.append(20.0)  # Ambient/cold fallback
+                cleaned_egt.append(20.0)
         else:
             if last_valid_egt is None:
                 last_valid_egt = val
                 cleaned_egt.append(val)
             else:
                 if last_valid_egt > 50.0 and abs(val - last_valid_egt) > 50.0:
-                    cleaned_egt.append(last_valid_egt)  # Hold last valid value on spike
+                    cleaned_egt.append(last_valid_egt)
                 else:
                     cleaned_egt.append(val)
                     last_valid_egt = val
-                    
+
     df['EGT_cleaned'] = cleaned_egt
     return df
 
 
-def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
-                                temp_c=20.0, pressure_hpa=1013.25, norm_standard="DIN70020",
-                                mass_kg=None, cw_a=None, cr=None,
-                                tire_circumference_m=None,
-                                primary_ratio=None, gear_ratios=None,
-                                transmission_efficiency=None):
+def calculate_telemetry_metrics(
+    df: pd.DataFrame,
+    gear: Optional[int] = None,
+    slope_percent: Optional[Union[float, str]] = None,
+    temp_c: float = 20.0,
+    pressure_hpa: float = 1013.25,
+    norm_standard: str = "DIN70020",
+    mass_kg: Optional[float] = None,
+    cw_a: Optional[float] = None,
+    cr: Optional[float] = None,
+    tire_circumference_m: Optional[float] = None,
+    primary_ratio: Optional[float] = None,
+    gear_ratios: Optional[Dict[int, float]] = None,
+    transmission_efficiency: Optional[float] = None
+) -> pd.DataFrame:
     """
     Applies Savitzky-Golay smoothing and calculates physical Power (PS) and Torque (Nm)
     using the full vehicle dynamics model:
@@ -223,17 +237,18 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
     - Aerodynamic drag force (0.5 * rho * cwA * v^2)
     - Rolling resistance force (cr * m * g)
     - Road gradient force (m * g * sin(theta))
+    - Atmospheric weather normalization factor (DIN 70020 / SAE J1349)
     """
-    m = mass_kg if mass_kg is not None else DEFAULT_TOTAL_MASS_KG
-    rot_factor = DEFAULT_ROTATIONAL_MASS_FACTOR
-    u = tire_circumference_m if tire_circumference_m is not None else DEFAULT_TIRE_CIRCUMFERENCE_M
-    prim = primary_ratio if primary_ratio is not None else DEFAULT_PRIMARY_RATIO
-    gears = gear_ratios if gear_ratios is not None else DEFAULT_GEAR_RATIOS
-    cwA = cw_a if cw_a is not None else DEFAULT_CW_A
-    c_r = cr if cr is not None else DEFAULT_CR
-    rho = DEFAULT_AIR_DENSITY
-    eta = transmission_efficiency if transmission_efficiency is not None else DEFAULT_TRANSMISSION_EFFICIENCY
-    g = DEFAULT_GRAVITY
+    m = mass_kg if mass_kg is not None else TOTAL_MASS_KG
+    rot_factor = ROTATIONAL_MASS_FACTOR
+    u = tire_circumference_m if tire_circumference_m is not None else TIRE_CIRCUMFERENCE_M
+    prim = primary_ratio if primary_ratio is not None else PRIMARY_RATIO
+    gears = gear_ratios if gear_ratios is not None else GEAR_RATIOS
+    cwA = cw_a if cw_a is not None else CW_A
+    c_r = cr if cr is not None else CR
+    rho = AIR_DENSITY
+    eta = transmission_efficiency if transmission_efficiency is not None else TRANSMISSION_EFFICIENCY
+    g = GRAVITY
 
     # 1. Determine active gear & gear ratio
     if gear is None or gear not in gears:
@@ -256,7 +271,6 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
         else:
             df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
     else:
-        # Fallback smoothing
         window_size = min(9, max(3, n_points // 2 * 2 + 1))
         df['RPM_smoothed'] = df['RPM'].rolling(window=window_size, min_periods=1, center=True).mean()
         if 'Speed_kmh' in df.columns:
@@ -264,7 +278,7 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
         else:
             df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
 
-    # 3. Time step dt calculation (default 0.1s for 10Hz sampling)
+    # 3. Time step dt calculation
     if 'Time' in df.columns:
         try:
             time_series = pd.to_datetime(df['Time'], format='%H:%M:%S', errors='coerce')
@@ -278,12 +292,9 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
     # 4. Angular & Linear Velocity and Acceleration
     df['dRPM_dt'] = df['RPM_smoothed'].diff().fillna(0.0) / dt_series
 
-    # Vehicle speed in m/s derived from engine RPM & gear ratio (clutch engaged)
     v_wheel_ms = (df['RPM_smoothed'] / 60.0 / i_total) * u
-    # If GPS speed is available and consistent, we blend with physical wheel speed
     if 'Speed_smoothed' in df.columns and (df['Speed_smoothed'] > 2.0).any():
         v_gps_ms = df['Speed_smoothed'] / 3.6
-        # Use wheel speed as primary high-bandwidth reference, bounded by GPS
         v_ms = np.where(v_gps_ms > 2.0, (v_wheel_ms * 0.7 + v_gps_ms * 0.3), v_wheel_ms)
     else:
         v_ms = v_wheel_ms
@@ -297,11 +308,11 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
             df['Acceleration_ms2'] = savgol_filter(df['Acceleration_ms2'], window_length=window_len, polyorder=2)
 
     # 5. Physical Force Components
-    m_effective = m * rot_factor  # Effective mass with rotational inertia
+    m_effective = m * rot_factor
     f_acc = m_effective * df['Acceleration_ms2']
     f_aero = 0.5 * rho * cwA * (df['Velocity_ms'] ** 2)
     f_roll = c_r * m * g
-    # Straßenneigung & Hangabtriebskraft berechnen
+
     active_slope_pct = calculate_road_slope_percent(df, slope_percent)
     df['Slope_Pct'] = active_slope_pct
     f_slope = m * g * (active_slope_pct / 100.0)
@@ -310,18 +321,16 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
 
     f_total = f_acc + f_aero + f_roll + f_slope
 
-    # 6. Power Calculations (Watts -> PS) & DIN 70020 Weather Normalization
+    # 6. Power Calculations & DIN 70020 Weather Normalization
     p_wheel_watts = f_total * df['Velocity_ms']
     p_engine_watts = p_wheel_watts / eta
 
-    # Atmosphärischer Korrekturfaktor (DIN 70020 / SAE J1349)
     k_norm = calculate_weather_correction_factor(temp_c, pressure_hpa, norm_standard)
     df['Weather_K_Norm'] = k_norm
     df['Ambient_Temp_C'] = float(temp_c) if temp_c is not None else 20.0
     df['Ambient_Pressure_hPa'] = float(pressure_hpa) if pressure_hpa is not None else 1013.25
     df['Norm_Standard'] = str(norm_standard)
 
-    # Unkorrigierte & Normierte Leistung
     df['PS_Raw'] = (p_engine_watts / 735.49875).clip(lower=0.0)
     df['PS'] = (df['PS_Raw'] * k_norm).clip(lower=0.0)
 
@@ -340,21 +349,31 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
     return df
 
 
-def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=None, temp_c=20.0, pressure_hpa=1013.25, norm_standard="DIN70020"):
+def detect_dyno_pull(
+    df: pd.DataFrame,
+    min_rpm: float = 2800.0,
+    min_duration_sec: float = 0.8,
+    drop_threshold: float = 400.0,
+    slope_percent: Optional[Union[float, str]] = None,
+    temp_c: float = 20.0,
+    pressure_hpa: float = 1013.25,
+    norm_standard: str = "DIN70020"
+) -> Tuple[pd.DataFrame, bool]:
     """
     Detects the cleanest dyno acceleration pull in a log file.
-    Requirements:
-    1. Multi-gear check (valid gear ratio 2, 3, or 4).
-    2. RPM > min_rpm with sustained positive acceleration (dRPM/dt > 250 U/min/s).
-    3. Peak detection: Pull ends when RPM drops by more than drop_threshold from peak.
     Returns: (trimmed_df, is_detected)
     """
     if len(df) < 10:
         return df, False
 
-    # Ensure EGT and basic metrics are pre-calculated
     df = clean_egt_data(df)
-    df = calculate_telemetry_metrics(df, slope_percent=slope_percent, temp_c=temp_c, pressure_hpa=pressure_hpa, norm_standard=norm_standard)
+    df = calculate_telemetry_metrics(
+        df,
+        slope_percent=slope_percent,
+        temp_c=temp_c,
+        pressure_hpa=pressure_hpa,
+        norm_standard=norm_standard
+    )
 
     n_samples_required = max(5, int(min_duration_sec / 0.1))
     rpm = df['RPM_smoothed'].values
@@ -367,197 +386,155 @@ def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=40
 
     i = 0
     while i < n - n_samples_required:
-        if rpm[i] >= min_rpm and drpm[i] > 200.0:
-            # Check sustained acceleration
-            sustained_count = 0
-            for k in range(n_samples_required):
-                if (i + k < n) and (drpm[i + k] > 150.0):
-                    sustained_count += 1
+        if rpm[i] >= min_rpm and drpm[i] > 150.0:
+            start_idx = i
+            peak_idx = start_idx
+            peak_rpm = rpm[start_idx]
 
-            if sustained_count >= int(n_samples_required * 0.75):
-                start_candidate = i
-                peak_candidate = rpm[i]
-                peak_idx = i
+            j = start_idx + 1
+            while j < n:
+                curr_rpm = rpm[j]
+                if curr_rpm > peak_rpm:
+                    peak_rpm = curr_rpm
+                    peak_idx = j
+                elif (peak_rpm - curr_rpm) > drop_threshold:
+                    break
+                j += 1
 
-                # Follow the pull to its peak
-                for j in range(start_candidate, n):
-                    if rpm[j] > peak_candidate:
-                        peak_candidate = rpm[j]
-                        peak_idx = j
-                    elif (peak_candidate - rpm[j]) > drop_threshold or (drpm[j] < -350.0):
-                        break
+            pull_end = peak_idx
+            pull_duration_samples = pull_end - start_idx
+            rpm_gain = peak_rpm - rpm[start_idx]
 
-                gain = peak_candidate - rpm[start_candidate]
-                if gain > max_rpm_gain and (peak_idx - start_candidate) >= n_samples_required:
-                    max_rpm_gain = gain
-                    best_start = start_candidate
-                    best_end = peak_idx
+            if pull_duration_samples >= n_samples_required and rpm_gain > 1000.0:
+                if rpm_gain > max_rpm_gain:
+                    max_rpm_gain = rpm_gain
+                    best_start = start_idx
+                    best_end = pull_end
 
-                i = peak_idx + 1
-                continue
+            i = peak_idx + 1
+            continue
         i += 1
 
     if best_start is None or max_rpm_gain < 800.0:
-        # Fallback: take highest continuous positive slope
         return df, False
 
     trimmed_df = df.iloc[best_start:best_end + 1].copy().reset_index(drop=True)
-    
-    # Recalculate metrics on the precisely trimmed slice
-    trimmed_df = calculate_telemetry_metrics(trimmed_df, slope_percent=slope_percent, temp_c=temp_c, pressure_hpa=pressure_hpa, norm_standard=norm_standard)
+    trimmed_df = calculate_telemetry_metrics(
+        trimmed_df,
+        slope_percent=slope_percent,
+        temp_c=temp_c,
+        pressure_hpa=pressure_hpa,
+        norm_standard=norm_standard
+    )
     return trimmed_df, True
 
 
-def plot_telemetry(df, title_suffix="", output_path=None, vehicle_name="VMC177"):
-    """
-    Plots the telemetry data in professional dark 'P4-Look' with detected gear and SI carb zone.
-    """
+def plot_telemetry(
+    df: pd.DataFrame,
+    title_suffix: str = "",
+    output_path: Optional[str] = None,
+    vehicle_name: str = "VMC177"
+) -> None:
+    """Plots telemetry data in professional dark P4-Look with power, torque, AFR, and EGT."""
     plt.style.use('dark_background')
-    
-    fig, (ax1, ax3) = plt.subplots(2, 1, figsize=(12, 10), sharex=True, 
-                                   gridspec_kw={'height_ratios': [2, 1]})
-    
-    ax2 = ax1.twinx()  # Secondary Y-axis for Torque
-    
+
+    fig, (ax1, ax3) = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
+    ax2 = ax1.twinx()
+
     gear = df.get('Detected_Gear', pd.Series([3])).iloc[0] if 'Detected_Gear' in df.columns else 3
     i_total = get_gear_total_ratio(gear)
 
     # 1. Power & Torque Curves
-    p1, = ax1.plot(df['RPM_smoothed'], df['PS'], color='#00ffcc', linewidth=2.8, label='Leistung (PS)')
-    p2, = ax2.plot(df['RPM_smoothed'], df['Nm'], color='#ff9800', linewidth=2.8, label='Drehmoment (Nm)')
-    
+    ax1.plot(df['RPM_smoothed'], df['PS'], color='#00ffcc', linewidth=2.8, label='Leistung (PS)')
+    ax2.plot(df['RPM_smoothed'], df['Nm'], color='#ff9800', linewidth=2.8, label='Drehmoment (Nm)')
+
     ax1.grid(True, color='#333333', linestyle='--', alpha=0.7)
-    
+
     max_ps = df['PS'].max() if len(df) > 0 and 'PS' in df.columns else 0.0
     max_nm = df['Nm'].max() if len(df) > 0 and 'Nm' in df.columns else 0.0
-    
+
     ax1.set_ylim(0, max(25.0, max_ps * 1.18))
     ax2.set_ylim(0, max(30.0, max_nm * 1.5))
-    
-    ax1.set_title(f'StreetDyno 2.0 - {vehicle_name} Leistungsmessung{title_suffix}',
-                  fontsize=14, fontweight='bold', pad=15, color='#ffffff')
+
+    ax1.set_title(f'StreetDyno 2.0 - {vehicle_name} Leistungsmessung{title_suffix}', fontsize=14, fontweight='bold', pad=15, color='#ffffff')
     ax1.set_ylabel('Leistung [PS]', color='#00ffcc', fontsize=12, fontweight='bold')
     ax2.set_ylabel('Drehmoment [Nm]', color='#ff9800', fontsize=12, fontweight='bold')
-    
+
     ax1.tick_params(axis='y', colors='#00ffcc')
     ax2.tick_params(axis='y', colors='#ff9800')
-    
+
     if max_ps > 0 and max_nm > 0:
         peak_ps_idx = df['PS'].idxmax()
         peak_ps = df['PS'].max()
         peak_ps_rpm = df.loc[peak_ps_idx, 'RPM_smoothed']
-        
+
         peak_nm_idx = df['Nm'].idxmax()
         peak_nm = df['Nm'].max()
         peak_nm_rpm = df.loc[peak_nm_idx, 'RPM_smoothed']
-        
+
         slope_val = df.get('Slope_Pct', pd.Series([0.0])).iloc[0] if 'Slope_Pct' in df.columns else 0.0
         p_slope_avg = df.get('Slope_Power_PS', pd.Series([0.0])).mean() if 'Slope_Power_PS' in df.columns else 0.0
         slope_tag = f"\nSteigung: {slope_val:+.1f}% ({p_slope_avg:+.1f} PS)" if abs(slope_val) >= 0.1 else ""
-        
-        annotation_text = (f"Gang: {gear}. Gang (i={i_total:.2f}){slope_tag}\n"
-                           f"Peak Leistung: {peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min\n"
-                           f"Peak Drehmoment: {peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min")
-        
-        ax1.text(0.02, 0.95, annotation_text, transform=ax1.transAxes, fontsize=10,
-                 bbox=dict(boxstyle='round', facecolor='#222222', alpha=0.85, edgecolor='#00ffcc'))
+
+        annotation_text = (
+            f"Gang: {gear}. Gang (i={i_total:.2f}){slope_tag}\n"
+            f"Peak Leistung: {peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min\n"
+            f"Peak Drehmoment: {peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min"
+        )
+        ax1.text(0.02, 0.95, annotation_text, transform=ax1.transAxes, fontsize=10, bbox=dict(boxstyle='round', facecolor='#222222', alpha=0.85, edgecolor='#00ffcc'))
 
     # 2. AFR & EGT Subplot
-    ax4 = ax3.twinx()  # Secondary Y-axis for EGT
-    
-    p3, = ax3.plot(df['RPM_smoothed'], df['AFR'], color='#ff3366', linewidth=2.2, label='AFR')
-    p4, = ax4.plot(df['RPM_smoothed'], df['EGT_cleaned'], color='#ffcc00', linewidth=2.2, label='EGT (°C)')
-    
+    ax4 = ax3.twinx()
+    ax3.plot(df['RPM_smoothed'], df['AFR'], color='#ff3366', linewidth=2.2, label='AFR')
+    ax4.plot(df['RPM_smoothed'], df['EGT_cleaned'], color='#ffcc00', linewidth=2.2, label='EGT (°C)')
+
     ax3.axhline(12.8, color='#ff3366', linestyle=':', alpha=0.6, label='Optimal AFR Last (12.8-13.0)')
     ax4.axhline(630.0, color='#ffcc00', linestyle=':', alpha=0.7, label='Kritische EGT (630°C)')
-    
+
     ax3.grid(True, color='#333333', linestyle='--', alpha=0.7)
-    
     ax3.set_ylabel('AFR', color='#ff3366', fontsize=12, fontweight='bold')
     ax4.set_ylabel('EGT [°C]', color='#ffcc00', fontsize=12, fontweight='bold')
     ax3.set_xlabel('Motordrehzahl [U/min]', fontsize=12, fontweight='bold')
-    
     ax3.tick_params(axis='y', colors='#ff3366')
     ax4.tick_params(axis='y', colors='#ffcc00')
-    
-    ax3.set_ylim(10.5, 16.5)
-    ax4.set_ylim(350, 720)
-    
-    # SI Carburetor transition zone marker
-    ax3.axvspan(3000, 5000, color='#ffffff', alpha=0.08, label='SI-Vergaser Übergang (3k-5k)')
-    
-    lines1 = [p1, p2]
-    ax1.legend(lines1, [l.get_label() for l in lines1], loc='upper right')
-    
-    lines2 = [p3, p4]
-    ax3.legend(lines2, [l.get_label() for l in lines2], loc='upper right')
-    
+
     plt.tight_layout()
-    
     if output_path:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        plt.savefig(output_path, dpi=150)
-        plt.close()
+        plt.savefig(output_path, dpi=130, facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close(fig)
     else:
         plt.show()
 
 
-def export_to_gsf_dyno_csv(df, output_path):
-    """
-    Exports telemetry dataframe into a standard CSV formatted for GSF-Dyno / MegaLogViewer.
-    """
-    cols = ['Time', 'RPM', 'RPM_smoothed', 'Speed_kmh', 'AFR', 'EGT_cleaned', 'PS', 'Nm', 'Detected_Gear']
-    export_cols = [c for c in cols if c in df.columns]
-    df_export = df[export_cols].copy()
-    df_export.to_csv(output_path, index=False)
-    return output_path
-
-
-def export_to_google_sheets(df, creds_path="service_account.json", spreadsheet_name="Vespa_Dyno_Cloud", worksheet_name="RawData"):
-    """
-    Pushes the cleaned and calculated DataFrame directly to Google Sheets.
-    """
+def export_to_google_sheets(
+    df: pd.DataFrame,
+    credentials_json: str = "service_account.json",
+    spreadsheet_name: str = "Vespa_Dyno_Cloud"
+) -> bool:
+    """Exports processed dyno metrics to Google Sheets."""
     if not HAS_GSPREAD:
-        print("[WARNING] 'gspread' oder 'google-auth' nicht installiert. Sheets-Export wird übersprungen.")
-        return False
-        
-    try:
-        if not os.path.exists(creds_path):
-            print(f"[ERROR] Google Credentials nicht gefunden unter '{creds_path}'.")
-            return False
-            
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
-        ]
-        
-        creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
-        client = gspread.authorize(creds)
-        
-        try:
-            sh = client.open(spreadsheet_name)
-        except gspread.exceptions.SpreadsheetNotFound:
-            sh = client.create(spreadsheet_name)
-            
-        try:
-            worksheet = sh.worksheet(worksheet_name)
-        except gspread.exceptions.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title=worksheet_name, rows="100", cols="20")
-            
-        df_export = df.copy()
-        if 'Time' not in df_export.columns:
-            df_export.reset_index(inplace=True)
-            
-        cols_to_export = ['Time', 'RPM', 'RPM_smoothed', 'AFR', 'EGT', 'EGT_cleaned', 'Speed_kmh', 'PS', 'Nm', 'Detected_Gear']
-        cols_to_export = [c for c in cols_to_export if c in df_export.columns]
-        
-        df_export = df_export[cols_to_export].fillna("")
-        
-        worksheet.clear()
-        worksheet.update([df_export.columns.values.tolist()] + df_export.values.tolist())
-        return True
-        
-    except Exception as e:
-        print(f"[ERROR] Google Sheets Export failed: {e}")
+        print("[!] gspread nicht installiert. Export uebersprungen.")
         return False
 
+    if not os.path.exists(credentials_json):
+        print(f"[!] Google Credentials '{credentials_json}' nicht gefunden.")
+        return False
+
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_file(credentials_json, scopes=scope)
+        client = gspread.authorize(creds)
+        sheet = client.open(spreadsheet_name).sheet1
+
+        export_cols = ['Time', 'RPM_smoothed', 'PS', 'Nm', 'AFR', 'EGT_cleaned', 'Speed_smoothed']
+        available = [c for c in export_cols if c in df.columns]
+        data_to_export = [available] + df[available].fillna(0).values.tolist()
+
+        sheet.clear()
+        sheet.update('A1', data_to_export)
+        print(f"[OK] {len(df)} Datenpunkte erfolgreich nach Google Sheets '{spreadsheet_name}' exportiert.")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Fehler beim Google Sheets Export: {e}")
+        return False

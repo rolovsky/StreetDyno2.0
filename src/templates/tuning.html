@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>StreetDyno 2.0 - Vergaser Setup</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d0d11;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            padding: 15px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #222;
+        }
+        h1 { font-size: 1.3rem; font-weight: 800; color: #00ffcc; }
+        .back-btn {
+            background: #1f1f24;
+            color: #ff9800;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .section-card {
+            background: #16161a;
+            border: 2px solid #27272e;
+            border-radius: 16px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .form-group.full { grid-column: span 2; }
+        label { font-size: 0.75rem; font-weight: 700; color: #888; text-transform: uppercase; }
+        input, select {
+            background: #0d0d11;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.95rem;
+            font-weight: bold;
+        }
+        input:focus { border-color: #00ffcc; outline: none; }
+        .btn-save {
+            width: 100%;
+            background: #00ffcc;
+            color: #000;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-weight: 900;
+            font-size: 1.0rem;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+        .btn-save:active { transform: scale(0.98); }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #00e676;
+            color: #000;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-weight: 800;
+            box-shadow: 0 4px 20px rgba(0,230,118,0.5);
+            display: none;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div id="toast" class="toast">✅ Setup gespeichert!</div>
+    <div class="header">
+        <h1>🔧 VERGASER SETUP</h1>
+        <a href="/" class="back-btn">⬅️ COCKPIT</a>
+    </div>
+
+    <!-- Setup Form -->
+    <div class="section-card">
+        <h2 style="font-size:1.1rem; color:#00ffcc; font-weight:800; margin-bottom:6px;">⚙️ Aktuell montierte Bedüsung</h2>
+        <div style="font-size:0.75rem; color:#888; margin-bottom:10px;">Passe deine Düsen hier an. Der Jetting Advisor nutzt diese Werte als Referenz.</div>
+
+        <form id="carbForm" onsubmit="saveSetup(event)">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Hauptdüse (HD)</label>
+                    <input type="number" name="main_jet_hd" value="{{ carb.main_jet_hd }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Nebendüse (ND)</label>
+                    <input type="text" name="idle_jet_nd" value="{{ carb.idle_jet_nd }}" required>
+                </div>
+                <div class="form-group">
+                    <label>HLKD (Luftkorrektur)</label>
+                    <input type="number" name="air_corrector_hlkd" value="{{ carb.air_corrector_hlkd }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Mischrohr</label>
+                    <input type="text" name="emulsion_tube" value="{{ carb.emulsion_tube }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Gasschieber</label>
+                    <input type="text" name="throttle_slide" value="{{ carb.throttle_slide }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Ansaugung / Trichter</label>
+                    <input type="text" name="intake_funnel" value="{{ carb.intake_funnel }}" required>
+                </div>
+                <div class="form-group full">
+                    <label>Vergaser-Typ</label>
+                    <input type="text" name="carburetor_type" value="{{ carb.carburetor_type }}">
+                </div>
+                <div class="form-group full">
+                    <label>Notizen / Setup</label>
+                    <input type="text" name="notes" value="{{ carb.notes }}">
+                </div>
+            </div>
+            <button type="submit" class="btn-save">💾 SETUP SPEICHERN</button>
+        </form>
+    </div>
+
+    <!-- Live Bedüsungs-Diagnose -->
+    <div class="section-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h2 style="font-size:1.1rem; color:#ff9800; font-weight:800;">🔬 Live Bedüsungs-Diagnose</h2>
+            <div style="font-size:0.75rem; color:#888; font-family:monospace;">{{ latest_file or '' }}</div>
+        </div>
+        <div style="background:#1f1f26; padding:10px 12px; border-radius:8px; margin-bottom:12px;">
+            <strong style="color:#fff; font-size:0.85rem;">{{ analysis.overall_verdict if analysis else 'Keine Daten' }}</strong>
+        </div>
+        {{ zone_cards_html|safe }}
+    </div>
+
+    <script>
+        function saveSetup(e) {
+            e.preventDefault();
+            const form = document.getElementById('carbForm');
+            const formData = new FormData(form);
+            const obj = {};
+            formData.forEach((value, key) => { obj[key] = value; });
+
+            fetch('/api/update_carb_setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(obj)
+            })
+            .then(r => r.json())
+            .then(d => {
+                const toast = document.getElementById('toast');
+                toast.style.display = 'block';
+                setTimeout(() => { toast.style.display = 'none'; }, 2500);
+            })
+            .catch(err => alert('Fehler beim Speichern: ' + err));
+        }
+    </script>
+</body>
+</html>

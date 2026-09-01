@@ -1,50 +1,59 @@
-# StreetDyno 2.0 Config
+"""
+StreetDyno 2.0 - Central Configuration Module
+Defines vehicle physical specifications, sensor calibration factors,
+paths, and persistent carburetor setup management.
+"""
+
+from __future__ import annotations
 import os
+import json
+from typing import Dict, Any
 
-# --- Serial Setup für Arduino ---
-SERIAL_PORT = "/dev/ttyUSB0"  # Falls der Nano nicht erkannt wird, ttyACM0 prüfen
-SERIAL_BAUD = 115200          # 115200 Baud für Arduino Nano
+# --- Base Directories ---
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.abspath(os.path.join(SRC_DIR, ".."))
 
-# --- GPIO Pins für Joystick (BCM Nummern) ---
-JS_UP = 6         # Modus wechseln
-JS_DOWN = 19      # Modus wechseln
-JS_PRESS = 13     # Logging Start/Stop
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+PLOT_DIR = os.path.join(BASE_DIR, "plots")
+USER_SETUP_FILE = os.path.join(BASE_DIR, "user_setup.json")
 
-# --- Motor & Fahrzeug Setup (Vespa PX 125 Lusso / VMC 177) ---
-VEHICLE_NAME = "VMC177"
-VEHICLE_DESCRIPTION = "Vespa PX 125 Lusso (VMC 177 / 60mm / SI 24)"
-PULSES_PER_REV = 3            # 3 Impulse pro Umdrehung (Vespa Ducati / SIP Zündung)
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(PLOT_DIR, exist_ok=True)
 
-# --- Physikalische Fahrzeugparameter für Dyno-Berechnung ---
-TOTAL_MASS_KG = 190.0         # 112 kg Roller + 78 kg Fahrer
-ROTATIONAL_MASS_FACTOR = 1.05 # Zuschlag für rotierende Massen (Räder, Polrad, Getriebe)
-TIRE_CIRCUMFERENCE_M = 1.350  # 100/90-10 Abrollumfang in Metern
+# --- Hardware & Serial Configuration ---
+SERIAL_PORT: str = "/dev/ttyUSB0"
+SERIAL_BAUD: int = 115200
 
-PRIMARY_RATIO = 68.0 / 23.0   # Primärübersetzung (23/68 = 2.9565)
-GEAR_RATIOS = {
-    1: 58.0 / 12.0,           # 1. Gang (12/58 = 4.8333 -> i_total = 14.29)
-    2: 42.0 / 13.0,           # 2. Gang (13/42 = 3.2308 -> i_total = 9.55)
-    3: 38.0 / 17.0,           # 3. Gang (17/38 = 2.2353 -> i_total = 6.61)
-    4: 35.0 / 21.0            # 4. Gang (21/35 = 1.6667 -> i_total = 4.93)
+# Exponential Moving Average (EMA) smoothing factors for HUD
+ALPHA_RPM: float = 0.20
+ALPHA_AFR: float = 0.15
+
+# --- Vehicle Baseline Parameters (VMC 177 / Vespa PX 125 Lusso) ---
+VEHICLE_NAME: str = "VMC177"
+VEHICLE_DESCRIPTION: str = "Vespa PX 125 Lusso (VMC 177 / 60mm Welle / SI 24)"
+PULSES_PER_REV: int = 3  # 3 pulses per crankshaft revolution (SIP / Ducati CDI)
+
+# Physical Vehicle Dynamics Parameters
+TOTAL_MASS_KG: float = 190.0          # 112 kg Vespa PX + 78 kg Rider
+ROTATIONAL_MASS_FACTOR: float = 1.05  # Rotational inertia multiplier (wheels, flywheel, crank)
+TIRE_CIRCUMFERENCE_M: float = 1.350   # 100/90-10 tire rolling circumference in meters
+
+PRIMARY_RATIO: float = 68.0 / 23.0    # 23/68 teeth = 2.9565
+GEAR_RATIOS: Dict[int, float] = {
+    1: 58.0 / 12.0,                   # 1st Gear (12/58 = 4.8333 -> i_total = 14.29)
+    2: 42.0 / 13.0,                   # 2nd Gear (13/42 = 3.2308 -> i_total = 9.55)
+    3: 38.0 / 17.0,                   # 3rd Gear (17/38 = 2.2353 -> i_total = 6.61)
+    4: 35.0 / 21.0                    # 4th Gear (21/35 = 1.6667 -> i_total = 4.93)
 }
 
-CW_A = 0.50                   # Luftwiderstandsbeiwert * Stirnfläche (m²)
-CR = 0.015                    # Rollwiderstandskoeffizient
-AIR_DENSITY = 1.205           # Luftdichte rho in kg/m³
-TRANSMISSION_EFFICIENCY = 0.90 # Wirkungsgrad Antriebsstrang (Getriebe/Kette/Reifen)
-GRAVITY = 9.81                # Erdbeschleunigung m/s²
+CW_A: float = 0.50                    # Drag coefficient * frontal area (m²)
+CR: float = 0.015                     # Rolling resistance coefficient
+AIR_DENSITY: float = 1.205            # Ambient air density rho (kg/m³)
+TRANSMISSION_EFFICIENCY: float = 0.90 # Powertrain mechanical efficiency
+GRAVITY: float = 9.81                 # Gravitational acceleration (m/s²)
 
-# --- Logging Verzeichnis ---
-LOG_DIR = "logs"
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-
-# --- Vergaser & Bedüsung Setup (BGM 24/24 Fastflow Baseline) ---
-import json
-
-USER_SETUP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "user_setup.json")
-
-DEFAULT_CARB_SETUP = {
+# --- Dell'Orto SI 24/24 Carburetor Baseline Configuration ---
+DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
     "main_jet_hd": 135,
     "idle_jet_nd": "60/160",
@@ -56,7 +65,9 @@ DEFAULT_CARB_SETUP = {
     "notes": "VMC 177 / 60mm Welle / Baseline Setup"
 }
 
-def load_carb_setup():
+
+def load_carb_setup() -> Dict[str, Any]:
+    """Loads carburetor setup from user_setup.json with fallback to defaults."""
     if os.path.exists(USER_SETUP_FILE):
         try:
             with open(USER_SETUP_FILE, 'r', encoding='utf-8') as f:
@@ -68,7 +79,9 @@ def load_carb_setup():
             pass
     return DEFAULT_CARB_SETUP.copy()
 
-def save_carb_setup(setup_dict):
+
+def save_carb_setup(setup_dict: Dict[str, Any]) -> bool:
+    """Persists updated carburetor setup to user_setup.json."""
     try:
         current = load_carb_setup()
         current.update(setup_dict)
@@ -79,4 +92,5 @@ def save_carb_setup(setup_dict):
         print(f"[CONFIG ERROR] Failed to save carb setup: {e}")
         return False
 
-CARB_SETUP = load_carb_setup()
+
+CARB_SETUP: Dict[str, Any] = load_carb_setup()

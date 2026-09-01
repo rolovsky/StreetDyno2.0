@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Run Vergleich</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d0d11;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            padding: 15px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #222;
+        }
+        h1 { font-size: 1.3rem; font-weight: 800; color: #00ffcc; }
+        .back-btn {
+            background: #1f1f24;
+            color: #ff9800;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .comparison-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .run-card {
+            background: #141418;
+            border-radius: 12px;
+            padding: 12px;
+            border: 2px solid;
+        }
+        .card-run1 { border-color: #00ffcc; }
+        .card-run2 { border-color: #ff9800; }
+        .run-title { font-size: 0.8rem; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
+        .run-val { font-size: 1.5rem; font-weight: 900; font-family: 'JetBrains Mono', monospace; }
+        .chart-box {
+            background: #141418;
+            border: 1px solid #222;
+            border-radius: 14px;
+            padding: 10px;
+            margin-bottom: 15px;
+            height: 380px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 RUN VERGLEICH</h1>
+        <a href="/logs" class="back-btn">⬅️ LOGS</a>
+    </div>
+
+    <div class="comparison-cards">
+        <div class="run-card card-run1">
+            <div class="run-title" style="color:#00ffcc;">RUN 1 ({{ f1_short }})</div>
+            <div class="run-val" style="color:#00ffcc;">{{ "%.1f"|format(m1_ps) }} PS</div>
+            <div style="font-size:0.8rem; color:#aaa;">{{ "%.1f"|format(m1_nm) }} Nm &nbsp;|&nbsp; AFR {{ "%.2f"|format(m1_afr) }}</div>
+        </div>
+        <div class="run-card card-run2">
+            <div class="run-title" style="color:#ff9800;">RUN 2 ({{ f2_short }})</div>
+            <div class="run-val" style="color:#ff9800;">{{ "%.1f"|format(m2_ps) }} PS</div>
+            <div style="font-size:0.8rem; color:#aaa;">{{ "%.1f"|format(m2_nm) }} Nm &nbsp;|&nbsp; AFR {{ "%.2f"|format(m2_afr) }}</div>
+        </div>
+    </div>
+
+    <div style="background:#141418; border:1px solid #27272e; border-radius:12px; padding:10px 14px; margin-bottom:15px; text-align:center; font-weight:bold; font-size:0.9rem;">
+        DELTA: <span style="color:{% if d_ps >= 0 %}#00e676{% else %}#ff1744{% endif %};">{{ "%+.1f"|format(d_ps) }} PS</span> &nbsp;|&nbsp; 
+        <span style="color:{% if d_nm >= 0 %}#00e676{% else %}#ff1744{% endif %};">{{ "%+.1f"|format(d_nm) }} Nm</span>
+    </div>
+
+    <div class="chart-box">
+        <canvas id="compChart"></canvas>
+    </div>
+
+    <script>
+        const d1 = {{ cdata1|tojson }};
+        const d2 = {{ cdata2|tojson }};
+        const ctx = document.getElementById('compChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Run 1: {{ f1_short }} (PS)',
+                        data: d1.map(p => ({ x: p.RPM_smoothed, y: p.PS })),
+                        borderColor: '#00ffcc',
+                        borderWidth: 2.5,
+                        pointRadius: 0,
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Run 2: {{ f2_short }} (PS)',
+                        data: d2.map(p => ({ x: p.RPM_smoothed, y: p.PS })),
+                        borderColor: '#ff9800',
+                        borderWidth: 2.5,
+                        pointRadius: 0,
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'linear', title: { display: true, text: 'RPM', color: '#888' }, grid: { color: '#222' }, ticks: { color: '#888' } },
+                    y: { title: { display: true, text: 'Leistung (PS)', color: '#888' }, grid: { color: '#222' }, ticks: { color: '#888' }, min: 0 }
+                },
+                plugins: { legend: { labels: { color: '#fff', font: { weight: 'bold' } } } }
+            }
+        });
+    </script>
+</body>
+</html>

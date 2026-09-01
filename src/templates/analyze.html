@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Analyse</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d0d11;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            padding: 15px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #222;
+        }
+        h1 { font-size: 1.3rem; font-weight: 800; color: #00ffcc; }
+        .back-btn {
+            background: #1f1f24;
+            color: #ff9800;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .card {
+            background: #16161a;
+            border: 1px solid #27272e;
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        .card .label { font-size: 0.75rem; text-transform: uppercase; color: #888; font-weight: 700; }
+        .card .value { font-size: 1.8rem; font-weight: 900; font-family: 'JetBrains Mono', monospace; margin: 2px 0; }
+        .card .sub { font-size: 0.75rem; color: #aaa; }
+        .card-ps .value { color: #00ffcc; }
+        .card-nm .value { color: #ff9800; }
+        .card-afr .value { color: #00e676; }
+        .card-egt .value { color: #ffd600; }
+        .plot-container {
+            background: #000;
+            border: 1px solid #222;
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        .plot-container img { width: 100%; height: auto; display: block; }
+        .section-card {
+            background: #141418;
+            border: 2px solid #27272e;
+            border-radius: 14px;
+            padding: 14px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>📊 DYNO-ANALYSE</h1>
+            <div style="font-size:0.75rem; color:#888; font-family:monospace;">{{ fname }}</div>
+        </div>
+        <div>
+            <a href="/logs" class="back-btn">⬅️ LOGS</a>
+        </div>
+    </div>
+
+    <!-- Weather & Slope Normalization Card -->
+    <div class="section-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+            <div>
+                <strong style="color:#00ffcc; font-size:0.95rem;">🌤️ DIN 70020 WETTER-NORM:</strong>
+                <span style="font-family:monospace; font-weight:bold; color:#fff; font-size:1.0rem; margin-left:6px;">k = {{ "%.3f"|format(k_norm) }}</span>
+                <span style="font-size:0.8rem; color:#aaa; margin-left:4px;">({{ "%+.1f"|format((k_norm - 1.0)*100) }}%)</span>
+            </div>
+            <a href="/dyno_sheet?file={{ fname }}&slope={{ slope_param }}&temp={{ temp_param }}&pressure={{ pressure_param }}&norm={{ norm_param }}" target="_blank" 
+               style="background:#00ffcc; color:#000; padding:6px 12px; border-radius:8px; font-weight:800; font-size:0.8rem; text-decoration:none;">
+                📄 A4 DYNO-SHEET
+            </a>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px;">
+            <div>
+                <label style="font-size:0.7rem; color:#888; font-weight:bold; display:block;">TEMPERATUR:</label>
+                <input type="number" step="0.5" id="tempInput" value="{{ temp_param }}" style="width:100%; background:#0d0d11; border:1px solid #333; color:#fff; padding:6px; border-radius:6px; font-family:monospace; font-weight:bold;">
+            </div>
+            <div>
+                <label style="font-size:0.7rem; color:#888; font-weight:bold; display:block;">LUFTDRUCK:</label>
+                <input type="number" step="0.5" id="pressInput" value="{{ pressure_param }}" style="width:100%; background:#0d0d11; border:1px solid #333; color:#fff; padding:6px; border-radius:6px; font-family:monospace; font-weight:bold;">
+            </div>
+            <div>
+                <label style="font-size:0.7rem; color:#888; font-weight:bold; display:block;">NORM:</label>
+                <select id="normSelect" style="width:100%; background:#0d0d11; border:1px solid #333; color:#00ffcc; padding:6px; border-radius:6px; font-weight:bold; font-size:0.8rem;">
+                    <option value="DIN70020" {% if norm_param == 'DIN70020' %}selected{% endif %}>DIN 70020 (20°C)</option>
+                    <option value="SAE_J1349" {% if norm_param == 'SAE_J1349' %}selected{% endif %}>SAE J1349 (25°C)</option>
+                    <option value="RAW" {% if norm_param == 'RAW' %}selected{% endif %}>RAW (Keine)</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" onclick="fetchLiveWeather({{ gps_lat }}, {{ gps_lon }})" 
+                    style="flex:2; background:#1c1c24; border:1px solid #00ffcc; color:#00ffcc; padding:8px; border-radius:8px; font-weight:bold; font-size:0.8rem; cursor:pointer;">
+                🛰️ Wetter via Smartphone laden
+            </button>
+            <button type="button" onclick="applyWeather()" 
+                    style="flex:1; background:#00e676; border:none; color:#000; padding:8px; border-radius:8px; font-weight:800; font-size:0.8rem; cursor:pointer;">
+                🔄 NEU BERECHNEN
+            </button>
+        </div>
+
+        <div style="margin-top:10px; padding-top:8px; border-top:1px solid #222; display:flex; justify-content:space-between; align-items:center; font-size:0.8rem;">
+            <div>
+                <span style="color:#888; font-weight:bold;">🏔️ NEIGUNG:</span>
+                <span style="color:#fff; font-weight:bold; font-family:monospace;">{{ "%+.1f"|format(detected_slope) }}%</span>
+                <span style="color:#aaa;">({{ "%+.1f"|format(avg_slope_ps) }} PS)</span>
+            </div>
+            <div>
+                <select id="slopeSelect" onchange="changeSlope()" style="background:#0d0d11; border:1px solid #444; color:#00ffcc; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">
+                    <option value="auto" {% if slope_param == 'auto' %}selected{% endif %}>🛰️ Auto-GPS</option>
+                    <option value="0.0" {% if slope_param == '0.0' %}selected{% endif %}>0.0% Ebene</option>
+                    <option value="0.8" {% if slope_param == '0.8' %}selected{% endif %}>+0.8% Hausstrecke</option>
+                    <option value="1.5" {% if slope_param == '1.5' %}selected{% endif %}>+1.5% Bergauf</option>
+                    <option value="-0.8" {% if slope_param == '-0.8' %}selected{% endif %}>-0.8% Gegenhang</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Telemetry Cards -->
+    <div class="grid">
+        <div class="card card-ps">
+            <span class="label">Leistung ({{ norm_param }})</span>
+            <span class="value">{{ "%.1f"|format(max_ps) }} PS</span>
+            <span class="sub">@{{ peak_ps_rpm|int }} U/min (Raw: {{ "%.1f"|format(ps_raw) }})</span>
+        </div>
+        <div class="card card-nm">
+            <span class="label">Drehmoment</span>
+            <span class="value">{{ "%.1f"|format(max_nm) }} Nm</span>
+            <span class="sub">@{{ peak_nm_rpm|int }} U/min</span>
+        </div>
+        <div class="card card-afr">
+            <span class="label">AFR (Mittel)</span>
+            <span class="value">{{ "%.2f"|format(avg_afr) }}</span>
+            <span class="sub">im Volllastzug</span>
+        </div>
+        <div class="card card-egt">
+            <span class="label">EGT (Peak)</span>
+            <span class="value">{{ max_egt|int }}°C</span>
+            <span class="sub">Abgastemperatur</span>
+        </div>
+    </div>
+
+    <!-- Dyno Plot -->
+    <div class="plot-container">
+        <img src="/plots/{{ pname }}" alt="Leistungsdiagramm">
+    </div>
+
+    <!-- Carburetor Jetting Advisor Card -->
+    <div class="section-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h3 style="margin:0; font-size:1.05rem; color:#00ffcc; font-weight:800;">🔬 CARBURETOR JETTING ADVISOR</h3>
+            <a href="/tuning" style="font-size:0.75rem; color:#ff9800; text-decoration:none; font-weight:700; background:#222; padding:4px 10px; border-radius:6px; border:1px solid #444;">⚙️ Setup ändern</a>
+        </div>
+        <div style="background:#1f1f26; padding:10px 12px; border-radius:8px; margin-bottom:12px; font-size:0.85rem; color:#fff;">
+            <strong>{{ carb_diag.overall_verdict if carb_diag else '' }}</strong>
+        </div>
+        {{ diag_rows_html|safe }}
+    </div>
+
+    <script>
+        function changeSlope() {
+            const val = document.getElementById('slopeSelect').value;
+            const url = new URL(window.location.href);
+            url.searchParams.set('slope', val);
+            window.location.href = url.toString();
+        }
+
+        function applyWeather() {
+            const temp = document.getElementById('tempInput').value;
+            const press = document.getElementById('pressInput').value;
+            const norm = document.getElementById('normSelect').value;
+            const url = new URL(window.location.href);
+            url.searchParams.set('temp', temp);
+            url.searchParams.set('pressure', press);
+            url.searchParams.set('norm', norm);
+            window.location.href = url.toString();
+        }
+
+        function fetchLiveWeather(lat, lon) {
+            if (!lat || !lon || lat === 0.0) {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(pos => {
+                        fetchOpenMeteo(pos.coords.latitude, pos.coords.longitude);
+                    }, () => {
+                        fetchOpenMeteo(48.137, 11.575);
+                    });
+                } else {
+                    fetchOpenMeteo(48.137, 11.575);
+                }
+                return;
+            }
+            fetchOpenMeteo(lat, lon);
+        }
+
+        function fetchOpenMeteo(lat, lon) {
+            const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,surface_pressure`;
+            fetch(apiUrl)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.current) {
+                        document.getElementById('tempInput').value = d.current.temperature_2m.toFixed(1);
+                        document.getElementById('pressInput').value = d.current.surface_pressure.toFixed(1);
+                        applyWeather();
+                    }
+                })
+                .catch(err => alert('Wetter konnte nicht abgerufen werden: ' + err));
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Logs</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d0d11;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            padding: 15px;
+            padding-bottom: 80px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #222;
+        }
+        h1 { font-size: 1.3rem; font-weight: 800; color: #00ffcc; }
+        .back-btn {
+            background: #1f1f24;
+            color: #ff9800;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .tuning-btn {
+            background: #1f1f24;
+            color: #00ffcc;
+            padding: 8px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-right: 6px;
+        }
+        .log-item {
+            background: #141418;
+            border: 1px solid #22222a;
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .log-left { display: flex; align-items: center; gap: 10px; flex-grow: 1; }
+        .log-info { display: flex; flex-direction: column; gap: 2px; }
+        .log-title { font-size: 0.9rem; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace; }
+        .log-meta { font-size: 0.75rem; color: #888; }
+        .log-actions { display: flex; gap: 6px; align-items: center; }
+        .btn-action {
+            background: #22222b;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border: 1px solid #333;
+        }
+        .btn-analyze { background: #00ffcc; color: #000; font-weight: 800; border: none; }
+        .btn-action:active { transform: scale(0.96); }
+        .compare-bar {
+            position: fixed;
+            bottom: 15px;
+            left: 15px;
+            right: 15px;
+            background: #00ffcc;
+            color: #000;
+            padding: 12px;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 0.95rem;
+            text-align: center;
+            display: none;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0,255,204,0.5);
+            z-index: 999;
+        }
+        input[type="checkbox"] { width: 18px; height: 18px; accent-color: #00ffcc; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📂 LOG ARCHIV ({{ logs|length }})</h1>
+        <div>
+            <a href="/tuning" class="tuning-btn">🔧 VERGASER</a>
+            <a href="/" class="back-btn">⬅️ COCKPIT</a>
+        </div>
+    </div>
+
+    {% for l in logs %}
+    <div class="log-item">
+        <div class="log-left">
+            <input type="checkbox" class="log-cb" value="{{ l.filename }}" onchange="handleCheckboxChange()">
+            <div class="log-info">
+                <div class="log-title">{{ l.filename }}</div>
+                <div class="log-meta">{{ l.mtime }} &nbsp;|&nbsp; {{ l.size_kb }} KB</div>
+            </div>
+        </div>
+        <div class="log-actions">
+            <a href="/analyze?file={{ l.filename }}" class="btn-action btn-analyze">ANALYSE</a>
+            <a href="/download/{{ l.filename }}" class="btn-action">CSV</a>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div id="compareBar" class="compare-bar" onclick="startComparison()">
+        📊 2 RUNS VERGLEICHEN
+    </div>
+
+    <script>
+        function handleCheckboxChange() {
+            const checked = document.querySelectorAll('.log-cb:checked');
+            const bar = document.getElementById('compareBar');
+            if (checked.length === 2) {
+                bar.style.display = 'block';
+                bar.innerText = `📊 RUNS VERGLEICHEN (${checked[0].value.slice(-10)} vs ${checked[1].value.slice(-10)})`;
+            } else {
+                bar.style.display = 'none';
+                if (checked.length > 2) {
+                    alert('Bitte wähle maximal 2 Logs zum Vergleichen aus.');
+                    this.checked = false;
+                }
+            }
+        }
+
+        function startComparison() {
+            const checked = document.querySelectorAll('.log-cb:checked');
+            if (checked.length === 2) {
+                window.location.href = `/compare?file1=${checked[0].value}&file2=${checked[1].value}`;
+            }
+        }
+    </script>
+</body>
+</html>

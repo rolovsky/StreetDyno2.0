@@ -1,36 +1,39 @@
-import os
-import json
-import numpy as np
+"""
+StreetDyno 2.0 - Carburetor Jetting Advisor
+Evaluates AFR air-fuel mixture across 4 operating regimes for Dell'Orto SI 24/24
+carburetors and generates actionable mechanical jetting recommendations.
+"""
+
+from __future__ import annotations
+from typing import Dict, Any, Optional, List
 import pandas as pd
+from config import load_carb_setup
 
-try:
-    from config import load_carb_setup
-except ModuleNotFoundError:
-    try:
-        from src.config import load_carb_setup
-    except ModuleNotFoundError:
-        from ..config import load_carb_setup
 
-def parse_nd_ratio(nd_str):
-    """ Berechnet das Verhältnis der Nebendüse (z.B. 60/160 -> 160/60 = 2.67) """
+def parse_nd_ratio(nd_str: str) -> float:
+    """Calculates idle jet ratio (e.g. 60/160 -> 160 / 60 = 2.67)."""
     try:
         parts = str(nd_str).split('/')
         if len(parts) == 2:
             fuel = float(parts[0])
             air = float(parts[1])
             return air / fuel if fuel > 0 else 2.67
-    except:
+    except Exception:
         pass
     return 2.67
 
-def analyze_carb_jetting(df, carb_setup=None):
+
+def analyze_carb_jetting(
+    df: pd.DataFrame,
+    carb_setup: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
-    Analysiert das AFR-Kennfeld eines Dyno-Pulls oder Logs und gibt
-    konkrete Bedüsungsempfehlungen für SI 24/24 Vergaser.
+    Analyzes telemetry AFR across 4 carburetor operating regimes and
+    outputs component recommendations for Dell'Orto SI 24/24.
     """
     if carb_setup is None:
         carb_setup = load_carb_setup()
-        
+
     hd = carb_setup.get("main_jet_hd", 135)
     nd = carb_setup.get("idle_jet_nd", "60/160")
     hlkd = carb_setup.get("air_corrector_hlkd", 160)
@@ -98,133 +101,130 @@ def analyze_carb_jetting(df, carb_setup=None):
             "target_min": 12.4,
             "target_max": 12.8,
             "component": f"Hauptdüse (HD {hd})",
-            "desc": "Vollgas, Maximalleistung & Hitzeschutz"
+            "desc": "Vollgas & thermische EGT-Sicherheit"
         }
     ]
 
-    analyzed_zones = []
-    total_warnings = 0
-    danger_detected = False
+    evaluated_zones: List[Dict[str, Any]] = []
+    has_critical_lean = False
+    needs_tuning = False
 
     for z in zones_def:
-        mask = (sub_df[rpm_col] >= z["rpm_min"]) & (sub_df[rpm_col] < z["rpm_max"])
-        z_data = sub_df[mask]
+        z_mask = (sub_df[rpm_col] >= z["rpm_min"]) & (sub_df[rpm_col] < z["rpm_max"])
+        z_data = sub_df[z_mask]
 
-        if len(z_data) >= 3:
-            mean_afr = float(z_data[afr_col].mean())
-            min_afr = float(z_data[afr_col].min())
-            max_afr = float(z_data[afr_col].max())
-            points = len(z_data)
+        if len(z_data) < 2:
+            evaluated_zones.append({
+                "id": z["id"],
+                "name": z["name"],
+                "rpm_range": f"{z['rpm_min']}-{z['rpm_max']} U/min",
+                "component": z["component"],
+                "mean_afr": None,
+                "target": f"{z['target_min']}-{z['target_max']}",
+                "status": "NO_DATA",
+                "status_text": "KEINE DATEN",
+                "badge_class": "badge-secondary",
+                "advice": "In diesem Drehzahlbereich lagen während des Pulls keine stabilen Messwerte vor.",
+                "gauge_pct": 50
+            })
+            continue
+
+        mean_afr = float(z_data[afr_col].mean())
+        t_min = z["target_min"]
+        t_max = z["target_max"]
+
+        if mean_afr > t_max + 1.2:
+            status = "CRITICAL_LEAN"
+            status_text = "🚨 KRITISCH MAGER"
+            badge_class = "badge-danger"
+            has_critical_lean = True
+        elif mean_afr > t_max + 0.3:
+            status = "LEAN"
+            status_text = "⚠️ LEICHT MAGER"
+            badge_class = "badge-warning"
+            needs_tuning = True
+        elif mean_afr < t_min - 0.8:
+            status = "RICH"
+            status_text = "🔵 ZU FETT"
+            badge_class = "badge-info"
+            needs_tuning = True
         else:
-            mean_afr = None
-            min_afr = None
-            max_afr = None
-            points = 0
+            status = "PERFECT"
+            status_text = "🟢 PERFEKT"
+            badge_class = "badge-success"
 
-        if mean_afr is None:
-            status = "NO_DATA"
-            status_text = "Keine Daten"
-            badge_class = "badge-neutral"
-            advice = "In diesem Drehzahlbereich lagen keine Messpunkte vor."
-            gauge_pct = 50
-        else:
-            gauge_pct = max(0, min(100, (mean_afr - 10.0) / 6.0 * 100))
+        advice = ""
+        zid = z["id"]
 
-            if mean_afr > z["target_max"] + 0.8:
-                status = "CRITICAL_LEAN"
-                status_text = "🚨 KRITISCH MAGER"
-                badge_class = "badge-critical"
-                total_warnings += 2
-                danger_detected = True
-                if z["id"] == "zone4":
-                    advice = f"🚨 Klemmgefahr bei Vollgas! Hauptdüse HD von {hd} umgehend um +4 bis +6 Nummern vergrößern (z.B. HD {int(hd)+5})."
-                elif z["id"] == "zone3":
-                    advice = f"🚨 Starkes Magerloch vor Resonanz! HLKD von {hlkd} auf 140/150 verkleinern oder fetteres Mischrohr testen."
-                elif z["id"] == "zone2":
-                    advice = f"Magerer Übergang! Schieber mit kleinerem Cutaway wählen oder Gemischschraube weiter raus."
-                else:
-                    advice = f"Nebendüse {nd} deutlich zu mager! Fetteres ND-Verhältnis montieren (z.B. 58/140 oder 55/140)."
-
-            elif mean_afr > z["target_max"]:
-                status = "LEAN"
-                status_text = "⚠️ LEICHT MAGER"
-                badge_class = "badge-warn"
-                total_warnings += 1
-                if z["id"] == "zone4":
-                    advice = f"Vollgas etwas zu mager. HD von {hd} um +2 bis +3 Nummern anheben (z.B. HD {int(hd)+3})."
-                elif z["id"] == "zone3":
-                    advice = f"HLKD von {hlkd} auf 140 verkleinern oder Mischrohr {tube} fetter abstimmen."
-                elif z["id"] == "zone2":
-                    advice = f"Schieber {slide} läuft leicht mager. Gemischschraube 1/2 Umdrehung rausdrehen."
-                else:
-                    advice = f"ND {nd} leicht mager. Gemischschraube 1/2 Umdrehung herausdrehen."
-
-            elif mean_afr < z["target_min"] - 0.9:
-                status = "TOO_RICH"
-                status_text = "🔵 ZU FETT"
-                badge_class = "badge-rich"
-                total_warnings += 1
-                if z["id"] == "zone4":
-                    advice = f"Vollgas zu fett (Leistungsverlust & Stottern). HD von {hd} um -3 Nummern reduzieren (z.B. HD {int(hd)-3})."
-                elif z["id"] == "zone3":
-                    advice = f"Resonanzbereich überfettet. HLKD von {hlkd} auf 180 vergrößern."
-                elif z["id"] == "zone2":
-                    advice = f"Viertakten im Teillastbereich. Schieber mit größerem Cutaway verwenden."
-                else:
-                    advice = f"ND {nd} zu fett (unruhiges Standgas). Magerere ND montieren (z.B. 55/160) oder Gemischschraube 1/2 Umdrehung rein."
-
-            elif mean_afr < z["target_min"]:
-                status = "SLIGHTLY_RICH"
-                status_text = "🔵 LEICHT FETT"
-                badge_class = "badge-info"
-                if z["id"] == "zone4":
-                    advice = f"HD {hd} ist thermisch sehr sicher, bietet aber noch etwas Potenzial nach oben."
-                else:
-                    advice = "Gemisch liegt auf der sicheren, leicht fetten Seite."
-
+        if zid == "zone1":
+            if "LEAN" in status:
+                advice = f"Gemischschraube 0.5 Umdrehungen herausdrehen (fetter). Falls AFR weiterhin > {t_max}, ND von {nd} auf fettere ND wechseln."
+            elif status == "RICH":
+                advice = f"Gemischschraube 0.5 Umdrehungen hineindrehen. Falls AFR < {t_min}, magerere ND wählen."
             else:
-                status = "OPTIMAL"
-                status_text = "🟢 PERFEKT"
-                badge_class = "badge-ok"
-                advice = f"{z['component']} arbeitet optimal im Zielfenster ({z['target_min']:.1f} - {z['target_max']:.1f} AFR)."
+                advice = f"Nebendüse {nd} & Gemischschraube arbeiten im optimalen Lambdafenster."
 
-        analyzed_zones.append({
-            "id": z["id"],
+        elif zid == "zone2":
+            if "LEAN" in status:
+                advice = f"Magerer Schieber-Cutaway ({slide})! Gasschieber mit flacherem Cutaway verwenden oder Mischrohr mit tieferen Querbohrungen einsetzen."
+            elif status == "RICH":
+                advice = f"Überfettet bei 1/4 bis 1/2 Gas. Schieber mit größerem Cutaway verwenden."
+            else:
+                advice = f"Gasschieber {slide} sorgt für sauberen Übergang ohne Magerloch."
+
+        elif zid == "zone3":
+            if "LEAN" in status:
+                advice = f"Magerlauf beim Eintritt in die Resonanz! HLKD von {hlkd} auf kleiner (z.B. 140/150) reduzieren oder fetteres Mischrohr ({tube}) verbauen."
+            elif status == "RICH":
+                advice = f"Viertaktet vor Resonanzeintritt. HLKD vergrößern oder magereres Mischrohr wählen."
+            else:
+                advice = f"Mischrohr {tube} & HLKD {hlkd} versorgen den Motor im Resonanzeinstieg perfekt."
+
+        elif zid == "zone4":
+            if status == "CRITICAL_LEAN":
+                advice = f"🚨 AKUTE KLEMMGEFAHR BEI VOLLGAS! Hauptdüse HD {hd} sofort um mind. +4 bis +6 Nummern vergrößern (z.B. HD 140/142)!"
+            elif status == "LEAN":
+                advice = f"Hauptdüse HD {hd} etwas zu mager. Empfehlung: HD um +2 bis +3 Nummern vergrößern (z.B. HD 138)."
+            elif status == "RICH":
+                advice = f"Motor drosselt obenraus / überfettet. HD {hd} um 2 Nummern verkleinern (z.B. HD 132/134)."
+            else:
+                advice = f"Hauptdüse HD {hd} liefert maximale Leistung bei optimaler EGT-Innenkühlung."
+
+        gauge_pct = int(max(0, min(100, ((mean_afr - 10.0) / 6.0) * 100)))
+
+        evaluated_zones.append({
+            "id": zid,
             "name": z["name"],
-            "rpm_range": f"{z['rpm_min']} - {z['rpm_max']} U/min",
+            "rpm_range": f"{z['rpm_min']}-{z['rpm_max']} U/min",
             "component": z["component"],
-            "desc": z["desc"],
-            "target": f"{z['target_min']:.1f} - {z['target_max']:.1f}",
-            "mean_afr": round(mean_afr, 2) if mean_afr is not None else None,
-            "min_afr": round(min_afr, 2) if min_afr is not None else None,
-            "max_afr": round(max_afr, 2) if max_afr is not None else None,
-            "points": points,
+            "mean_afr": round(mean_afr, 2),
+            "target": f"{t_min:.1f}-{t_max:.1f}",
             "status": status,
             "status_text": status_text,
             "badge_class": badge_class,
             "advice": advice,
-            "gauge_pct": round(gauge_pct, 1)
+            "gauge_pct": gauge_pct
         })
 
-    avg_total_afr = float(sub_df[afr_col].mean())
-    max_egt_val = float(sub_df[egt_col].max()) if egt_col and not sub_df[egt_col].isna().all() else None
-
-    if danger_detected:
-        overall_verdict = "🚨 ACHTUNG: Kritisches Gemisch in einem oder mehreren Lastbereichen. Bitte Bedüsung vor dem nächsten Vollgaslauf anpassen!"
+    if has_critical_lean:
         overall_status = "CRITICAL"
-    elif total_warnings > 0:
-        overall_verdict = "⚠️ Solide Basis mit Feintuning-Potenzial. Siehe detaillierte Empfehlungen unten."
+        overall_verdict = "🚨 KRITISCH: Akuter Magerlauf unter Last! Bedüsung sofort anpassen, um Motorschäden zu vermeiden."
+    elif needs_tuning:
         overall_status = "TUNE"
+        overall_verdict = "⚠️ OPTIMIERUNGSBEDARF: Gemisch weicht in Teilbereichen vom Ideal ab. Siehe Zonen-Details."
     else:
-        overall_verdict = "🏆 Hervorragende Vergaserabstimmung! Das Gemisch liegt über das gesamte Drehzahlband im idealen Leistungsfenster."
         overall_status = "PERFECT"
+        overall_verdict = "🟢 OPTIMAL: Vergaser-Bedüsung perfekt abgestimmt über das gesamte Drehzahlband."
+
+    max_egt = float(sub_df[egt_col].max()) if egt_col and not sub_df[egt_col].isna().all() else None
+    avg_total_afr = float(sub_df[afr_col].mean())
 
     return {
         "valid": True,
-        "carb_setup": carb_setup,
         "overall_status": overall_status,
         "overall_verdict": overall_verdict,
         "avg_total_afr": round(avg_total_afr, 2),
-        "max_egt": round(max_egt_val, 1) if max_egt_val is not None else None,
-        "zones": analyzed_zones
+        "max_egt": round(max_egt, 0) if max_egt else None,
+        "carb_setup": carb_setup,
+        "zones": evaluated_zones
     }
