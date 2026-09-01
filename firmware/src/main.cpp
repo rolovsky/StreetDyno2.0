@@ -27,8 +27,9 @@ MAX6675 thermocouple(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
 
 // --- Atomic Interrupt Variables ---
 volatile uint32_t v_lastPulseTime = 0;
-volatile uint32_t v_interval = 0;
-volatile bool v_newPulse = false;
+volatile uint32_t v_lastValidInterval = 0;
+volatile uint32_t v_intervalSum = 0;
+volatile uint16_t v_pulseCount = 0;
 
 // --- Runtime State ---
 float lastValidRPM = 0.0f;
@@ -41,21 +42,11 @@ void rpmInterrupt() {
     const uint32_t interval = now - v_lastPulseTime;
 
     if (interval > DEBOUNCE_MICROS) {
-        v_interval = interval;
+        v_intervalSum += interval;
+        v_pulseCount++;
+        v_lastValidInterval = interval;
         v_lastPulseTime = now;
-        v_newPulse = true;
     }
-}
-
-uint32_t smartRound(uint32_t value) {
-    uint32_t roundTo = 1;
-    if (value > 4000)      roundTo = 100;
-    else if (value > 2000) roundTo = 50;
-    else if (value > 1000) roundTo = 25;
-    else if (value > 500)  roundTo = 10;
-    else return value;
-
-    return ((value + (roundTo / 2)) / roundTo) * roundTo;
 }
 
 void setup() {
@@ -85,38 +76,44 @@ void loop() {
     if (now - lastTelemetryOutputTime >= 100) {
         lastTelemetryOutputTime = now;
 
-        uint32_t currentInterval;
-        uint32_t timeSinceLast;
-
+        // Atomically snapshot and reset pulse accumulator
         noInterrupts();
-        currentInterval = v_interval;
-        timeSinceLast = micros() - v_lastPulseTime;
-        v_newPulse = false;
+        const uint16_t pulseCount = v_pulseCount;
+        const uint32_t intervalSum = v_intervalSum;
+        const uint32_t lastPulse = v_lastPulseTime;
+        const uint32_t lastValidInterval = v_lastValidInterval;
+        v_pulseCount = 0;
+        v_intervalSum = 0;
+        const uint32_t timeSinceLast = micros() - lastPulse;
         interrupts();
 
         float calculatedRPM = 0.0f;
 
-        if (timeSinceLast > RPM_TIMEOUT_MICROS) {
+        if (timeSinceLast > RPM_TIMEOUT_MICROS || lastPulse == 0) {
             calculatedRPM = 0.0f;
-        } else if (currentInterval > 0) {
-            calculatedRPM = (60000000.0f / static_cast<float>(currentInterval)) / PULSES_PER_REV;
-
-            // Reject physical impossibilities (>3000 RPM jump per 100ms indicates EMI)
-            if (lastValidRPM > 1000.0f && fabsf(calculatedRPM - lastValidRPM) > 3000.0f) {
-                calculatedRPM = lastValidRPM;
-            }
+        } else if (pulseCount > 0 && intervalSum > 0) {
+            // High-precision average interval across all pulses in the 100ms window
+            const float avgInterval = static_cast<float>(intervalSum) / static_cast<float>(pulseCount);
+            calculatedRPM = (60000000.0f / avgInterval) / PULSES_PER_REV;
+        } else if (lastValidInterval > 0) {
+            // Low RPM (<600 RPM) fallback when no new pulse occurred in this exact 100ms frame
+            calculatedRPM = (60000000.0f / static_cast<float>(lastValidInterval)) / PULSES_PER_REV;
         }
 
-        lastValidRPM = calculatedRPM;
-        const uint32_t roundedRPM = smartRound(static_cast<uint32_t>(calculatedRPM));
+        // Glitch rejection filter (>3000 RPM jump per 100ms indicates EMI noise)
+        if (lastValidRPM > 1000.0f && fabsf(calculatedRPM - lastValidRPM) > 3000.0f) {
+            calculatedRPM = lastValidRPM;
+        } else {
+            lastValidRPM = calculatedRPM;
+        }
 
         // 3. Calibrated Wideband AFR (0-5V Linear Scale: 0V -> 23.14 AFR, 5V -> 7.35 AFR)
         const float afrV = static_cast<float>(analogRead(PIN_AFR)) * (USB_VCC_VOLTAGE / 1023.0f);
         const float afrValue = 23.14f - (afrV * 6.15f);
 
-        // 4. Send structured $ packet
+        // 4. Send continuous unrounded stream to Raspberry Pi
         Serial.print('$');
-        Serial.print(roundedRPM);
+        Serial.print(static_cast<uint32_t>(calculatedRPM + 0.5f));
         Serial.print(';');
         Serial.print(afrValue, 2);
         Serial.print(';');

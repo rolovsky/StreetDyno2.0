@@ -151,7 +151,9 @@ class HardwareService:
 
         filtered_rpm = 0.0
         filtered_afr = 0.0
-        prev_rpm = 0.0
+
+        # High-Precision 3-Point Derivative History [(timestamp, rpm), ...]
+        rpm_history: Deque[tuple[float, float]] = deque(maxlen=4)
 
         # WOT Auto-Trigger Tracking State
         accel_streak = 0
@@ -205,7 +207,7 @@ class HardwareService:
                         pass
                     ser = None
 
-            # 3. EMA Filtering for smooth visual display & gradient calculation
+            # 3. EMA Filtering for smooth visual display
             if raw_rpm > 0:
                 filtered_rpm = (ALPHA_RPM * raw_rpm) + ((1.0 - ALPHA_RPM) * filtered_rpm)
             else:
@@ -216,8 +218,20 @@ class HardwareService:
             else:
                 filtered_afr = 0.0
 
-            drpm_dt = (filtered_rpm - prev_rpm) / dt if dt > 0 else 0.0
-            prev_rpm = filtered_rpm
+            # 4. Robust 3-Point Rolling Central Derivative (dRPM/dt)
+            rpm_history.append((loop_now, filtered_rpm))
+            if len(rpm_history) >= 3:
+                t_prev2, rpm_prev2 = rpm_history[-3]
+                t_curr, rpm_curr = rpm_history[-1]
+                dt_span = t_curr - t_prev2
+                drpm_dt = (rpm_curr - rpm_prev2) / dt_span if dt_span > 0.02 else 0.0
+            elif len(rpm_history) >= 2:
+                t_prev1, rpm_prev1 = rpm_history[-2]
+                t_curr, rpm_curr = rpm_history[-1]
+                dt_span = t_curr - t_prev1
+                drpm_dt = (rpm_curr - rpm_prev1) / dt_span if dt_span > 0.01 else 0.0
+            else:
+                drpm_dt = 0.0
 
             # 4. GPS Telemetry Polling
             gps_data: GPSData = self.gps.get_data()
