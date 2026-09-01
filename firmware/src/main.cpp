@@ -1,19 +1,18 @@
 #include <Arduino.h>
 #include "max6675.h"
 
-// =========================================================
-// --- STREETDYNO FIRMWARE V5.0 (GSF-LOCKOUT EDITION) ---
-// =========================================================
+// =========================================================================
+// --- STREETDYNO FIRMWARE V5.1 (PROD-CALIBRATED & ISOLATED) ---
+// =========================================================================
 // Setup: VMC 177 / 60mm / SI 24 (Lemarxon) / Polini Box
-// =========================================================
+// Spezifikation: Sonden exklusiv am Arduino, kalibriert auf 4.71V USB-VCC.
+// =========================================================================
 
 const float PULSES_PER_REV = 3.0;   
 const unsigned long DEBOUNCE_MICROS = 1500; // Sperrzeit gegen EMV-Ringen
 
 const int rpmPin = 2;       
 const int afrPin = A0;      
-
-const float INTERNAL_BANDGAP = 1.1; // Default 1.1V Bandgap (für Kalibrierung anpassbar)
 
 MAX6675 thermocouple(6, 5, 4); 
 
@@ -24,6 +23,8 @@ volatile bool v_newPulse = false;
 
 // Hilfsvariablen für die Hauptschleife
 float lastValidRPM = 0;
+float lastValidEgt = -1.0;
+unsigned long lastEgtMeasurementTime = 0;
 
 void rpmInterrupt() {
     unsigned long now = micros();
@@ -47,29 +48,6 @@ unsigned long smartRound(unsigned long value) {
     return ((value + (roundTo / 2)) / roundTo) * roundTo;
 }
 
-long readVcc() {
-    // 1.1V Referenzspannung gegen AVcc messen
-    #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-        ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-    #elif defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega32U4) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-        ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-        ADCSRB &= ~_BV(MUX5);   // MUX5 Bit löschen
-    #endif  
-
-    delay(2); // Warten bis Referenzspannung stabil ist
-    ADCSRA |= _BV(ADSC); // Messung starten
-    while (bit_is_set(ADCSRA, ADSC)); // Warten bis fertig
-
-    uint8_t low  = ADCL; // ADCL zuerst lesen (sperrt das Register)
-    uint8_t high = ADCH; // ADCH lesen (entsperrt beide)
-
-    long result = (high << 8) | low;
-
-    // Vcc in Millivolt berechnen: INTERNAL_BANDGAP * 1023 * 1000
-    result = (INTERNAL_BANDGAP * 1023.0 * 1000.0) / result; 
-    return result; 
-}
-
 void setup() {
     Serial.begin(115200); 
     pinMode(rpmPin, INPUT_PULLUP); 
@@ -78,18 +56,26 @@ void setup() {
 
 void loop() {
     static unsigned long lastUpdate = 0;
-    static float lastEgt = -1.0;
     unsigned long now = millis();
 
-    // EGT-Messung alle 500ms (Max6675 ist träge)
-    if (now % 500 == 0) {
-        float egt = thermocouple.readCelsius();
-        if (!isnan(egt) && egt > 0) {
-            lastEgt = egt;
+    // 1. EGT-Messung alle 500ms mit robustem Intervall-Timer (statt Modulo)
+    if (now - lastEgtMeasurementTime >= 500) {
+        lastEgtMeasurementTime = now;
+        float rawEgt = thermocouple.readCelsius();
+        
+        if (!isnan(rawEgt) && rawEgt > 0) {
+            // EGT-Filter: Physisch unmögliche Sprünge (z.B. auf die 705°C Spikes) blockieren
+            if (lastValidEgt < 0) {
+                lastValidEgt = rawEgt; // Initiale Messung beim Start
+            } 
+            else if (abs(rawEgt - lastValidEgt) < 50.0) {
+                lastValidEgt = rawEgt; // Gültiger Wert innerhalb plausibler Grenzen
+            }
+            // Wenn der Wert um mehr als 50°C springt, halten wir den alten Wert (Spike-Schutz)
         }
     }
 
-    // 10Hz Datenausgabe an den Raspberry Pi
+    // 2. 10Hz Datenausgabe an den Raspberry Pi
     if (now - lastUpdate >= 100) {
         lastUpdate = now;
         
@@ -124,30 +110,16 @@ void loop() {
         lastValidRPM = calculatedRPM;
         unsigned long roundedRPM = smartRound((unsigned long)calculatedRPM);
 
-        // Dynamische VCC Messung für präzise AFR-Spannungsreferenz
-        static float filteredVcc = -1.0;
-        float currentVcc = readVcc();
-        
-        // Dummy-Read und kurze Wartezeit, damit sich der ADC-Multiplexer wieder auf AVcc einschwingen kann
-        analogRead(afrPin);
-        delay(2);
-
-        if (filteredVcc < 0) {
-            filteredVcc = currentVcc;
-        } else {
-            filteredVcc = (filteredVcc * 0.9) + (currentVcc * 0.1);
-        }
-
-        float vccVolts = filteredVcc / 1000.0;
-        float afrV = analogRead(afrPin) * (vccVolts / 1023.0);
+        // 3. ECHTE AFR-Berechnung (exakt kalibriert auf deine gemessenen 4.71V USB-VCC!)
+        float afrV = analogRead(afrPin) * (4.71 / 1023.0);
         float afrValue = 23.14 - (afrV * 6.15); 
 
-        // Das $ Protokoll für den Pi
+        // 4. Das $ Protokoll für den Pi
         Serial.print("$");
         Serial.print(roundedRPM);
         Serial.print(";");
         Serial.print(afrValue, 2);
         Serial.print(";");
-        Serial.println(lastEgt, 1);
+        Serial.println(lastValidEgt, 1);
     }
 }

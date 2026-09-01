@@ -479,8 +479,10 @@ function doPost(e) {{
     
     if (!sheet) {{
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(headers);
+    }} else {{
+      sheet.clear();
     }}
+    sheet.appendRow(headers);
     
     var rowsToWrite = [];
     for (var i = 0; i < data.length; i++) {{
@@ -488,14 +490,13 @@ function doPost(e) {{
       var rowData = [];
       for (var j = 0; j < headers.length; j++) {{
         var key = headers[j];
-        rowData.push(row[key] !== undefined ? row[key] : "");
+        rowData.push(row[key] !== undefined && row[key] !== null ? row[key] : "");
       }}
       rowsToWrite.push(rowData);
     }}
     
     if (rowsToWrite.length > 0) {{
-      var startRow = sheet.getLastRow() + 1;
-      sheet.getRange(startRow, 1, rowsToWrite.length, headers.length).setValues(rowsToWrite);
+      sheet.getRange(2, 1, rowsToWrite.length, headers.length).setValues(rowsToWrite);
     }}
     
     return ContentService.createTextOutput(JSON.stringify({{success: true}}))
@@ -609,7 +610,9 @@ def api_get_pull_data():
         
         # Nur relevante Spalten für den Export auswählen
         cols = ['Time', 'RPM', 'RPM_smoothed', 'AFR', 'EGT', 'EGT_cleaned', 'Speed_kmh', 'PS', 'Nm']
-        cols = [c for c in cols if c in trimmed_df.columns]
+        for col in cols:
+            if col not in trimmed_df.columns:
+                trimmed_df[col] = None
         
         # In Liste von Dictionaries konvertieren
         data = trimmed_df[cols].replace({np.nan: None}).to_dict(orient='records')

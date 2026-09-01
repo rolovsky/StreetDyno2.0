@@ -1,0 +1,13 @@
+[Unit]
+Description=StreetDyno 2.0 V3.7 Auto-Start
+After=network.target
+
+[Service]
+WorkingDirectory=/home/rolovsky/streetdyno2.0/src
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=5
+User=rolovsky
+
+[Install]
+WantedBy=multi-user.target
