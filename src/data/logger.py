@@ -20,8 +20,8 @@ class CSVLogger:
             self.filepath = os.path.join(self.log_dir, f"dyno_log_{timestamp}.csv")
             
         with open(self.filepath, "w") as f:
-            # NEU: Lat und Lon im Header hinzugefügt
-            f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,GPS_Fix\n")
+            # NEU: Lat, Lon und Alt im Header hinzugefügt
+            f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
             
         self.is_logging = True
         print(f"\n[LOGGER] Aufzeichnung gestartet: {self.filepath}")
@@ -30,9 +30,8 @@ class CSVLogger:
         self.is_logging = False
         print("\n[LOGGER] Aufzeichnung gestoppt.")
 
-    def log(self, rpm, afr, egt, speed, lat, lon, fix):
+    def log(self, rpm, afr, egt, speed, lat=0.0, lon=0.0, alt=0.0, fix=False):
         if self.is_logging and self.filepath:
             timestamp = time.strftime("%H:%M:%S")
             with open(self.filepath, "a") as f:
-                # NEU: Koordinaten mit 6 Nachkommastellen (11cm Genauigkeit) schreiben
-                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{fix}\n")
+                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")

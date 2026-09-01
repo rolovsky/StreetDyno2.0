@@ -99,6 +99,54 @@ def detect_gear_ratio(df, tire_circumference=None, primary_ratio=None, gear_rati
     return best_gear, i_total, median_ratio, confidence
 
 
+def calculate_road_slope_percent(df, manual_slope_pct=None):
+    """
+    Berechnet die prozentuale Straßenneigung (Slope %) entweder automatisch
+    aus den GPS-Höhendaten (Alt) / Koordinaten (Lat, Lon) oder verwendet
+    einen manuellen Vorgabewert (z.B. +1.0% Steigung oder -1.0% Gefälle).
+    """
+    if manual_slope_pct is not None and manual_slope_pct != "auto":
+        try:
+            return float(manual_slope_pct)
+        except (ValueError, TypeError):
+            pass
+
+    # Automatische GPS-Steigungserkennung
+    if 'Alt' in df.columns and len(df) >= 6:
+        try:
+            valid_alt = pd.to_numeric(df['Alt'], errors='coerce')
+            if not valid_alt.isna().all() and (valid_alt.max() - valid_alt.min()) >= 0.1:
+                # Höhendaten glätten
+                if HAS_SCIPY and len(valid_alt.dropna()) >= 7:
+                    w = min(11, len(valid_alt.dropna()) - (1 if len(valid_alt.dropna()) % 2 == 0 else 0))
+                    if w >= 5:
+                        alt_smoothed = savgol_filter(valid_alt.interpolate().bfill().ffill(), window_length=w, polyorder=1)
+                    else:
+                        alt_smoothed = valid_alt.rolling(5, min_periods=1, center=True).median()
+                else:
+                    alt_smoothed = valid_alt.rolling(5, min_periods=1, center=True).median()
+
+                # Distanz berechnen
+                if 'Speed_kmh' in df.columns:
+                    v = df['Speed_kmh'].values / 3.6
+                elif 'RPM' in df.columns:
+                    v = (df['RPM'].values / 60.0 / 6.61) * DEFAULT_TIRE_CIRCUMFERENCE_M
+                else:
+                    v = np.full(len(df), 15.0)
+
+                dt = 0.1
+                dist_m = float(np.sum(v * dt))
+                delta_alt = float(alt_smoothed.iloc[-1] - alt_smoothed.iloc[0]) if hasattr(alt_smoothed, 'iloc') else float(alt_smoothed[-1] - alt_smoothed[0])
+
+                if dist_m > 15.0:
+                    slope_pct = (delta_alt / dist_m) * 100.0
+                    return float(max(-15.0, min(15.0, slope_pct)))
+        except Exception:
+            pass
+
+    return 0.0
+
+
 def clean_egt_data(df):
     """
     Cleans system-related EGT measurement errors (spikes at 701°C / 705°C
@@ -130,7 +178,7 @@ def clean_egt_data(df):
     return df
 
 
-def calculate_telemetry_metrics(df, gear=None, slope_percent=0.0,
+def calculate_telemetry_metrics(df, gear=None, slope_percent=None,
                                 mass_kg=None, cw_a=None, cr=None,
                                 tire_circumference_m=None,
                                 primary_ratio=None, gear_ratios=None,
@@ -220,7 +268,12 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=0.0,
     f_acc = m_effective * df['Acceleration_ms2']
     f_aero = 0.5 * rho * cwA * (df['Velocity_ms'] ** 2)
     f_roll = c_r * m * g
-    f_slope = m * g * (slope_percent / 100.0)
+    # Straßenneigung & Hangabtriebskraft berechnen
+    active_slope_pct = calculate_road_slope_percent(df, slope_percent)
+    df['Slope_Pct'] = active_slope_pct
+    f_slope = m * g * (active_slope_pct / 100.0)
+    df['Slope_Force_N'] = f_slope
+    df['Slope_Power_PS'] = ((f_slope * df['Velocity_ms']) / eta) / 735.49875
 
     f_total = f_acc + f_aero + f_roll + f_slope
 
@@ -244,7 +297,7 @@ def calculate_telemetry_metrics(df, gear=None, slope_percent=0.0,
     return df
 
 
-def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0):
+def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=None):
     """
     Detects the cleanest dyno acceleration pull in a log file.
     Requirements:
@@ -258,7 +311,7 @@ def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=40
 
     # Ensure EGT and basic metrics are pre-calculated
     df = clean_egt_data(df)
-    df = calculate_telemetry_metrics(df)
+    df = calculate_telemetry_metrics(df, slope_percent=slope_percent)
 
     n_samples_required = max(5, int(min_duration_sec / 0.1))
     rpm = df['RPM_smoothed'].values
@@ -308,7 +361,7 @@ def detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=40
     trimmed_df = df.iloc[best_start:best_end + 1].copy().reset_index(drop=True)
     
     # Recalculate metrics on the precisely trimmed slice
-    trimmed_df = calculate_telemetry_metrics(trimmed_df)
+    trimmed_df = calculate_telemetry_metrics(trimmed_df, slope_percent=slope_percent)
     return trimmed_df, True
 
 
@@ -355,7 +408,11 @@ def plot_telemetry(df, title_suffix="", output_path=None, vehicle_name="VMC177")
         peak_nm = df['Nm'].max()
         peak_nm_rpm = df.loc[peak_nm_idx, 'RPM_smoothed']
         
-        annotation_text = (f"Gang: {gear}. Gang (i={i_total:.2f})\n"
+        slope_val = df.get('Slope_Pct', pd.Series([0.0])).iloc[0] if 'Slope_Pct' in df.columns else 0.0
+        p_slope_avg = df.get('Slope_Power_PS', pd.Series([0.0])).mean() if 'Slope_Power_PS' in df.columns else 0.0
+        slope_tag = f"\nSteigung: {slope_val:+.1f}% ({p_slope_avg:+.1f} PS)" if abs(slope_val) >= 0.1 else ""
+        
+        annotation_text = (f"Gang: {gear}. Gang (i={i_total:.2f}){slope_tag}\n"
                            f"Peak Leistung: {peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min\n"
                            f"Peak Drehmoment: {peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min")
         

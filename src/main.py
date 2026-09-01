@@ -1299,6 +1299,7 @@ def download(filename): return send_from_directory(LOG_DIR, filename, as_attachm
 @app.route('/analyze')
 def analyze_file():
     fname = request.args.get('file')
+    slope_param = request.args.get('slope', 'auto')
     if not fname: return "No file selected."
     fpath = os.path.join(LOG_DIR, fname)
     if not os.path.exists(fpath):
@@ -1317,10 +1318,10 @@ def analyze_file():
             return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehlende Spalten in CSV: {missing_cols}</h3><br><a href='/logs'>Zurück</a></body>"
             
         df = clean_egt_data(df)
-        df = calculate_telemetry_metrics(df)
+        df = calculate_telemetry_metrics(df, slope_percent=slope_param)
         
         # Dyno-Pull automatisch erkennen
-        trimmed_df, detected = detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0)
+        trimmed_df, detected = detect_dyno_pull(df, min_rpm=2800.0, min_duration_sec=0.8, drop_threshold=400.0, slope_percent=slope_param)
         detected_gear = int(trimmed_df.get('Detected_Gear', pd.Series([3])).iloc[0]) if 'Detected_Gear' in trimmed_df.columns else 3
         title_suffix = f" (🎯 {detected_gear}. Gang)" if detected else " (Gesamtes Log)"
         
@@ -1343,6 +1344,10 @@ def analyze_file():
         
         # Mittlerer AFR während des Pulls
         avg_afr = trimmed_df['AFR'].mean() if 'AFR' in trimmed_df.columns else 0.0
+        
+        # Straßenneigung & Hangabtriebskompensation
+        detected_slope = float(trimmed_df['Slope_Pct'].iloc[0]) if 'Slope_Pct' in trimmed_df.columns else 0.0
+        avg_slope_ps = float(trimmed_df['Slope_Power_PS'].mean()) if 'Slope_Power_PS' in trimmed_df.columns else 0.0
         
         # Vergaser-Bedüsungs-Diagnose
         carb_setup = load_carb_setup()
@@ -1598,6 +1603,25 @@ def analyze_file():
         Datei: {fname} {title_suffix}
     </div>
     
+    <!-- Slope Compensation Selector -->
+    <div style="background:#141418; border:1px solid #27272e; border-radius:12px; padding:12px 15px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+            <span style="font-size:0.85rem; font-weight:800; color:#00ffcc;">🏔️ STRASSENNEIGUNG:</span>
+            <span style="font-family:monospace; font-weight:bold; color:#fff; font-size:0.95rem; margin-left:6px;">{detected_slope:+.1f}%</span>
+            <span style="font-size:0.75rem; color:#aaa; margin-left:6px;">(Kompensation: <b>{avg_slope_ps:+.1f} PS</b>)</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+            <label style="font-size:0.75rem; color:#888; font-weight:bold;">PRESET:</label>
+            <select id="slopeSelect" onchange="changeSlope()" style="background:#0d0d11; border:1px solid #444; color:#00ffcc; padding:6px 10px; border-radius:6px; font-weight:bold; font-size:0.8rem;">
+                <option value="auto" {('selected' if slope_param == 'auto' else '')}>🛰️ Auto-GPS</option>
+                <option value="0.0" {('selected' if slope_param == '0.0' else '')}>0.0% Ebene</option>
+                <option value="0.8" {('selected' if slope_param == '0.8' else '')}>+0.8% Hausstrecke</option>
+                <option value="1.5" {('selected' if slope_param == '1.5' else '')}>+1.5% Bergauf</option>
+                <option value="-0.8" {('selected' if slope_param == '-0.8' else '')}>-0.8% Gegenhang</option>
+                <option value="-1.5" {('selected' if slope_param == '-1.5' else '')}>-1.5% Bergab</option>
+            </select>
+        </div>
+    </div>
     <div class="grid">
         <div class="card card-ps">
             <span class="label">Leistung</span>
@@ -1881,7 +1905,7 @@ def hardware_loop():
                                 log_filename = os.path.join(LOG_DIR, f"dyno_log_{log_time.strftime('%Y%m%d-%H%M%S')}.csv")
                                 logger.start(log_filename); telemetry["status"]="🔴 REC"
                         else:
-                            logger.log(round(current_filtered_rpm, 1), current_filtered_afr, p_egt, spd, g.lat if g else 0.0, g.lon if g else 0.0, g.fix if g else False)
+                            logger.log(round(current_filtered_rpm, 1), current_filtered_afr, p_egt, spd, g.lat if g else 0.0, g.lon if g else 0.0, g.alt if g else 0.0, g.fix if g else False)
                             
                             # Auto-Stop nur wenn Drehzahl und Speed auf Standgas abfallen
                             if current_filtered_rpm < 1100 and spd < 1.0:

@@ -10,6 +10,7 @@ from datetime import datetime
 class GPSData:
     lat: Optional[float] = None
     lon: Optional[float] = None
+    alt: Optional[float] = 0.0
     speed_kmh: float = 0.0
     sats: Optional[int] = 0
     fix: bool = False
@@ -78,6 +79,7 @@ class GPS_L76K:
                     if cls == "TPV":
                         self._data.lat = msg.get("lat")
                         self._data.lon = msg.get("lon")
+                        self._data.alt = float(msg.get("alt") or msg.get("altHAE") or msg.get("altMSL") or 0.0)
                         
                         # --- HIER IST DER FIX: Exakt * 3.6 ---
                         speed = msg.get("speed") or 0.0 
