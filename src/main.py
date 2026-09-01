@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from flask import Flask, jsonify, render_template_string, send_from_directory, request
+from flask import Flask, jsonify, render_template_string, send_from_directory, request, make_response
 
 from data.analyzer_logic import (
     clean_egt_data,
@@ -69,13 +69,16 @@ def smart_round(value):
     else: return value
     return int(round((value + (round_to / 2)) / round_to) * round_to)
 
-# --- HIGH-CONTRAST OUTDOOR LIVE COCKPIT HUD ---
+# --- HIGH-CONTRAST OUTDOOR LIVE COCKPIT HUD (iOS SAFARI OPTIMIZED) ---
 DASH_HTML = """
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
     <title>StreetDyno 2.0 - Live HUD</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
     <style>
@@ -89,7 +92,7 @@ DASH_HTML = """
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            padding: 10px;
+            padding: env(safe-area-inset-top, 10px) env(safe-area-inset-right, 10px) env(safe-area-inset-bottom, 10px) env(safe-area-inset-left, 10px);
             user-select: none;
             -webkit-user-select: none;
         }
@@ -99,7 +102,7 @@ DASH_HTML = """
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 6px 12px;
+            padding: 8px 12px;
             background: #0f0f12;
             border: 1px solid #222228;
             border-radius: 12px;
@@ -122,13 +125,23 @@ DASH_HTML = """
             height: 10px;
             border-radius: 50%;
             background: #4caf50;
+            transition: all 0.2s;
         }
         .rec-dot.active {
             background: #ff1744;
-            box-shadow: 0 0 10px #ff1744;
+            box-shadow: 0 0 12px #ff1744;
             animation: pulse-dot 0.6s infinite alternate;
         }
         @keyframes pulse-dot { from { opacity: 0.3; } to { opacity: 1; } }
+
+        .heartbeat-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ffcc;
+            opacity: 0.3;
+        }
+        .heartbeat-dot.beat { opacity: 1; }
 
         .top-actions {
             display: flex;
@@ -277,6 +290,7 @@ DASH_HTML = """
             border: 2px solid #00ffcc;
             box-shadow: 0 4px 15px rgba(0,255,204,0.2);
             transition: all 0.15s;
+            -webkit-tap-highlight-color: transparent;
         }
         .btn-rec.recording {
             background: #ff1744;
@@ -302,17 +316,9 @@ DASH_HTML = """
             display: flex;
             align-items: center;
             justify-content: center;
+            -webkit-tap-highlight-color: transparent;
         }
         .btn-nav:active { background: #27272a; }
-
-        /* WakeLock Status Indicator */
-        .wakelock-badge {
-            font-size: 0.7rem;
-            color: #4caf50;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
     </style>
 </head>
 <body>
@@ -322,6 +328,7 @@ DASH_HTML = """
         <div class="status-pill">
             <div id="recDot" class="rec-dot"></div>
             <span id="statusText">V5.1 READY</span>
+            <div id="heartbeat" class="heartbeat-dot"></div>
         </div>
         <div id="gpsPill" class="status-pill">
             <span>🛰️ GPS:</span>
@@ -351,7 +358,7 @@ DASH_HTML = """
         <div class="hud-card card-rpm" id="cardRpm">
             <div class="card-header">
                 <span>Drehzahl</span>
-                <span id="gearBadge">N</span>
+                <span id="gearBadge">RPM</span>
             </div>
             <div id="rpm" class="card-value">0</div>
             <div class="card-unit">U / MIN</div>
@@ -387,34 +394,47 @@ DASH_HTML = """
     <script>
         let wakeLock = null;
 
-        // Auto WakeLock (keeps phone screen on)
-        async function requestWakeLock() {
+        // Robust WakeLock for iOS Safari & Modern Browsers
+        function initWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
+                if ('wakeLock' in navigator && navigator.wakeLock.request) {
+                    navigator.wakeLock.request('screen')
+                        .then(lock => { wakeLock = lock; })
+                        .catch(() => {});
                 }
-            } catch (err) {
-                console.log('WakeLock error:', err);
-            }
+            } catch (err) {}
         }
-        document.addEventListener('visibilitychange', async () => {
+        document.addEventListener('visibilitychange', () => {
             if (wakeLock !== null && document.visibilityState === 'visible') {
-                await requestWakeLock();
+                initWakeLock();
             }
         });
-        window.addEventListener('click', requestWakeLock, { once: true });
-        requestWakeLock();
+        window.addEventListener('touchstart', initWakeLock, { passive: true, once: true });
+        window.addEventListener('click', initWakeLock, { once: true });
+        initWakeLock();
 
+        // Cross-Browser Fullscreen (iOS Safari Fallback)
         function toggleFullScreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(() => {});
-            } else {
-                document.exitFullscreen().catch(() => {});
-            }
+            try {
+                const doc = document.documentElement;
+                if (doc.requestFullscreen) {
+                    if (!document.fullscreenElement) {
+                        doc.requestFullscreen().catch(() => {});
+                    } else {
+                        document.exitFullscreen().catch(() => {});
+                    }
+                } else if (doc.webkitRequestFullscreen) {
+                    if (!document.webkitFullscreenElement) {
+                        doc.webkitRequestFullscreen();
+                    } else {
+                        doc.webkitExitFullscreen();
+                    }
+                }
+            } catch (e) {}
         }
 
         function toggleLogging() {
-            fetch('/api/toggle_logging')
+            fetch('/api/toggle_logging?t=' + Date.now(), { cache: 'no-store' })
                 .then(r => r.json())
                 .then(d => {
                     updateRecState(d.is_logging);
@@ -425,6 +445,7 @@ DASH_HTML = """
         function updateRecState(isLogging) {
             const btn = document.getElementById('recBtn');
             const dot = document.getElementById('recDot');
+            if (!btn || !dot) return;
             if (isLogging) {
                 btn.classList.add('recording');
                 btn.innerText = '⏹️ LOGGING STOPPEN';
@@ -436,73 +457,103 @@ DASH_HTML = """
             }
         }
 
-        // Live 10Hz Polling
+        // Live 10Hz Polling with Cache Busting
+        let beatState = false;
         setInterval(() => {
-            fetch('/api/data')
+            fetch('/api/data?t=' + Date.now(), { cache: 'no-store' })
                 .then(r => r.json())
                 .then(d => {
-                    const rpm = d.rpm || 0;
-                    const speed = d.speed || 0.0;
-                    const afr = d.afr || 0.0;
-                    const egt = d.egt || 0.0;
+                    if (!d) return;
+
+                    // Heartbeat toggle
+                    const hb = document.getElementById('heartbeat');
+                    if (hb) {
+                        beatState = !beatState;
+                        if (beatState) hb.classList.add('beat');
+                        else hb.classList.remove('beat');
+                    }
+
+                    const rpm = (typeof d.rpm === 'number') ? d.rpm : 0;
+                    const speed = (typeof d.speed === 'number') ? d.speed : 0.0;
+                    const afr = (typeof d.afr === 'number') ? d.afr : 0.0;
+                    const egt = (typeof d.egt === 'number') ? d.egt : 0.0;
 
                     // Numeric values
-                    document.getElementById('speed').innerText = speed.toFixed(1);
-                    document.getElementById('rpm').innerText = rpm.toFixed(0);
-                    document.getElementById('afr').innerText = afr.toFixed(2);
-                    document.getElementById('egt').innerText = egt.toFixed(0);
+                    const speedEl = document.getElementById('speed');
+                    const rpmEl = document.getElementById('rpm');
+                    const afrEl = document.getElementById('afr');
+                    const egtEl = document.getElementById('egt');
+
+                    if (speedEl) speedEl.innerText = speed.toFixed(1);
+                    if (rpmEl) rpmEl.innerText = rpm.toFixed(0);
+                    if (afrEl) afrEl.innerText = afr.toFixed(2);
+                    if (egtEl) egtEl.innerText = egt.toFixed(0);
 
                     // Rev Bar & Shift Light (>8000 RPM)
-                    const revPct = Math.min(100, Math.max(0, (rpm / 9000) * 100));
-                    document.getElementById('revBar').style.width = revPct + '%';
+                    const revBar = document.getElementById('revBar');
+                    if (revBar) {
+                        const revPct = Math.min(100, Math.max(0, (rpm / 9000) * 100));
+                        revBar.style.width = revPct + '%';
+                    }
 
                     const shiftLight = document.getElementById('shiftLight');
-                    if (rpm >= 8000) {
-                        shiftLight.classList.add('flash');
-                    } else {
-                        shiftLight.classList.remove('flash');
+                    if (shiftLight) {
+                        if (rpm >= 8000) {
+                            shiftLight.classList.add('flash');
+                        } else {
+                            shiftLight.classList.remove('flash');
+                        }
                     }
 
                     // AFR Color Zone & Lean Alert (>14.5 under load)
                     const cardAfr = document.getElementById('cardAfr');
                     const afrZone = document.getElementById('afrZone');
-                    if (afr > 14.5 && speed > 8) {
-                        cardAfr.classList.add('card-danger');
-                        afrZone.innerText = '⚠️ MAGER!';
-                    } else {
-                        cardAfr.classList.remove('card-danger');
-                        if (afr >= 12.5 && afr <= 13.5) {
-                            afrZone.innerText = '🟢 OPTIMAL';
-                            cardAfr.style.borderColor = '#00e676';
-                        } else if (afr < 12.5 && afr > 10.0) {
-                            afrZone.innerText = '🔵 FETT';
-                            cardAfr.style.borderColor = '#29b6f6';
+                    if (cardAfr && afrZone) {
+                        if (afr > 14.5 && speed > 8) {
+                            cardAfr.classList.add('card-danger');
+                            afrZone.innerText = '⚠️ MAGER!';
                         } else {
-                            afrZone.innerText = '--';
-                            cardAfr.style.borderColor = '#1c1c24';
+                            cardAfr.classList.remove('card-danger');
+                            if (afr >= 12.5 && afr <= 13.5) {
+                                afrZone.innerText = '🟢 OPTIMAL';
+                                cardAfr.style.borderColor = '#00e676';
+                            } else if (afr < 12.5 && afr > 10.0) {
+                                afrZone.innerText = '🔵 FETT';
+                                cardAfr.style.borderColor = '#29b6f6';
+                            } else {
+                                afrZone.innerText = '--';
+                                cardAfr.style.borderColor = '#1c1c24';
+                            }
                         }
                     }
 
                     // EGT Overheat Alert (>630°C)
                     const cardEgt = document.getElementById('cardEgt');
-                    if (egt >= 630.0) {
-                        cardEgt.classList.add('card-danger');
-                    } else {
-                        cardEgt.classList.remove('card-danger');
+                    if (cardEgt) {
+                        if (egt >= 630.0) {
+                            cardEgt.classList.add('card-danger');
+                        } else {
+                            cardEgt.classList.remove('card-danger');
+                        }
                     }
 
                     // GPS & Status
                     const gpsText = document.getElementById('gpsText');
-                    gpsText.innerText = d.fix ? '3D FIX' : 'SUCHE...';
-                    gpsText.style.color = d.fix ? '#00e676' : '#ffea00';
+                    if (gpsText) {
+                        gpsText.innerText = d.fix ? '3D FIX' : 'SUCHE...';
+                        gpsText.style.color = d.fix ? '#00e676' : '#ffea00';
+                    }
 
                     const statusText = document.getElementById('statusText');
-                    statusText.innerText = d.status;
+                    const statusStr = (typeof d.status === 'string') ? d.status : 'IDLE';
+                    if (statusText) statusText.innerText = statusStr;
 
-                    const isLogging = d.status.includes('REC');
+                    const isLogging = statusStr.indexOf('REC') !== -1;
                     updateRecState(isLogging);
                 })
-                .catch(() => {});
+                .catch(err => {
+                    console.error('Fetch error:', err);
+                });
         }, 150);
     </script>
 </body>
@@ -510,10 +561,18 @@ DASH_HTML = """
 """
 
 @app.route('/')
-def index(): return render_template_string(DASH_HTML)
+def index():
+    resp = make_response(render_template_string(DASH_HTML))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
 
 @app.route('/api/data')
-def api_data(): return jsonify(telemetry)
+def api_data():
+    resp = jsonify(telemetry)
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 @app.route('/api/toggle_logging')
 def api_toggle_logging():
@@ -525,7 +584,9 @@ def api_toggle_logging():
         else:
             global_logger.start()
             telemetry["status"] = "🔴 REC"
-        return jsonify({"is_logging": global_logger.is_logging, "status": telemetry["status"]})
+        resp = jsonify({"is_logging": global_logger.is_logging, "status": telemetry["status"]})
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return resp
     return jsonify({"error": "Logger not initialized"}), 500
 
 @app.route('/logs')
