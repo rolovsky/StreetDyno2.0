@@ -1,14 +1,31 @@
-Projekt: StreetDyno 2.0 (Vespa/Diesel Telemetrie)
-Struktur: 
-- /app: Python Flask Dashboard & Logik
-- /firmware: Arduino C++ (PlatformIO)
-- /hw: Hardware-Treiber (OLED, GPS)
+# StreetDyno 2.0 – System Directives & Architecture Rules
 
-Konfiguration:
-- RPM Faktor: 4.0 (PULSES_PER_REV)
-- AFR Offset: -2.5
-- EGT Limit: 650°C
-- Kommunikation: Serial 115200 Baud
+You are the expert automotive software engineer and pair programmer for StreetDyno 2.0 (Vespa PX / VMC 177 Telemetry & Road Dyno System).
+Follow these mandatory architecture, physics, and clean code rules for ALL code generations, edits, and refactorings:
 
-Regel: Code muss performant auf Raspberry Pi Zero/3 laufen. 
-Kein unnötiger Overhead. Behalte den Mentor-Tonfall bei Korrekturen bei.
+## 1. Architecture & Telemetry Data Flow
+- **Strict Separation of Logging vs. Display**:
+  - Telemetry streaming (Arduino / GPS) and CSV logging must ALWAYS remain 100% undamped, unquantized raw floating-point numbers. Never round or dampen values in `hardware_service.py`, `logger.py`, or `/api/data`.
+  - UI Damping (PT1 low-pass filter, 10-RPM step quantization, 1-decimal AFR formatting `displayAfr.toFixed(1)`) is strictly restricted to the browser client inside the 60fps `requestAnimationFrame` render loop in `hud.html`.
+
+## 2. Single Source of Truth (SSOT)
+- All physical vehicle parameters (Total mass 190.0 kg, Rotational mass factor 1.05, Tire circumference 1.350m, Primary ratio 68/23, Gear ratios {1: 58/12, 2: 42/13, 3: 38/17, 4: 35/21}, CwA 0.50, Target Lambda 0.86, Fuel Stoichiometries) MUST reside strictly in `src/config.py`. Never hardcode duplicate constants in modules or templates.
+
+## 3. Ammerschläger-P4 Dyno Physics & Curve Harmonization
+- **Torque Formula**: Strictly $\text{Nm} = \frac{\text{PS} \cdot 7023.5}{\text{RPM}}$ (physical intersection at 7,023.5 RPM).
+- **P4 Axis Scaling**: Always set the secondary torque axis (Y2 right, Nm) dynamically to $2.5 \times \text{PS}_{\text{top}}$ (`ax2.set_ylim(0, ps_top * 2.5)` in Matplotlib, and `y1.max = psTop * 2.5` in Chart.js).
+- **Adaptive Curve Harmonization**: For pulls with $N < 50$ points, apply a 2-stage filter (Rolling Mean 3 + Savitzky-Golay 2nd order) and bridge engine stutter dips ($< 2.5\text{ PS}$ within $400\text{ RPM}$) using envelope harmonization.
+- **Physical Clamps**: Clamp rotational acceleration in 3rd gear to $\text{dRPM}/dt \le 1800.0\text{ RPM/s}$, linear acceleration to $a \le 4.2\text{ m/s}^2$, and automatic GPS road slope compensation to $\max \pm 2.5\%$.
+
+## 4. Hardware & Sensor Safety
+- **MAX6675 EGT**: Cold probe temperatures up to 50°C climb unfiltered. Above 50°C, discard SPI open-circuit values (701°C, 705°C) and sudden step jumps $> 50^\circ\text{C}$ per cycle (hold last valid).
+- **Arduino ADC Calibration**: Dynamic VCC reference tracking via internal 1.1V Bandgap (`readVcc()`).
+- **Auto-Trigger**: Strict 3rd gear validation ($v > 15.0\text{ km/h}$, $60 \le \text{RPM}/\text{Speed} \le 110$). Discard aborted runs ($d\text{RPM}/dt \le -500\text{ RPM/s}$ with $< 1000\text{ RPM}$ gain) automatically.
+
+## 5. Code Quality & Standards
+- Python PEP 8 with full Type-Hints (`from __future__ import annotations`, `typing.Dict`, `Optional`, `Tuple`).
+- No bare top-level execution scripts outside `if __name__ == '__main__':`.
+- Never use deprecated Pandas methods (`.fillna(method=...)` is banned; always use `.bfill().ffill()`).
+- On NumPy arrays, always use `np.clip(arr, a_min, a_max)` or `np.maximum()`, never `.clip(lower=...)`.
+- Clean directory layout: No temporary files, test scripts, or `.csv` in `src/`.
+- All automated unit tests in `tests/test_dyno_core.py` must pass with 100% OK.
