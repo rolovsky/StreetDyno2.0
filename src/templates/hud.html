@@ -570,6 +570,76 @@
         let prevIsLogging = false;
         let lastDangerAlarmTime = 0;
 
+        // --- Automotive Cockpit Display Damping (PT1 / Lerp) ---
+        // Industry Standard (Bosch/MoTeC): tau_rpm ≈ 180-220ms, tau_afr ≈ 300-400ms
+        let targetRpm = 0.0;
+        let targetSpeed = 0.0;
+        let targetAfr = 0.0;
+        let targetEgt = 0.0;
+
+        let displayRpm = 0.0;
+        let displaySpeed = 0.0;
+        let displayAfr = 0.0;
+        let displayEgt = 0.0;
+
+        const speedEl = document.getElementById('speed');
+        const rpmEl = document.getElementById('rpm');
+        const afrEl = document.getElementById('afr');
+        const egtEl = document.getElementById('egt');
+        const revBar = document.getElementById('revBar');
+        const shiftLight = document.getElementById('shiftLight');
+
+        function renderDampedCockpit() {
+            // 1. Damped RPM gliding (PT1 Filter) + 10 RPM Quantization for calm digits
+            if (targetRpm <= 10.0) {
+                displayRpm = 0.0;
+            } else {
+                displayRpm += (targetRpm - displayRpm) * 0.20;
+            }
+
+            // 2. Damped AFR gliding (filters single-stroke combustion flutter)
+            if (displayAfr === 0.0) {
+                displayAfr = targetAfr;
+            } else if (targetAfr > 0.0) {
+                displayAfr += (targetAfr - displayAfr) * 0.14;
+            }
+
+            // 3. Smooth Speed & EGT
+            displaySpeed += (targetSpeed - displaySpeed) * 0.25;
+            displayEgt += (targetEgt - displayEgt) * 0.18;
+
+            // --- Render Numbers ---
+            if (rpmEl) {
+                // Automotive Digital Standard: Round to 10 RPM increments to prevent digit flutter
+                const calmRpm = Math.round(displayRpm / 10) * 10;
+                rpmEl.innerText = calmRpm.toLocaleString('de-DE');
+            }
+            if (afrEl && displayAfr > 0) {
+                afrEl.innerText = displayAfr.toFixed(2);
+            }
+            if (speedEl) {
+                speedEl.innerText = displaySpeed.toFixed(1);
+            }
+            if (egtEl) {
+                egtEl.innerText = (displayEgt > 0) ? Math.round(displayEgt) : '0';
+            }
+
+            // Graphical Rev-Bar: continuous floating sweep for silky 60fps animation
+            if (revBar) {
+                const revPct = Math.min(100, Math.max(0, (displayRpm / 9000) * 100));
+                revBar.style.width = revPct.toFixed(1) + '%';
+            }
+
+            if (shiftLight) {
+                if (displayRpm >= 8000) shiftLight.classList.add('flash');
+                else shiftLight.classList.remove('flash');
+            }
+
+            requestAnimationFrame(renderDampedCockpit);
+        }
+        requestAnimationFrame(renderDampedCockpit);
+
+        // --- 10Hz Telemetry Polling Loop ---
         setInterval(() => {
             fetch('/api/data?t=' + Date.now(), { cache: 'no-store' })
                 .then(r => r.json())
@@ -581,47 +651,28 @@
                         if (beatState) hb.classList.add('beat');
                         else hb.classList.remove('beat');
                     }
-                    const rpm = (typeof d.rpm === 'number') ? d.rpm : 0;
-                    const speed = (typeof d.speed === 'number') ? d.speed : 0.0;
-                    const afr = (typeof d.afr === 'number') ? d.afr : 0.0;
-                    const egt = (typeof d.egt === 'number') ? d.egt : 0.0;
 
-                    const speedEl = document.getElementById('speed');
-                    const rpmEl = document.getElementById('rpm');
-                    const afrEl = document.getElementById('afr');
-                    const egtEl = document.getElementById('egt');
-
-                    if (speedEl) speedEl.innerText = speed.toFixed(1);
-                    if (rpmEl) rpmEl.innerText = rpm.toFixed(0);
-                    if (afrEl) afrEl.innerText = afr.toFixed(2);
-                    if (egtEl) egtEl.innerText = egt.toFixed(0);
-
-                    const revBar = document.getElementById('revBar');
-                    if (revBar) {
-                        const revPct = Math.min(100, Math.max(0, (rpm / 9000) * 100));
-                        revBar.style.width = revPct + '%';
-                    }
-
-                    const shiftLight = document.getElementById('shiftLight');
-                    if (shiftLight) {
-                        if (rpm >= 8000) shiftLight.classList.add('flash');
-                        else shiftLight.classList.remove('flash');
-                    }
+                    // Feed raw targets into 60fps damping engine
+                    targetRpm = (typeof d.rpm === 'number') ? d.rpm : 0.0;
+                    targetSpeed = (typeof d.speed === 'number') ? d.speed : 0.0;
+                    targetAfr = (typeof d.afr === 'number') ? d.afr : 0.0;
+                    targetEgt = (typeof d.egt === 'number') ? d.egt : 0.0;
 
                     let isDanger = false;
                     const cardAfr = document.getElementById('cardAfr');
                     const afrZone = document.getElementById('afrZone');
                     if (cardAfr && afrZone) {
-                        if (afr > 14.5 && speed > 8) {
+                        const effAfr = (displayAfr > 0) ? displayAfr : targetAfr;
+                        if (effAfr > 14.5 && targetSpeed > 8.0) {
                             cardAfr.classList.add('card-danger');
                             afrZone.innerText = '⚠️ MAGER!';
                             isDanger = true;
                         } else {
                             cardAfr.classList.remove('card-danger');
-                            if (afr >= 12.5 && afr <= 13.5) {
+                            if (effAfr >= 12.5 && effAfr <= 13.5) {
                                 afrZone.innerText = '🟢 OPTIMAL';
                                 cardAfr.style.borderColor = '#00e676';
-                            } else if (afr < 12.5 && afr > 10.0) {
+                            } else if (effAfr < 12.5 && effAfr > 10.0) {
                                 afrZone.innerText = '🔵 FETT';
                                 cardAfr.style.borderColor = '#29b6f6';
                             } else {
@@ -633,7 +684,7 @@
 
                     const cardEgt = document.getElementById('cardEgt');
                     if (cardEgt) {
-                        if (egt >= 630.0) {
+                        if (targetEgt >= 630.0) {
                             cardEgt.classList.add('card-danger');
                             isDanger = true;
                         } else {
