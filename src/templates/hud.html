@@ -239,6 +239,101 @@
             -webkit-tap-highlight-color: transparent;
         }
         .btn-nav:active { background: #272730; transform: scale(0.96); }
+        .btn-sound {
+            border-color: #ff9800;
+            color: #ff9800;
+            background: #181510;
+        }
+        .btn-sound:active { background: #2e1d08; }
+
+        /* --- Audio Test Modal --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 20px;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: #131318;
+            border: 2px solid #2a2a38;
+            border-radius: 24px;
+            padding: 24px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+            text-align: center;
+        }
+        .modal-title {
+            font-size: 1.3rem;
+            font-weight: 900;
+            color: #ffffff;
+            margin-bottom: 6px;
+            letter-spacing: 0.04em;
+        }
+        .modal-subtitle {
+            font-size: 0.85rem;
+            color: #71717a;
+            margin-bottom: 20px;
+        }
+        .test-sound-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .btn-test-tone {
+            padding: 14px 16px;
+            border-radius: 14px;
+            font-size: 0.95rem;
+            font-weight: 800;
+            border: 2px solid transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn-test-tone:active { transform: scale(0.97); }
+        .tone-start {
+            background: #0d2218;
+            border-color: #00e676;
+            color: #00e676;
+        }
+        .tone-stop {
+            background: #082126;
+            border-color: #00ffcc;
+            color: #00ffcc;
+        }
+        .tone-alarm {
+            background: #2b080f;
+            border-color: #ff1744;
+            color: #ff1744;
+        }
+        .tone-shift {
+            background: #261b07;
+            border-color: #ff9800;
+            color: #ff9800;
+        }
+        .modal-close-btn {
+            width: 100%;
+            padding: 14px;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 800;
+            background: #22222c;
+            color: #ffffff;
+            border: 1px solid #3a3a4c;
+            cursor: pointer;
+        }
+        .modal-close-btn:active { background: #2f2f3d; }
     </style>
 </head>
 <body>
@@ -254,6 +349,7 @@
             <span id="gpsText" style="color:#00ffcc;">SUCHE...</span>
         </div>
         <div class="top-actions">
+            <button class="btn-icon btn-sound" onclick="openSoundModal()">🔊 SOUND</button>
             <button class="btn-icon" onclick="toggleFullScreen()">⛶ HUD</button>
         </div>
     </div>
@@ -287,6 +383,34 @@
         <a href="/logs" class="btn-nav">📂 LOGS</a>
         <a href="/tuning" class="btn-nav">🔧 VERGASER</a>
     </div>
+
+    <!-- Interactive Sound Test Modal -->
+    <div id="soundModal" class="modal-overlay" onclick="closeSoundModalOnOutsideClick(event)">
+        <div class="modal-box">
+            <div class="modal-title">🔊 Audio- & Alarmton-Test</div>
+            <div class="modal-subtitle">Web Audio Synthesizer & Haptik prüfen</div>
+            <div class="test-sound-grid">
+                <button class="btn-test-tone tone-start" onclick="testSound('start')">
+                    <span>🔔 Pull-Start Signal</span>
+                    <span>880 Hz</span>
+                </button>
+                <button class="btn-test-tone tone-stop" onclick="testSound('stop')">
+                    <span>🏁 Pull-Erfolgs Chime</span>
+                    <span>880→1174 Hz</span>
+                </button>
+                <button class="btn-test-tone tone-alarm" onclick="testSound('alarm')">
+                    <span>🚨 Magerlauf / EGT Alarm</span>
+                    <span>980 / 750 Hz</span>
+                </button>
+                <button class="btn-test-tone tone-shift" onclick="testSound('shift')">
+                    <span>⚡ Shift-Light Blitz</span>
+                    <span>1300 Hz</span>
+                </button>
+            </div>
+            <button class="modal-close-btn" onclick="closeSoundModal()">✕ Schließen</button>
+        </div>
+    </div>
+
     <script>
         let wakeLock = null;
         function initWakeLock() {
@@ -331,7 +455,7 @@
                 osc.frequency.setValueAtTime(freq, ctx.currentTime + offsetSec);
 
                 gain.gain.setValueAtTime(0.001, ctx.currentTime + offsetSec);
-                gain.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + offsetSec + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.6, ctx.currentTime + offsetSec + 0.02);
                 gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offsetSec + (durationMs / 1000));
 
                 osc.connect(gain);
@@ -359,6 +483,52 @@
             if ('vibrate' in navigator) {
                 try { navigator.vibrate([80, 50, 80]); } catch(e){}
             }
+        }
+
+        function notifyDangerAlarm() {
+            // Pulsating Siren: 980 Hz -> 750 Hz -> 980 Hz
+            playTone(980, 'sawtooth', 90, 0.0);
+            playTone(750, 'sawtooth', 90, 0.11);
+            playTone(980, 'sawtooth', 120, 0.22);
+            if ('vibrate' in navigator) {
+                try { navigator.vibrate([150, 80, 150]); } catch(e){}
+            }
+        }
+
+        function notifyShiftLight() {
+            // High-Pitch Shift Beep: 1300 Hz
+            playTone(1300, 'square', 100);
+            const sl = document.getElementById('shiftLight');
+            if (sl) {
+                sl.classList.add('flash');
+                setTimeout(() => sl.classList.remove('flash'), 250);
+            }
+            if ('vibrate' in navigator) {
+                try { navigator.vibrate([60]); } catch(e){}
+            }
+        }
+
+        function openSoundModal() {
+            getAudioContext();
+            const m = document.getElementById('soundModal');
+            if (m) m.classList.add('open');
+        }
+
+        function closeSoundModal() {
+            const m = document.getElementById('soundModal');
+            if (m) m.classList.remove('open');
+        }
+
+        function closeSoundModalOnOutsideClick(e) {
+            if (e.target.id === 'soundModal') closeSoundModal();
+        }
+
+        function testSound(type) {
+            getAudioContext();
+            if (type === 'start') notifyPullStart();
+            else if (type === 'stop') notifyPullStop();
+            else if (type === 'alarm') notifyDangerAlarm();
+            else if (type === 'shift') notifyShiftLight();
         }
 
         function toggleFullScreen() {
@@ -398,6 +568,7 @@
 
         let beatState = false;
         let prevIsLogging = false;
+        let lastDangerAlarmTime = 0;
 
         setInterval(() => {
             fetch('/api/data?t=' + Date.now(), { cache: 'no-store' })
@@ -437,12 +608,14 @@
                         else shiftLight.classList.remove('flash');
                     }
 
+                    let isDanger = false;
                     const cardAfr = document.getElementById('cardAfr');
                     const afrZone = document.getElementById('afrZone');
                     if (cardAfr && afrZone) {
                         if (afr > 14.5 && speed > 8) {
                             cardAfr.classList.add('card-danger');
                             afrZone.innerText = '⚠️ MAGER!';
+                            isDanger = true;
                         } else {
                             cardAfr.classList.remove('card-danger');
                             if (afr >= 12.5 && afr <= 13.5) {
@@ -460,8 +633,19 @@
 
                     const cardEgt = document.getElementById('cardEgt');
                     if (cardEgt) {
-                        if (egt >= 630.0) cardEgt.classList.add('card-danger');
-                        else cardEgt.classList.remove('card-danger');
+                        if (egt >= 630.0) {
+                            cardEgt.classList.add('card-danger');
+                            isDanger = true;
+                        } else {
+                            cardEgt.classList.remove('card-danger');
+                        }
+                    }
+
+                    // Audible danger alarm under load (max once every 1.8s)
+                    const now = Date.now();
+                    if (isDanger && (now - lastDangerAlarmTime > 1800)) {
+                        lastDangerAlarmTime = now;
+                        notifyDangerAlarm();
                     }
 
                     const gpsText = document.getElementById('gpsText');
