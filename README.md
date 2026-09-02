@@ -6,9 +6,9 @@
 [![Physics: Savitzky--Golay & DIN 70020](https://img.shields.io/badge/Physics-DIN%2070020%20%2B%20SG%20Filter-orange.svg)]()
 [![Architecture: Clean Code & Modular](https://img.shields.io/badge/Architecture-Clean%20Code%20%26%20Modular-success.svg)]()
 [![Cockpit: iPhone 15 Pro Max](https://img.shields.io/badge/Cockpit-iPhone%2015%20Pro%20Max%20Optimized-purple.svg)]()
-[![Tests: 13/13 Passing](https://img.shields.io/badge/Tests-13%2F13%20Passed%20(100%25)-brightgreen.svg)]()
+[![Tests: 14/14 Passing](https://img.shields.io/badge/Tests-14%2F14%20Passed%20(100%25)-brightgreen.svg)]()
 
-**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, automatischer Straßenneigungskompensation, **4-Zonen SI 24/24 Vergaser-Matrix mit Ethanol-Stöchiometrie**, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
+**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, automatischer Straßenneigungskompensation, **4-Zonen SI 24/24 Vergaser-Matrix mit Ethanol-Stöchiometrie**, **Web Audio & Haptic Feedback**, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
 
 ---
 
@@ -120,6 +120,7 @@ streetdyno2.0/
 
 * 📱 **Live Cockpit HUD (Optimiert für iPhone 15 Pro Max)**:
   * Erreichbar über mDNS: **`http://streetdyno.local:8080`**.
+  * **Web Audio API & Haptik**: Akustischer Bestätigungston (880 Hz) beim Auto-Trigger Start und doppelter Quittungs-Chime (880 $\to$ 1174 Hz) bei erfolgreichem Abschluss des Pulls plus Vibrationsfeedback (`navigator.vibrate`).
   * Pitch-Black OLED Dark Mode für maximale Lesbarkeit bei direkter Sonneneinstrahlung am Lenker.
   * Dynamische Safe-Area-Freistellung für **Dynamic Island** und iOS Home-Bar (`env(safe-area-inset-*)`).
   * Horizontale Drehzahlanzeige (0–10.000 U/min) mit **Shift-Light Blitz** ab 8.000 U/min.
@@ -239,11 +240,12 @@ Das gesamte System wird durch eine automatisierte Test-Suite abgesichert:
 python3 -m unittest discover tests -v
 ```
 
-### Testergebnisse (13/13 Passed):
+### Testergebnisse (14/14 Passed):
 * `test_logger_prebuffer_and_discard` $\rightarrow$ **OK** (1.0s Pre-Trigger & Auto-Discard)
 * `test_carb_jetting_advisor` $\rightarrow$ **OK** (4-Zonen Vergaser-Diagnoseregeln)
 * `test_fuel_stoichiometry_scaling` $\rightarrow$ **OK** (Dynamische Ziel-AFR Skalierung für E5, E10, E0)
 * `test_slide_and_intake_diagnostics` $\rightarrow$ **OK** (BGM Cutaway $\leftrightarrow$ Lemarxon & Polini Venturi Empfehlungen)
+* `test_gear3_auto_trigger_rules` $\rightarrow$ **OK** (Strikte 3. Gang-Validierung, v > 15 km/h & Drop-Filter)
 * `test_din70020_weather_factor` $\rightarrow$ **OK** (DIN 70020 & SAE J1349 Faktoren)
 * `test_gear_ratios` $\rightarrow$ **OK** (Getriebeuntersetzungen & Gangerkennung)
 * `test_nd_ratio_parser` $\rightarrow$ **OK** (Nebendüsen-Verhältnisberechnung)
