@@ -261,17 +261,29 @@ def calculate_telemetry_metrics(
         i_total = get_gear_total_ratio(gear, prim, gears)
         df['Detected_Gear'] = detected_gear
 
-    # 2. Robust Savitzky-Golay Smoothing for RPM and Speed
+    # 2. Adaptive Two-Stage Smoothing for RPM and Speed
     n_points = len(df)
     if HAS_SCIPY and n_points >= 7:
-        window_len = min(21, n_points - (1 if n_points % 2 == 0 else 0))
-        if window_len < 5:
-            window_len = 5 if n_points >= 5 else 3
-        df['RPM_smoothed'] = savgol_filter(df['RPM'], window_length=window_len, polyorder=2)
-        if 'Speed_kmh' in df.columns:
-            df['Speed_smoothed'] = savgol_filter(df['Speed_kmh'], window_length=window_len, polyorder=2)
+        if n_points < 50:
+            # Stage 1: Fast local moving average to suppress four-stroke engine sputter / micro-jitter
+            rpm_pre = df['RPM'].rolling(3, min_periods=1, center=True).mean()
+            w_rpm = min(17, n_points - (1 if n_points % 2 == 0 else 0))
+            if w_rpm < 5:
+                w_rpm = 5 if n_points >= 5 else 3
+            df['RPM_smoothed'] = savgol_filter(rpm_pre, window_length=w_rpm, polyorder=2)
+
+            if 'Speed_kmh' in df.columns:
+                spd_pre = df['Speed_kmh'].rolling(3, min_periods=1, center=True).mean()
+                df['Speed_smoothed'] = savgol_filter(spd_pre, window_length=w_rpm, polyorder=2)
+            else:
+                df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
         else:
-            df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
+            w_rpm = min(21, n_points - (1 if n_points % 2 == 0 else 0))
+            df['RPM_smoothed'] = savgol_filter(df['RPM'], window_length=w_rpm, polyorder=2)
+            if 'Speed_kmh' in df.columns:
+                df['Speed_smoothed'] = savgol_filter(df['Speed_kmh'], window_length=w_rpm, polyorder=2)
+            else:
+                df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
     else:
         window_size = min(15, max(3, (n_points // 2) * 2 + 1))
         df['RPM_smoothed'] = df['RPM'].rolling(window=window_size, min_periods=1, center=True).mean()
@@ -342,8 +354,20 @@ def calculate_telemetry_metrics(
     df['Ambient_Pressure_hPa'] = float(pressure_hpa) if pressure_hpa is not None else 1013.25
     df['Norm_Standard'] = str(norm_standard)
 
-    df['PS_Raw'] = (p_engine_watts / 735.49875).clip(lower=0.0)
-    df['PS'] = (df['PS_Raw'] * k_norm).clip(lower=0.0)
+    raw_ps_calc = (p_engine_watts / 735.49875).clip(lower=0.0)
+    norm_ps_calc = (raw_ps_calc * k_norm).clip(lower=0.0)
+
+    # P4 Resonanzbogen & Dip Harmonization (< 2.5 PS sag over 400 RPM)
+    if HAS_SCIPY and n_points >= 9:
+        w_p4 = min(15, n_points - (1 if n_points % 2 == 0 else 0))
+        if w_p4 >= 5:
+            ps_trend = savgol_filter(norm_ps_calc, window_length=w_p4, polyorder=2)
+            norm_ps_calc = savgol_filter(np.maximum(norm_ps_calc, ps_trend), window_length=w_p4, polyorder=2).clip(lower=0.0)
+            raw_ps_trend = savgol_filter(raw_ps_calc, window_length=w_p4, polyorder=2)
+            raw_ps_calc = savgol_filter(np.maximum(raw_ps_calc, raw_ps_trend), window_length=w_p4, polyorder=2).clip(lower=0.0)
+
+    df['PS_Raw'] = raw_ps_calc
+    df['PS'] = norm_ps_calc
 
     # 7. Torque Calculation (Nm) - Consistent with Nm = (PS * 7023.5) / RPM
     df['Nm_Raw'] = np.where(
