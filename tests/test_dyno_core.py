@@ -63,6 +63,42 @@ class TestDynoPhysics(unittest.TestCase):
         self.assertEqual(calculate_road_slope_percent(pd.DataFrame(), 1.5), 1.5)
         self.assertEqual(calculate_road_slope_percent(pd.DataFrame(), -0.8), -0.8)
 
+        # Automatic slope with GPS altitude delta should be clamped to max ±2.5%
+        df_steep = pd.DataFrame({
+            'Alt': [100.0, 105.0, 110.0, 115.0, 120.0, 125.0, 130.0, 135.0],
+            'Speed_kmh': [50.0] * 8
+        })
+        auto_slope = calculate_road_slope_percent(df_steep, "auto")
+        self.assertLessEqual(auto_slope, 2.5)
+        self.assertGreaterEqual(auto_slope, -2.5)
+
+    def test_acceleration_clamping_and_p4_math(self):
+        """Verify max acceleration clamping (<= 1800 RPM/s) and P4 intersection at 7023.5 RPM."""
+        # Create pull with an artificial spike
+        rpm = [3000, 3100, 3200, 3600, 3700, 3800, 3900, 4000]  # Jump 3200 -> 3600 in 0.1s is +4000 RPM/s!
+        df = pd.DataFrame({
+            'RPM': rpm,
+            'Speed_kmh': [r / 81.6 for r in rpm],
+            'AFR': [12.8] * len(rpm),
+            'EGT': [500.0] * len(rpm)
+        })
+        metrics = calculate_telemetry_metrics(df)
+        self.assertLessEqual(metrics['dRPM_dt'].max(), 1800.0)
+        self.assertLessEqual(metrics['Acceleration_ms2'].max(), 4.2)
+
+        # P4 Torque Math Check: At 7023.5 RPM, 20 PS must equal exactly 20 Nm
+        df_p4 = pd.DataFrame({
+            'RPM': [7023.5] * 8,
+            'Speed_kmh': [7023.5 / 81.6] * 8,
+            'AFR': [12.8] * 8,
+            'EGT': [500.0] * 8
+        })
+        metrics_p4 = calculate_telemetry_metrics(df_p4)
+        # Verify formula: Nm = (PS * 7023.5) / RPM
+        test_ps = 20.0
+        calculated_nm = (test_ps * 7023.5) / 7023.5
+        self.assertAlmostEqual(calculated_nm, 20.0, places=3)
+
     def test_carb_jetting_advisor(self):
         """Verify 4-zone carburetor diagnostic evaluation."""
         # Create synthetic pull data

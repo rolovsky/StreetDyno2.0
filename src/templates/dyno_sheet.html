@@ -163,6 +163,11 @@
     <script>
         const d = {{ chart_data|tojson }};
         const ctx = document.getElementById('dynoCanvas').getContext('2d');
+        
+        // Ammerschläger-P4 dynamic axis scaling (Y2 = 2.5x Y1)
+        const maxPS = Math.max(...d.map(p => p.PS || 0), 15);
+        const psTop = Math.max(20, Math.ceil((maxPS * 1.15) / 5) * 5);
+
         new Chart(ctx, {
             type: 'line',
             data: {
@@ -170,8 +175,8 @@
                     {
                         label: 'Leistung (PS)',
                         data: d.map(p => ({ x: p.RPM_smoothed, y: p.PS })),
-                        borderColor: '#0088cc',
-                        backgroundColor: '#0088cc',
+                        borderColor: '#e53935',
+                        backgroundColor: '#e53935',
                         borderWidth: 3,
                         pointRadius: 0,
                         tension: 0.3,
@@ -180,8 +185,8 @@
                     {
                         label: 'Drehmoment (Nm)',
                         data: d.map(p => ({ x: p.RPM_smoothed, y: p.Nm })),
-                        borderColor: '#e65100',
-                        backgroundColor: '#e65100',
+                        borderColor: '#43a047',
+                        backgroundColor: '#43a047',
                         borderWidth: 2.5,
                         borderDash: [4, 4],
                         pointRadius: 0,
@@ -191,8 +196,8 @@
                     {
                         label: 'AFR (Lambda)',
                         data: d.map(p => ({ x: p.RPM_smoothed, y: p.AFR })),
-                        borderColor: '#c2185b',
-                        backgroundColor: '#c2185b',
+                        borderColor: '#8e24aa',
+                        backgroundColor: '#8e24aa',
                         borderWidth: 1.5,
                         pointRadius: 0,
                         tension: 0.3,
@@ -204,12 +209,33 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'linear', title: { display: true, text: 'Drehzahl (U/min)', font: { weight: 'bold' } }, grid: { color: '#eee' } },
-                    y: { type: 'linear', position: 'left', title: { display: true, text: 'Leistung (PS)', font: { weight: 'bold' }, color: '#0088cc' }, min: 0, ticks: { color: '#0088cc' } },
-                    y1: { type: 'linear', position: 'right', title: { display: true, text: 'Drehmoment (Nm)', font: { weight: 'bold' }, color: '#e65100' }, min: 0, grid: { drawOnChartArea: false }, ticks: { color: '#e65100' } },
+                    x: { type: 'linear', title: { display: true, text: 'Motordrehzahl (U/min)', font: { weight: 'bold' } }, grid: { color: '#eee' } },
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Leistung (PS)', font: { weight: 'bold' }, color: '#e53935' },
+                        min: 0,
+                        max: psTop,
+                        ticks: { color: '#e53935' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Drehmoment (Nm)', font: { weight: 'bold' }, color: '#43a047' },
+                        min: 0,
+                        max: psTop * 2.5,
+                        grid: { drawOnChartArea: false },
+                        ticks: { color: '#43a047' }
+                    },
                     y2: { type: 'linear', position: 'right', display: false, min: 9.0, max: 18.0 }
                 },
-                plugins: { legend: { labels: { font: { weight: 'bold', size: 11 } } } }
+                plugins: {
+                    legend: { labels: { font: { weight: 'bold', size: 11 } } },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                }
             }
         });
     </script>

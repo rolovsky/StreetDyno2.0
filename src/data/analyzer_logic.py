@@ -145,10 +145,11 @@ def calculate_road_slope_percent(
     """
     Calculates road gradient percentage (Slope %) either automatically from GPS
     altitude delta with Savitzky-Golay filtering, or uses a manual preset value.
+    Automatic GPS slope compensation is bounded to max ±2.5% to prevent altitude jitter artifacts.
     """
     if manual_slope_pct is not None and manual_slope_pct != "auto":
         try:
-            return float(manual_slope_pct)
+            return float(max(-15.0, min(15.0, float(manual_slope_pct))))
         except (ValueError, TypeError):
             pass
 
@@ -178,7 +179,8 @@ def calculate_road_slope_percent(
 
                 if dist_m > 15.0:
                     slope_pct = (delta_alt / dist_m) * 100.0
-                    return float(max(-15.0, min(15.0, slope_pct)))
+                    # Auto-slope bounded to max ±2.5% to eliminate spurious altitude spikes
+                    return float(max(-2.5, min(2.5, slope_pct)))
         except Exception:
             pass
 
@@ -259,10 +261,10 @@ def calculate_telemetry_metrics(
         i_total = get_gear_total_ratio(gear, prim, gears)
         df['Detected_Gear'] = detected_gear
 
-    # 2. Savitzky-Golay Smoothing for RPM and Speed
+    # 2. Robust Savitzky-Golay Smoothing for RPM and Speed
     n_points = len(df)
     if HAS_SCIPY and n_points >= 7:
-        window_len = min(15, n_points - (1 if n_points % 2 == 0 else 0))
+        window_len = min(21, n_points - (1 if n_points % 2 == 0 else 0))
         if window_len < 5:
             window_len = 5 if n_points >= 5 else 3
         df['RPM_smoothed'] = savgol_filter(df['RPM'], window_length=window_len, polyorder=2)
@@ -271,7 +273,7 @@ def calculate_telemetry_metrics(
         else:
             df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
     else:
-        window_size = min(9, max(3, n_points // 2 * 2 + 1))
+        window_size = min(15, max(3, (n_points // 2) * 2 + 1))
         df['RPM_smoothed'] = df['RPM'].rolling(window=window_size, min_periods=1, center=True).mean()
         if 'Speed_kmh' in df.columns:
             df['Speed_smoothed'] = df['Speed_kmh'].rolling(window=window_size, min_periods=1, center=True).mean()
@@ -289,8 +291,14 @@ def calculate_telemetry_metrics(
     else:
         dt_series = 0.1
 
-    # 4. Angular & Linear Velocity and Acceleration
-    df['dRPM_dt'] = df['RPM_smoothed'].diff().fillna(0.0) / dt_series
+    # 4. Angular & Linear Velocity and Plausible Acceleration Clamping
+    raw_drpm_dt = df['RPM_smoothed'].diff().fillna(0.0) / dt_series
+    if HAS_SCIPY and n_points >= 7:
+        w_d = min(11, n_points - (1 if n_points % 2 == 0 else 0))
+        if w_d >= 5:
+            raw_drpm_dt = savgol_filter(raw_drpm_dt, window_length=w_d, polyorder=2)
+    # Bound max rotational acceleration in 3rd gear to max 1800.0 RPM/s to eliminate clutch slip & bump spikes
+    df['dRPM_dt'] = np.clip(raw_drpm_dt, -1500.0, 1800.0)
 
     v_wheel_ms = (df['RPM_smoothed'] / 60.0 / i_total) * u
     if 'Speed_smoothed' in df.columns and (df['Speed_smoothed'] > 2.0).any():
@@ -300,12 +308,15 @@ def calculate_telemetry_metrics(
         v_ms = v_wheel_ms
 
     df['Velocity_ms'] = v_ms
-    df['Acceleration_ms2'] = df['Velocity_ms'].diff().fillna(0.0) / dt_series
+    raw_accel = df['Velocity_ms'].diff().fillna(0.0) / dt_series
 
     if HAS_SCIPY and n_points >= 7:
-        window_len = min(11, n_points - (1 if n_points % 2 == 0 else 0))
-        if window_len >= 5:
-            df['Acceleration_ms2'] = savgol_filter(df['Acceleration_ms2'], window_length=window_len, polyorder=2)
+        window_len_a = min(11, n_points - (1 if n_points % 2 == 0 else 0))
+        if window_len_a >= 5:
+            raw_accel = savgol_filter(raw_accel, window_length=window_len_a, polyorder=2)
+
+    # Clamping linear acceleration to physical limits (max 4.2 m/s² ≈ 0.43g for Vespa Largeframe)
+    df['Acceleration_ms2'] = np.clip(raw_accel, -6.0, 4.2)
 
     # 5. Physical Force Components
     m_effective = m * rot_factor
@@ -334,7 +345,7 @@ def calculate_telemetry_metrics(
     df['PS_Raw'] = (p_engine_watts / 735.49875).clip(lower=0.0)
     df['PS'] = (df['PS_Raw'] * k_norm).clip(lower=0.0)
 
-    # 7. Torque Calculation (Nm)
+    # 7. Torque Calculation (Nm) - Consistent with Nm = (PS * 7023.5) / RPM
     df['Nm_Raw'] = np.where(
         (df['RPM_smoothed'] > 500) & (df['PS_Raw'] > 0),
         (df['PS_Raw'] * 7023.5) / df['RPM_smoothed'],
@@ -450,11 +461,12 @@ def plot_telemetry(
 
     ax1.grid(True, color='#333333', linestyle='--', alpha=0.7)
 
-    max_ps = df['PS'].max() if len(df) > 0 and 'PS' in df.columns else 0.0
-    max_nm = df['Nm'].max() if len(df) > 0 and 'Nm' in df.columns else 0.0
+    max_ps = float(df['PS'].max()) if len(df) > 0 and 'PS' in df.columns else 20.0
+    ps_top = max(20.0, math.ceil((max_ps * 1.15) / 5.0) * 5.0)
 
-    ax1.set_ylim(0, max(25.0, max_ps * 1.18))
-    ax2.set_ylim(0, max(30.0, max_nm * 1.5))
+    # Ammerschläger-P4 Layout: Torque axis is dynamically scaled to 2.5x the power axis
+    ax1.set_ylim(0, ps_top)
+    ax2.set_ylim(0, ps_top * 2.5)
 
     ax1.set_title(f'StreetDyno 2.0 - {vehicle_name} Leistungsmessung{title_suffix}', fontsize=14, fontweight='bold', pad=15, color='#ffffff')
     ax1.set_ylabel('Leistung [PS]', color='#00ffcc', fontsize=12, fontweight='bold')
