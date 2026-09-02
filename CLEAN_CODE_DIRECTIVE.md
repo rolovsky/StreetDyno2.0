@@ -70,6 +70,12 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
    * Mindestgeschwindigkeit $v > 15{,}0\text{ km/h}$.
    * Getriebe-Fenster: $60 \le \frac{\text{RPM}}{\text{Speed}} \le 110$ (nominal 81.6 RPM/(km/h)).
    * Drop-Filter: Vorzeitige Gaswegnahme ($d\text{RPM}/dt \le -500\text{ RPM/s}$ bei $< 1.000\text{ RPM}$ Gain) verwirft Fehlstarts automatisch.
+4. **Dell'Orto SI Nebendüsen-Mathematik (ND Quotient $Q = \text{Luft} / \text{Benzin}$)**:
+   * Die ND-Bezeichnung lautet Benzin / Luft (z.B. `60/160` $\rightarrow$ Benzin 60, Luft 160).
+   * Der physikalische Quotient ist $Q = \frac{\text{Luft}}{\text{Benzin}} = \frac{160}{60} = 2{,}67$.
+   * **Physik**: Ein **höherer Quotient** (z.B. `55/160` = 2,91 oder `50/140` = 2,80) bedeutet MEHR LUFT auf weniger Benzin $\rightarrow$ **magerer**.
+   * **Anfetten**: Um das Gemisch anzufetten, muss der Quotient **kleiner** werden (z.B. `55/140` = 2,55 $\rightarrow$ `50/120` = 2,40 $\rightarrow$ `55/120` = 2,18).
+   * Formel: `is_richer_idle_jet(new, cur) = (new.air / new.fuel) < (cur.air / cur.fuel)`.
 
 ---
 

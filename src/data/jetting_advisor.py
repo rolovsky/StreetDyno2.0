@@ -17,10 +17,31 @@ from config import (
 )
 
 
+# Dell'Orto SI Idle Jet Database (Fuel / Air)
+# Quotient Q = Air / Fuel (Higher Q = more air per fuel = LEANER; Smaller Q = less air / more fuel = RICHER)
+DELLORTO_SI_IDLE_JETS = [
+    {"name": "50/160", "fuel": 50, "air": 160, "ratio": 160.0 / 50.0},  # 3.20 (Sehr mager)
+    {"name": "45/140", "fuel": 45, "air": 140, "ratio": 140.0 / 45.0},  # 3.11 (Sehr mager)
+    {"name": "48/140", "fuel": 48, "air": 140, "ratio": 140.0 / 48.0},  # 2.92 (Mager)
+    {"name": "55/160", "fuel": 55, "air": 160, "ratio": 160.0 / 55.0},  # 2.91 (Mager)
+    {"name": "50/140", "fuel": 50, "air": 140, "ratio": 140.0 / 50.0},  # 2.80 (Mager)
+    {"name": "60/160", "fuel": 60, "air": 160, "ratio": 160.0 / 60.0},  # 2.67 (Standard / Referenz)
+    {"name": "55/140", "fuel": 55, "air": 140, "ratio": 140.0 / 55.0},  # 2.55 (Fetter als 60/160)
+    {"name": "50/120", "fuel": 50, "air": 120, "ratio": 120.0 / 50.0},  # 2.40 (Deutlich fetter)
+    {"name": "52/120", "fuel": 52, "air": 120, "ratio": 120.0 / 52.0},  # 2.31 (Sehr fett)
+    {"name": "55/120", "fuel": 55, "air": 120, "ratio": 120.0 / 55.0},  # 2.18 (Extrem fett)
+]
+
+
 def parse_nd_ratio(nd_str: str) -> float:
-    """Calculates idle jet ratio (e.g. 60/160 -> 160 / 60 = 2.67)."""
+    """
+    Calculates idle jet ratio Q = Air / Fuel (e.g. 60/160 -> 160 / 60 = 2.67).
+    Note on Dell'Orto SI:
+    - Higher ratio (e.g. 55/160 = 2.91) means MORE AIR relative to fuel -> LEANER.
+    - Smaller ratio (e.g. 55/140 = 2.55 or 50/120 = 2.40) means LESS AIR / MORE FUEL -> RICHER.
+    """
     try:
-        parts = str(nd_str).split('/')
+        parts = str(nd_str).strip().split('/')
         if len(parts) == 2:
             fuel = float(parts[0])
             air = float(parts[1])
@@ -28,6 +49,42 @@ def parse_nd_ratio(nd_str: str) -> float:
     except Exception:
         pass
     return 2.67
+
+
+def is_richer_idle_jet(new_jet: str, current_jet: str) -> bool:
+    """Returns True if new_jet provides a richer mixture (smaller Air/Fuel quotient) than current_jet."""
+    return parse_nd_ratio(new_jet) < parse_nd_ratio(current_jet)
+
+
+def is_leaner_idle_jet(new_jet: str, current_jet: str) -> bool:
+    """Returns True if new_jet provides a leaner mixture (higher Air/Fuel quotient) than current_jet."""
+    return parse_nd_ratio(new_jet) > parse_nd_ratio(current_jet)
+
+
+def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
+    """
+    Generates physically correct mechanical recommendations for Dell'Orto SI idle jets.
+    target_direction: 'RICHER' (anfetten) or 'LEANER' (abmagern).
+    """
+    current_q = parse_nd_ratio(current_nd)
+
+    if target_direction == "RICHER":
+        richer_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] < current_q - 0.05]
+        richer_candidates.sort(key=lambda j: j["ratio"], reverse=True)
+        if richer_candidates:
+            examples = " oder ".join([f"{j['name']} ({j['ratio']:.2f})" for j in richer_candidates[:2]])
+            return f"ND von {current_nd} (Q={current_q:.2f}) auf fettere ND mit kleinerem Quotienten wie {examples} wechseln."
+        return f"ND {current_nd} ist bereits sehr fett (Q={current_q:.2f}). Für noch fetteres Gemisch 55/120 (2.18) oder 52/120 (2.31) prüfen."
+
+    elif target_direction == "LEANER":
+        leaner_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] > current_q + 0.05]
+        leaner_candidates.sort(key=lambda j: j["ratio"])
+        if leaner_candidates:
+            examples = " oder ".join([f"{j['name']} ({j['ratio']:.2f})" for j in leaner_candidates[:2]])
+            return f"ND von {current_nd} (Q={current_q:.2f}) auf magerere ND mit größerem Quotienten wie {examples} wechseln."
+        return f"ND {current_nd} ist bereits sehr mager (Q={current_q:.2f})."
+
+    return f"Nebendüse {current_nd} (Q={current_q:.2f}) ist optimal abgestimmt."
 
 
 def get_stoichiometric_afr(fuel_type: str = "Super_E5") -> float:
@@ -186,26 +243,32 @@ def analyze_carb_jetting(
         zid = z["id"]
 
         if zid == "zone1":
+            cur_q = parse_nd_ratio(nd)
             if "LEAN" in status:
-                advice = f"Gemischschraube 0.5 Umdrehungen herausdrehen (fetter). Falls AFR weiterhin > {t_max:.1f}, ND von {nd} auf fettere ND wechseln."
+                nd_advice = get_idle_jet_advice(nd, "RICHER")
+                advice = f"Gemischschraube 0.5 Umdrehungen herausdrehen (fetter). Falls AFR weiterhin > {t_max:.1f}, {nd_advice}"
             elif status == "RICH":
-                advice = f"Gemischschraube 0.5 Umdrehungen hineindrehen. Falls AFR < {t_min:.1f}, magerere ND wählen."
+                nd_advice = get_idle_jet_advice(nd, "LEANER")
+                advice = f"Gemischschraube 0.5 Umdrehungen hineindrehen (magerer). Falls AFR < {t_min:.1f}, {nd_advice}"
             else:
-                advice = f"Nebendüse {nd} & Gemischschraube arbeiten im optimalen Lambda-Bereich (λ={lambda_measured:.2f})."
+                advice = f"Nebendüse {nd} (Q={cur_q:.2f}) & Gemischschraube arbeiten im optimalen Lambda-Bereich (λ={lambda_measured:.2f})."
 
         elif zid == "zone2":
             if "LEAN" in status:
                 if slide_key == "bgm_std_cutout":
                     advice = f"🚨 Magerloch durch großen BGM Standard-Cutaway! Empfehlung: Wechsel auf 'Lemarxon Mid Cutaway' oder 'Lemarxon Low Cutaway' für sicheren Teillast-Übergang."
                 elif slide_key == "lemarxon_mid":
-                    advice = f"Teillast leicht mager. Empfehlung: Wechsel auf 'Lemarxon Low Cutaway' (fetter) oder Gemischschraube weiter herausdrehen."
+                    nd_advice = get_idle_jet_advice(nd, "RICHER")
+                    advice = f"Teillast leicht mager. Empfehlung: Wechsel auf 'Lemarxon Low Cutaway' (fetter) oder {nd_advice}"
                 else:
-                    advice = f"Magerlauf trotz {slide_label}. Mischrohr ({tube}) und ND ({nd}) auf ausreichende Voremulgierung prüfen."
+                    nd_advice = get_idle_jet_advice(nd, "RICHER")
+                    advice = f"Magerlauf trotz {slide_label}. Mischrohr ({tube}) prüfen oder {nd_advice}"
             elif status == "RICH":
                 if slide_key == "lemarxon_low":
                     advice = f"Überfettet bei 1/4 bis 1/2 Gas. Wechsel auf 'Lemarxon Mid Cutaway' (etwas magerer) sorgt für agilere Gasannahme."
                 else:
-                    advice = f"Teillast überfettet leicht. Schieber mit größerem Cutaway (z.B. BGM Standard) oder magerere ND testen."
+                    nd_advice = get_idle_jet_advice(nd, "LEANER")
+                    advice = f"Teillast überfettet leicht. Schieber mit größerem Cutaway testen oder {nd_advice}"
             else:
                 advice = f"Gasschieber ({slide_label}) sorgt für einen sauberen, stempelfreien Teillastübergang (λ={lambda_measured:.2f})."
 

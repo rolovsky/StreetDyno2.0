@@ -28,7 +28,13 @@ from data.analyzer_logic import (
     calculate_telemetry_metrics,
     detect_dyno_pull
 )
-from data.jetting_advisor import analyze_carb_jetting, parse_nd_ratio
+from data.jetting_advisor import (
+    analyze_carb_jetting,
+    parse_nd_ratio,
+    is_richer_idle_jet,
+    is_leaner_idle_jet,
+    get_idle_jet_advice
+)
 from main import create_app
 
 
@@ -160,9 +166,30 @@ class TestDynoPhysics(unittest.TestCase):
         self.assertIn("Polini Venturi Trichter", z4_venturi["advice"])
 
     def test_nd_ratio_parser(self):
-        """Verify ND ratio parsing (e.g. 60/160 -> 2.67)."""
+        """Verify ND ratio parsing and Dell'Orto SI idle jet quotient physics."""
+        # Q = Air / Fuel (e.g. 60/160 -> 160 / 60 = 2.67)
         self.assertAlmostEqual(parse_nd_ratio("60/160"), 2.667, places=2)
         self.assertAlmostEqual(parse_nd_ratio("55/160"), 2.909, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("55/140"), 2.545, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("50/120"), 2.400, places=2)
+
+        # Smaller Quotient = Less Air / More Fuel = RICHER
+        self.assertTrue(is_richer_idle_jet("55/140", "60/160"))
+        self.assertTrue(is_richer_idle_jet("50/120", "60/160"))
+        self.assertTrue(is_richer_idle_jet("55/120", "50/120"))
+
+        # Higher Quotient = More Air / Less Fuel = LEANER
+        self.assertTrue(is_leaner_idle_jet("55/160", "60/160"))
+        self.assertTrue(is_leaner_idle_jet("50/140", "60/160"))
+
+        # Verify Advice Generation
+        rich_adv = get_idle_jet_advice("60/160", "RICHER")
+        self.assertIn("55/140", rich_adv)
+        self.assertIn("kleinerem Quotienten", rich_adv)
+
+        lean_adv = get_idle_jet_advice("60/160", "LEANER")
+        self.assertIn("50/140", lean_adv)
+        self.assertIn("größerem Quotienten", lean_adv)
 
 
 class TestWebEndpoints(unittest.TestCase):
