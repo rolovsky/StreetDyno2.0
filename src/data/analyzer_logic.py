@@ -362,9 +362,9 @@ def calculate_telemetry_metrics(
         w_p4 = min(15, n_points - (1 if n_points % 2 == 0 else 0))
         if w_p4 >= 5:
             ps_trend = savgol_filter(norm_ps_calc, window_length=w_p4, polyorder=2)
-            norm_ps_calc = savgol_filter(np.maximum(norm_ps_calc, ps_trend), window_length=w_p4, polyorder=2).clip(lower=0.0)
+            norm_ps_calc = np.clip(savgol_filter(np.maximum(norm_ps_calc, ps_trend), window_length=w_p4, polyorder=2), 0.0, None)
             raw_ps_trend = savgol_filter(raw_ps_calc, window_length=w_p4, polyorder=2)
-            raw_ps_calc = savgol_filter(np.maximum(raw_ps_calc, raw_ps_trend), window_length=w_p4, polyorder=2).clip(lower=0.0)
+            raw_ps_calc = np.clip(savgol_filter(np.maximum(raw_ps_calc, raw_ps_trend), window_length=w_p4, polyorder=2), 0.0, None)
 
     df['PS_Raw'] = raw_ps_calc
     df['PS'] = norm_ps_calc
