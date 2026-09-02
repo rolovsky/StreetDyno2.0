@@ -303,6 +303,64 @@
         window.addEventListener('click', initWakeLock, { once: true });
         initWakeLock();
 
+        // --- Web Audio Synthesizer & Haptics ---
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+            return audioCtx;
+        }
+
+        window.addEventListener('touchstart', () => { getAudioContext(); }, { passive: true, once: true });
+        window.addEventListener('click', () => { getAudioContext(); }, { once: true });
+
+        function playTone(freq, type, durationMs, offsetSec = 0) {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type || 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + offsetSec);
+
+                gain.gain.setValueAtTime(0.001, ctx.currentTime + offsetSec);
+                gain.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + offsetSec + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offsetSec + (durationMs / 1000));
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime + offsetSec);
+                osc.stop(ctx.currentTime + offsetSec + (durationMs / 1000) + 0.05);
+            } catch (e) {
+                console.warn('Audio feedback error:', e);
+            }
+        }
+
+        function notifyPullStart() {
+            // High single beep: 880 Hz (A5)
+            playTone(880, 'triangle', 130);
+            if ('vibrate' in navigator) {
+                try { navigator.vibrate(100); } catch(e){}
+            }
+        }
+
+        function notifyPullStop() {
+            // Ascending dual chime: 880 Hz -> 1174 Hz (A5 -> D6)
+            playTone(880, 'sine', 80, 0.0);
+            playTone(1174, 'triangle', 180, 0.10);
+            if ('vibrate' in navigator) {
+                try { navigator.vibrate([80, 50, 80]); } catch(e){}
+            }
+        }
+
         function toggleFullScreen() {
             try {
                 const doc = document.documentElement;
@@ -339,6 +397,8 @@
         }
 
         let beatState = false;
+        let prevIsLogging = false;
+
         setInterval(() => {
             fetch('/api/data?t=' + Date.now(), { cache: 'no-store' })
                 .then(r => r.json())
@@ -414,8 +474,16 @@
                     const statusStr = (typeof d.status === 'string') ? d.status : 'IDLE';
                     if (statusText) statusText.innerText = statusStr;
 
-                    const isLogging = statusStr.indexOf('REC') !== -1;
+                    const isLogging = (statusStr.indexOf('REC') !== -1) || (d.is_logging === true);
                     updateRecState(isLogging);
+
+                    // Audio & Haptic triggers on state transition
+                    if (!prevIsLogging && isLogging) {
+                        notifyPullStart();
+                    } else if (prevIsLogging && !isLogging) {
+                        notifyPullStop();
+                    }
+                    prevIsLogging = isLogging;
                 })
                 .catch(err => console.error('Fetch error:', err));
         }, 150);

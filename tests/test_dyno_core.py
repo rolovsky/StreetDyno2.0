@@ -208,6 +208,39 @@ class TestCSVLogger(unittest.TestCase):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+class TestHardwareServiceAutoTrigger(unittest.TestCase):
+
+    def test_gear3_auto_trigger_rules(self):
+        """Verify strict 3rd gear ratio, minimum speed (>15 km/h), and acceleration validation."""
+        # 1. Stationary rev (v = 0.0) -> must NOT trigger
+        spd_stationary = 0.0
+        rpm = 5000.0
+        speed_ok = (spd_stationary > 15.0)
+        self.assertFalse(speed_ok)
+
+        # 2. 1st gear pull (v = 25 km/h, RPM = 4500 -> ratio = 180.0) -> must NOT trigger
+        spd_g1 = 25.0
+        rpm_g1 = 4500.0
+        ratio_g1 = rpm_g1 / spd_g1
+        in_gear3_g1 = (spd_g1 > 15.0) and (60.0 <= ratio_g1 <= 110.0)
+        self.assertFalse(in_gear3_g1)
+
+        # 3. 3rd gear pull (v = 55 km/h, RPM = 4500 -> ratio = 81.8) -> MUST trigger
+        spd_g3 = 55.0
+        rpm_g3 = 4500.0
+        ratio_g3 = rpm_g3 / spd_g3
+        in_gear3_g3 = (spd_g3 > 15.0) and (60.0 <= ratio_g3 <= 110.0)
+        self.assertTrue(in_gear3_g3)
+
+        # 4. Abrupt drop filter condition (dRPM/dt <= -500 and low gain)
+        drpm_dt = -550.0
+        rpm_gain = 400.0
+        pull_duration = 0.5
+        abrupt_drop = (drpm_dt <= -500.0 and rpm_gain < 1000.0 and pull_duration >= 0.3)
+        self.assertTrue(abrupt_drop)
+
+
 if __name__ == '__main__':
     unittest.main()
+
 

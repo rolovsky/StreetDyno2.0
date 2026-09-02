@@ -258,15 +258,16 @@ class HardwareService:
             # 5. Intelligent WOT Dyno Pull Auto-Detection (3. Gang)
             if self.auto_trigger_enabled:
                 if not self.logger.is_logging:
-                    # Check 3rd gear ratio if moving
-                    in_gear3 = True
-                    if spd >= 20.0:
+                    # Strict 3rd gear validation: must be moving > 15 km/h and ratio between 60 and 110 RPM/(km/h)
+                    speed_ok = (spd > 15.0)
+                    in_gear3 = False
+                    if speed_ok:
                         ratio = filtered_rpm / spd
                         in_gear3 = (60.0 <= ratio <= 110.0)
 
                     # WOT Acceleration Trigger Condition
                     cooldown_ok = (loop_now - last_pull_stop_time) >= 2.5
-                    if cooldown_ok and filtered_rpm >= 2800.0 and in_gear3 and drpm_dt >= 200.0:
+                    if speed_ok and in_gear3 and cooldown_ok and filtered_rpm >= 2800.0 and drpm_dt >= 200.0:
                         accel_streak += 1
                         if accel_streak >= 3:  # ~300ms continuous acceleration
                             auto_pull_active = True
@@ -279,7 +280,7 @@ class HardwareService:
                                 self.logger.start(trigger="AUTO", pre_buffer=list(self._pre_buffer))
                                 self.state.is_logging = True
                                 self.state.status = "REC (AUTO)"
-                            print(f"\n⚡ [AUTO-DYNO] 🎯 WOT-Pull im 3. Gang erkannt ({pull_start_rpm:.0f} RPM, {spd:.1f} km/h)! Aufzeichnung aktiv.")
+                            print(f"\n⚡ [AUTO-DYNO] 🎯 WOT-Pull im 3. Gang erkannt ({pull_start_rpm:.0f} RPM, {spd:.1f} km/h, Ratio {filtered_rpm/spd:.1f})! Aufzeichnung aktiv.")
                     else:
                         accel_streak = max(0, accel_streak - 1)
 
@@ -287,10 +288,15 @@ class HardwareService:
                     # Ongoing Auto-Pull Tracking
                     pull_peak_rpm = max(pull_peak_rpm, filtered_rpm)
                     pull_duration = loop_now - pull_start_time
+                    rpm_gain = pull_peak_rpm - pull_start_rpm
+
+                    # Abrupt Drop-Filter (e.g. clutch pulled or shift before real pull)
+                    abrupt_drop = (drpm_dt <= -500.0 and rpm_gain < 1000.0 and pull_duration >= 0.3)
 
                     # Auto-Stop Conditions (Throttle closed / shift / rev limiter)
                     rpm_drop = pull_peak_rpm - filtered_rpm
                     should_stop = (
+                        abrupt_drop or
                         (pull_duration >= 0.8 and rpm_drop >= 350.0) or
                         (pull_duration >= 1.2 and drpm_dt <= -250.0) or
                         (filtered_rpm < 2600.0) or
@@ -300,15 +306,15 @@ class HardwareService:
                     if should_stop:
                         auto_pull_active = False
                         last_pull_stop_time = loop_now
-                        rpm_gain = pull_peak_rpm - pull_start_rpm
 
                         with self._lock:
-                            if pull_duration >= 1.0 and rpm_gain >= 1200.0:
+                            if not abrupt_drop and pull_duration >= 1.0 and rpm_gain >= 1200.0:
                                 saved_file = self.logger.stop()
                                 print(f"🏁 [AUTO-DYNO] ✅ Prüflauf erfolgreich abgeschlossen (+{rpm_gain:.0f} RPM in {pull_duration:.1f}s): {saved_file}")
                             else:
                                 self.logger.discard_current()
-                                print(f"⚠️ [AUTO-DYNO] Verworfener Lauf (nur +{rpm_gain:.0f} RPM in {pull_duration:.1f}s).")
+                                reason = "Abrupter Einbruch" if abrupt_drop else f"nur +{rpm_gain:.0f} RPM in {pull_duration:.1f}s"
+                                print(f"⚠️ [AUTO-DYNO] Verworfener Fehltrigger ({reason}).")
 
                             self.state.is_logging = False
                             self.state.status = "IDLE"
