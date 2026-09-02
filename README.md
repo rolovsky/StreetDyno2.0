@@ -6,9 +6,9 @@
 [![Physics: Savitzky--Golay & DIN 70020](https://img.shields.io/badge/Physics-DIN%2070020%20%2B%20SG%20Filter-orange.svg)]()
 [![Architecture: Clean Code & Modular](https://img.shields.io/badge/Architecture-Clean%20Code%20%26%20Modular-success.svg)]()
 [![Cockpit: iPhone 15 Pro Max](https://img.shields.io/badge/Cockpit-iPhone%2015%20Pro%20Max%20Optimized-purple.svg)]()
-[![Tests: 14/14 Passing](https://img.shields.io/badge/Tests-14%2F14%20Passed%20(100%25)-brightgreen.svg)]()
+[![Tests: 15/15 Passing](https://img.shields.io/badge/Tests-15%2F15%20Passed%20(100%25)-brightgreen.svg)]()
 
-**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, automatischer Straßenneigungskompensation, **4-Zonen SI 24/24 Vergaser-Matrix mit Ethanol-Stöchiometrie**, **Web Audio & Haptic Feedback**, druckfertigen DIN 70020 Prüfstandsberichten und einer sauberen, modularen Clean-Code-Architektur.
+**StreetDyno 2.0** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Das System vereint hochfrequente Sensorik (RPM, AFR, EGT, GPS) mit physikalischer Fahrleistungsdynamik, **21-Punkt Savitzky-Golay Glättung & 1.800 RPM/s Beschleunigungskompensation**, autonomem **WOT Auto-Trigger (3. Gang)**, **Multi-Period Impuls-Akkumulation**, autom. Straßenneigungskompensation ($\le \pm 2{,}5\%$), **4-Zonen SI 24/24 Vergaser-Matrix mit Ethanol-Stöchiometrie**, **Web Audio & Haptic Feedback**, **Ammerschläger-P4 Layout-Skalierung (2,5x Nm-Achse)** und einer sauberen Clean-Code-Architektur.
 
 ---
 
