@@ -369,7 +369,7 @@
         </div>
         <div class="hud-card card-afr" id="cardAfr">
             <div class="card-header"><span>Lambda</span><span id="afrZone">--</span></div>
-            <div id="afr" class="card-value">0.00</div>
+            <div id="afr" class="card-value">0.0</div>
             <div class="card-unit">AFR (12.8 OPT)</div>
         </div>
         <div class="hud-card card-egt" id="cardEgt">
@@ -615,7 +615,7 @@
                 rpmEl.innerText = calmRpm.toLocaleString('de-DE');
             }
             if (afrEl && displayAfr > 0) {
-                afrEl.innerText = displayAfr.toFixed(2);
+                afrEl.innerText = displayAfr.toFixed(1);
             }
             if (speedEl) {
                 speedEl.innerText = displaySpeed.toFixed(1);
