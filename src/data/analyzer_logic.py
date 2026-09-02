@@ -462,6 +462,7 @@ def plot_telemetry(
     ax1.grid(True, color='#333333', linestyle='--', alpha=0.7)
 
     max_ps = float(df['PS'].max()) if len(df) > 0 and 'PS' in df.columns else 20.0
+    max_nm = float(df['Nm'].max()) if len(df) > 0 and 'Nm' in df.columns else 0.0
     ps_top = max(20.0, math.ceil((max_ps * 1.15) / 5.0) * 5.0)
 
     # Ammerschläger-P4 Layout: Torque axis is dynamically scaled to 2.5x the power axis
