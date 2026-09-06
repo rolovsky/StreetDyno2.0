@@ -71,7 +71,7 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
    * **Bandgap-Kompensation**: Dynamische Erfassung der Betriebsspannung via interner $1{,}1\text{V}$ Bandgap-Referenz (`readVccMillivolts()`), um ADC-Drift bei schwankender Bordspannung auszugleichen.
    * **Reale 2-Takt Zonen-Schwellenwerte (Super E5)**:
      * **Vollgas-WOT-Sicherheitsbereich (> 6.500 U/min)**: $11{,}1\text{--}12{,}4\text{ AFR}$ ($\approx 11{,}9\text{ AFR}$ Peak) ist **OPTIMAL / FETT & SICHER** (kein Mageralarm!).
-     * **Teillast & Schieberbereich (2.800 – 4.500 U/min)**: $\text{AFR} > 14{,}5\text{--}15{,}0$ ist ein **MAGERLOCH** (Gemischschraube herausdrehen, ND anfetten auf z.B. `62/160` oder `55/140`).
+     * **Teillast & Schieberbereich (2.800 – 4.500 U/min)**: $\text{AFR} > 14{,}5\text{--}15{,}0$ ist ein **MAGERLOCH** (Gemischschraube herausdrehen, ND anfetten auf z.B. `65/160` oder `62/160`).
      * **Schiebebetrieb**: Bei abrupter Gaswegnahme und $\text{AFR} > 17{,}0$ liegt Schub-Magerlauf vor (Ursache für Krümmer-Patschen).
 3. **WOT Auto-Trigger (3. Gang)**:
    * Mindestgeschwindigkeit $v > 15{,}0\text{ km/h}$.
@@ -80,8 +80,9 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
 4. **Dell'Orto SI Nebendüsen-Mathematik (ND Quotient $Q = \text{Luft} / \text{Benzin}$)**:
    * Die ND-Bezeichnung lautet Benzin / Luft (z.B. `60/160` $\rightarrow$ Benzin 60, Luft 160).
    * Der physikalische Quotient ist $Q = \frac{\text{Luft}}{\text{Benzin}} = \frac{160}{60} = 2{,}67$.
-   * **Physik**: Ein **höherer Quotient** (z.B. `55/160` = 2,91 oder `50/140` = 2,80) bedeutet MEHR LUFT auf weniger Benzin $\rightarrow$ **magerer**.
-   * **Anfetten**: Um das Gemisch anzufetten, muss der Quotient **kleiner** werden (z.B. `55/140` = 2,55 $\rightarrow$ `50/120` = 2,40 $\rightarrow$ `55/120` = 2,18).
+   * **Physik**: Ein **höherer Quotient** (z.B. `55/160` = 2,91 oder `58/160` = 2,76) bedeutet MEHR LUFT auf weniger Benzin $\rightarrow$ **magerer**.
+   * **Anfetten**: Um das Gemisch anzufetten, muss der Quotient **kleiner** werden (z.B. `62/160` = 2,58 $\rightarrow$ `65/160` = 2,46 $\rightarrow$ `68/160` = 2,35).
+   * **LLG-Schraube**: Bei Feingewinde M5x0.5 sollte der Arbeitsbereich bei $1{,}5\text{--}2{,}25$ Umdrehungen liegen (ab 3.5 Umdrehungen ist die Feder entspannt und die Düse muss vergrößert werden).
    * Formel: `is_richer_idle_jet(new, cur) = (new.air / new.fuel) < (cur.air / cur.fuel)`.
 
 ---

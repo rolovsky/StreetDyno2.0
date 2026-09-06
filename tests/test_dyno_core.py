@@ -166,25 +166,31 @@ class TestDynoPhysics(unittest.TestCase):
         self.assertIn("Polini Venturi Trichter", z4_venturi["advice"])
 
     def test_nd_ratio_parser(self):
-        """Verify ND ratio parsing and Dell'Orto SI idle jet quotient physics."""
+        """Verify ND ratio parsing and Dell'Orto SI idle jet quotient physics for 160-series scale."""
         # Q = Air / Fuel (e.g. 60/160 -> 160 / 60 = 2.67)
         self.assertAlmostEqual(parse_nd_ratio("60/160"), 2.667, places=2)
         self.assertAlmostEqual(parse_nd_ratio("55/160"), 2.909, places=2)
-        self.assertAlmostEqual(parse_nd_ratio("55/140"), 2.545, places=2)
-        self.assertAlmostEqual(parse_nd_ratio("50/120"), 2.400, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("58/160"), 2.759, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("62/160"), 2.581, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("65/160"), 2.462, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("68/160"), 2.353, places=2)
 
         # Smaller Quotient = Less Air / More Fuel = RICHER
-        self.assertTrue(is_richer_idle_jet("55/140", "60/160"))
-        self.assertTrue(is_richer_idle_jet("50/120", "60/160"))
-        self.assertTrue(is_richer_idle_jet("55/120", "50/120"))
+        self.assertTrue(is_richer_idle_jet("65/160", "60/160"))
+        self.assertTrue(is_richer_idle_jet("62/160", "60/160"))
+        self.assertTrue(is_richer_idle_jet("68/160", "65/160"))
 
         # Higher Quotient = More Air / Less Fuel = LEANER
         self.assertTrue(is_leaner_idle_jet("55/160", "60/160"))
-        self.assertTrue(is_leaner_idle_jet("50/140", "60/160"))
+        self.assertTrue(is_leaner_idle_jet("58/160", "60/160"))
 
         lean_adv = get_idle_jet_advice("60/160", "LEANER")
-        self.assertIn("50/140", lean_adv)
+        self.assertIn("58/160", lean_adv)
         self.assertIn("größerem Quotienten", lean_adv)
+
+        rich_adv = get_idle_jet_advice("60/160", "RICHER")
+        self.assertIn("65/160", rich_adv)
+        self.assertIn("LLG-Schraube", rich_adv)
 
     def test_sip_tacho_afr_calibration(self):
         """Verify calibrated SIP-Tacho synchronized formula: AFR = 22.62 - (5.72 * V), clamped [9.0, 19.5]."""

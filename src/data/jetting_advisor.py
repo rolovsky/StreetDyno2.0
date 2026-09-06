@@ -17,20 +17,15 @@ from config import (
 )
 
 
-# Dell'Orto SI Idle Jet Database (Fuel / Air)
-# Quotient Q = Air / Fuel (Higher Q = more air per fuel = LEANER; Smaller Q = less air / more fuel = RICHER)
+# Dell'Orto SI Idle Jet Database (Fuel / Air, 160er Luftkorrektur-Skala)
+# Quotient Q = Air / Fuel (Höherer Q = mehr Luft pro Benzin = MAGERER; Kleinerer Q = weniger Luft / mehr Benzin = FETTER)
 DELLORTO_SI_IDLE_JETS = [
-    {"name": "50/160", "fuel": 50, "air": 160, "ratio": 160.0 / 50.0},  # 3.20 (Sehr mager)
-    {"name": "45/140", "fuel": 45, "air": 140, "ratio": 140.0 / 45.0},  # 3.11 (Sehr mager)
-    {"name": "48/140", "fuel": 48, "air": 140, "ratio": 140.0 / 48.0},  # 2.92 (Mager)
     {"name": "55/160", "fuel": 55, "air": 160, "ratio": 160.0 / 55.0},  # 2.91 (Mager)
-    {"name": "50/140", "fuel": 50, "air": 140, "ratio": 140.0 / 50.0},  # 2.80 (Mager)
+    {"name": "58/160", "fuel": 58, "air": 160, "ratio": 160.0 / 58.0},  # 2.76 (Leicht magerer als 60/160)
     {"name": "60/160", "fuel": 60, "air": 160, "ratio": 160.0 / 60.0},  # 2.67 (Standard / Referenz)
-    {"name": "62/160", "fuel": 62, "air": 160, "ratio": 160.0 / 62.0},  # 2.58 (Fetter als 60/160)
-    {"name": "55/140", "fuel": 55, "air": 140, "ratio": 140.0 / 55.0},  # 2.55 (Fetter als 60/160)
-    {"name": "50/120", "fuel": 50, "air": 120, "ratio": 120.0 / 50.0},  # 2.40 (Deutlich fetter)
-    {"name": "52/120", "fuel": 52, "air": 120, "ratio": 120.0 / 52.0},  # 2.31 (Sehr fett)
-    {"name": "55/120", "fuel": 55, "air": 120, "ratio": 120.0 / 55.0},  # 2.18 (Extrem fett)
+    {"name": "62/160", "fuel": 62, "air": 160, "ratio": 160.0 / 62.0},  # 2.58 (+6.8% Benzin - Zwischenschritt)
+    {"name": "65/160", "fuel": 65, "air": 160, "ratio": 160.0 / 65.0},  # 2.46 (+17.4% Benzin - Primärempfehlung)
+    {"name": "68/160", "fuel": 68, "air": 160, "ratio": 160.0 / 68.0},  # 2.35 (+28.4% Benzin - Fetter Fallback)
 ]
 
 
@@ -39,7 +34,7 @@ def parse_nd_ratio(nd_str: str) -> float:
     Calculates idle jet ratio Q = Air / Fuel (e.g. 60/160 -> 160 / 60 = 2.67).
     Note on Dell'Orto SI:
     - Higher ratio (e.g. 55/160 = 2.91) means MORE AIR relative to fuel -> LEANER.
-    - Smaller ratio (e.g. 55/140 = 2.55 or 50/120 = 2.40) means LESS AIR / MORE FUEL -> RICHER.
+    - Smaller ratio (e.g. 65/160 = 2.46 or 68/160 = 2.35) means LESS AIR / MORE FUEL -> RICHER.
     """
     try:
         parts = str(nd_str).strip().split('/')
@@ -64,24 +59,31 @@ def is_leaner_idle_jet(new_jet: str, current_jet: str) -> bool:
 
 def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
     """
-    Generates physically correct mechanical recommendations for Dell'Orto SI idle jets.
+    Generates physically correct mechanical recommendations for Dell'Orto SI idle jets
+    based on the available 160-series idle jet scale (55/160 bis 68/160).
     target_direction: 'RICHER' (anfetten) or 'LEANER' (abmagern).
     """
     current_q = parse_nd_ratio(current_nd)
 
     if target_direction == "RICHER":
-        richer_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] < current_q - 0.05]
+        richer_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] < current_q - 0.04]
         richer_candidates.sort(key=lambda j: j["ratio"], reverse=True)
         if richer_candidates:
-            examples = " oder ".join([f"{j['name']} ({j['ratio']:.2f})" for j in richer_candidates[:2]])
-            return f"ND von {current_nd} (Q={current_q:.2f}) auf fettere ND mit kleinerem Quotienten wie {examples} wechseln."
-        return f"ND {current_nd} ist bereits sehr fett (Q={current_q:.2f}). Für noch fetteres Gemisch 55/120 (2.18) oder 52/120 (2.31) prüfen."
+            if "60/160" in current_nd:
+                return (
+                    f"ND von 60/160 (Q={current_q:.2f}) auf ND 65/160 (Q=2.46, +17.4% Benzin) anfetten "
+                    f"und LLG-Schraube von 3.5 auf ca. 1.75-2.0 Umdrehungen zurückstellen "
+                    f"(ND 62/160 als Zwischenschritt oder ND 68/160 als fetter Fallback)."
+                )
+            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in richer_candidates[:2]])
+            return f"ND von {current_nd} (Q={current_q:.2f}) auf fettere ND mit kleinerem Quotienten wie {examples} wechseln (LLG-Schraube auf ~1.75-2.0 Umdrehungen Grundstellung)."
+        return f"ND {current_nd} ist bereits die fetteste 160er Düse (Q={current_q:.2f})."
 
     elif target_direction == "LEANER":
-        leaner_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] > current_q + 0.05]
+        leaner_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] > current_q + 0.04]
         leaner_candidates.sort(key=lambda j: j["ratio"])
         if leaner_candidates:
-            examples = " oder ".join([f"{j['name']} ({j['ratio']:.2f})" for j in leaner_candidates[:2]])
+            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in leaner_candidates[:2]])
             return f"ND von {current_nd} (Q={current_q:.2f}) auf magerere ND mit größerem Quotienten wie {examples} wechseln."
         return f"ND {current_nd} ist bereits sehr mager (Q={current_q:.2f})."
 
