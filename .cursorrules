@@ -19,7 +19,7 @@ Follow these mandatory architecture, physics, and clean code rules for ALL code 
 
 ## 4. Hardware & Sensor Safety
 - **MAX6675 EGT**: Cold probe temperatures up to 50°C climb unfiltered. Above 50°C, discard SPI open-circuit values (701°C, 705°C) and sudden step jumps $> 50^\circ\text{C}$ per cycle (hold last valid).
-- **Arduino ADC Calibration**: Dynamic VCC reference tracking via internal 1.1V Bandgap (`readVcc()`).
+- **KOSO Wideband AFR (Bosch LSU 4.2 Kit / 5001AFJ0)**: Strictly linear 0–5V formula $\text{AFR} = (2.0 \cdot V_{\text{A0}}) + 10.0$ ($0\text{V} = 10.0\text{ AFR}, 5\text{V} = 20.0\text{ AFR}$). Dynamic VCC tracking via internal 1.1V Bandgap (`readVccMillivolts()`). WOT safety range: 12.2–12.8 AFR (target ~12.5), lean warning under load: AFR > 13.5 (critical alarm > 13.8). Teillast rich check: AFR < 12.0.
 - **Auto-Trigger**: Strict 3rd gear validation ($v > 15.0\text{ km/h}$, $60 \le \text{RPM}/\text{Speed} \le 110$). Discard aborted runs ($d\text{RPM}/dt \le -500\text{ RPM/s}$ with $< 1000\text{ RPM}$ gain) automatically.
 - **Dell'Orto SI Idle Jet (ND) Physics**: ND quotient $Q = \text{Air} / \text{Fuel}$ (e.g. 60/160 -> 160/60 = 2.67). A HIGHER quotient (e.g. 55/160 = 2.91) is LEANER (more air per fuel). To make mixture RICHER, the quotient must be SMALLER (e.g. 55/140 = 2.55 -> 50/120 = 2.40 -> 55/120 = 2.18). Formula: `is_richer_idle_jet(new, cur) = (new.air / new.fuel) < (cur.air / cur.fuel)`.
 

@@ -64,8 +64,15 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
    * **Betriebsbereich ($> 50\,^\circ\text{C}$)**:
      * Discard von typischen SPI-Open-Circuit Werten ($701\,^\circ\text{C}$ und $705\,^\circ\text{C}$).
      * Hard-Jumps von $|\text{EGT}_i - \text{EGT}_{i-1}| > 50\,^\circ\text{C}$ pro Zeitschritt werden verworfen (Hold-Last-Valid).
-2. **Arduino VCC & Breitband-Lambda**:
-   * Dynamische Erfassung der Betriebsspannung via interner $1{,}1\text{V}$ Bandgap-Referenz (`readVcc()`), um ADC-Drift bei schwankender Bordspannung auszugleichen.
+2. **KOSO Breitband-Lambda Kennlinie (Bosch LSU 4.2 Kit / 5001AFJ0)**:
+   * **Offizielle 0–5V Kennlinie**: $0{,}0\text{ V} = 10{,}0\text{ AFR}$ (maximal fett), $5{,}0\text{ V} = 20{,}0\text{ AFR}$ (maximal mager / Free Air).
+   * **Lineare Berechnungsformel**:
+     $$\text{AFR} = (2{,}0 \cdot V_{\text{A0}}) + 10{,}0$$
+   * **Bandgap-Kompensation**: Dynamische Erfassung der Betriebsspannung via interner $1{,}1\text{V}$ Bandgap-Referenz (`readVccMillivolts()`), um ADC-Drift bei schwankender Bordspannung auszugleichen.
+   * **Zonen-Schwellenwerte (Super E5)**:
+     * **Vollgas-WOT-Sicherheitsbereich**: $12{,}2\text{--}12{,}8\text{ AFR}$ (optimal $\approx 12{,}5$, $\lambda \approx 0{,}86$).
+     * **Magerwarnung unter Last**: $\text{AFR} > 13{,}5$ (ab $13{,}8$ roter Cockpit-Alarm & Klemmgefahr).
+     * **Teillast-Überfettung**: $\text{AFR} < 12{,}0$ bei $1/8\text{--}1/4$ Schieberöffnung $\rightarrow$ ND abmagern / größerer Schieber-Cutaway.
 3. **WOT Auto-Trigger (3. Gang)**:
    * Mindestgeschwindigkeit $v > 15{,}0\text{ km/h}$.
    * Getriebe-Fenster: $60 \le \frac{\text{RPM}}{\text{Speed}} \le 110$ (nominal 81.6 RPM/(km/h)).

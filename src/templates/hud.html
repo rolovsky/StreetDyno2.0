@@ -663,18 +663,22 @@
                     const afrZone = document.getElementById('afrZone');
                     if (cardAfr && afrZone) {
                         const effAfr = (displayAfr > 0) ? displayAfr : targetAfr;
-                        if (effAfr > 14.5 && targetSpeed > 8.0) {
+                        if (effAfr > 13.5 && targetSpeed > 8.0) {
                             cardAfr.classList.add('card-danger');
-                            afrZone.innerText = '⚠️ MAGER!';
+                            afrZone.innerText = (effAfr >= 13.8) ? '🚨 KRITISCH!' : '⚠️ MAGER!';
+                            cardAfr.style.borderColor = '#ff3366';
                             isDanger = true;
                         } else {
                             cardAfr.classList.remove('card-danger');
-                            if (effAfr >= 12.5 && effAfr <= 13.5) {
+                            if (effAfr >= 12.2 && effAfr <= 12.8) {
                                 afrZone.innerText = '🟢 OPTIMAL';
                                 cardAfr.style.borderColor = '#00e676';
-                            } else if (effAfr < 12.5 && effAfr > 10.0) {
+                            } else if (effAfr < 12.0 && effAfr > 9.0) {
                                 afrZone.innerText = '🔵 FETT';
                                 cardAfr.style.borderColor = '#29b6f6';
+                            } else if (effAfr > 12.8 && effAfr <= 13.5) {
+                                afrZone.innerText = '⚠️ LEICHT MAGER';
+                                cardAfr.style.borderColor = '#ffea00';
                             } else {
                                 afrZone.innerText = '--';
                                 cardAfr.style.borderColor = 'rgba(255, 255, 255, 0.07)';

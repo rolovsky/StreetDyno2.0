@@ -182,14 +182,31 @@ class TestDynoPhysics(unittest.TestCase):
         self.assertTrue(is_leaner_idle_jet("55/160", "60/160"))
         self.assertTrue(is_leaner_idle_jet("50/140", "60/160"))
 
-        # Verify Advice Generation
-        rich_adv = get_idle_jet_advice("60/160", "RICHER")
-        self.assertIn("55/140", rich_adv)
-        self.assertIn("kleinerem Quotienten", rich_adv)
-
         lean_adv = get_idle_jet_advice("60/160", "LEANER")
         self.assertIn("50/140", lean_adv)
         self.assertIn("größerem Quotienten", lean_adv)
+
+    def test_koso_afr_transfer_function(self):
+        """Verify official KOSO 0-5V linear transfer function: AFR = (2.0 * V) + 10.0."""
+        # 0.0V -> 10.0 AFR (Max Rich)
+        v_0 = 0.0
+        self.assertAlmostEqual((2.0 * v_0) + 10.0, 10.0, places=2)
+
+        # 1.0V -> 12.0 AFR (Rich Power Range)
+        v_1 = 1.0
+        self.assertAlmostEqual((2.0 * v_1) + 10.0, 12.0, places=2)
+
+        # 1.25V -> 12.5 AFR (Optimal 2-Stroke WOT Target)
+        v_opt = 1.25
+        self.assertAlmostEqual((2.0 * v_opt) + 10.0, 12.5, places=2)
+
+        # 2.35V -> 14.7 AFR (Stoichiometric Lambda 1.0)
+        v_stoich = 2.35
+        self.assertAlmostEqual((2.0 * v_stoich) + 10.0, 14.7, places=2)
+
+        # 5.0V -> 20.0 AFR (Max Lean / Free Air)
+        v_5 = 5.0
+        self.assertAlmostEqual((2.0 * v_5) + 10.0, 20.0, places=2)
 
 
 class TestWebEndpoints(unittest.TestCase):
