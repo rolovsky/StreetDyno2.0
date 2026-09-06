@@ -251,7 +251,7 @@ class TestWebEndpoints(unittest.TestCase):
     def test_api_update_carb_setup(self):
         """Verify /api/update_carb_setup saves persistent configuration."""
         test_payload = {
-            "main_jet_hd": 135,
+            "main_jet_hd": 132,
             "idle_jet_nd": "60/160",
             "air_corrector_hlkd": 160
         }
@@ -259,7 +259,7 @@ class TestWebEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(data["status"], "success")
-        self.assertEqual(data["setup"]["main_jet_hd"], 135)
+        self.assertEqual(data["setup"]["main_jet_hd"], 132)
 
 
 class TestCSVLogger(unittest.TestCase):

@@ -84,12 +84,12 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "slide_type": "lemarxon_low",
     "intake_type": "polini_venturi",
     "airbox_type": "polini_airbox",
-    "main_jet_hd": 135,
+    "main_jet_hd": 132,
     "idle_jet_nd": "60/160",
     "air_corrector_hlkd": 160,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",
-    "notes": "VMC 177 / 60mm Welle / Baseline Setup"
+    "notes": "VMC 177 / 60mm Welle / HD 132 (Optimal & Klemmsicher)"
 }
 
 

@@ -26,6 +26,7 @@ DELLORTO_SI_IDLE_JETS = [
     {"name": "55/160", "fuel": 55, "air": 160, "ratio": 160.0 / 55.0},  # 2.91 (Mager)
     {"name": "50/140", "fuel": 50, "air": 140, "ratio": 140.0 / 50.0},  # 2.80 (Mager)
     {"name": "60/160", "fuel": 60, "air": 160, "ratio": 160.0 / 60.0},  # 2.67 (Standard / Referenz)
+    {"name": "62/160", "fuel": 62, "air": 160, "ratio": 160.0 / 62.0},  # 2.58 (Fetter als 60/160)
     {"name": "55/140", "fuel": 55, "air": 140, "ratio": 140.0 / 55.0},  # 2.55 (Fetter als 60/160)
     {"name": "50/120", "fuel": 50, "air": 120, "ratio": 120.0 / 50.0},  # 2.40 (Deutlich fetter)
     {"name": "52/120", "fuel": 52, "air": 120, "ratio": 120.0 / 52.0},  # 2.31 (Sehr fett)
