@@ -64,15 +64,15 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
    * **Betriebsbereich ($> 50\,^\circ\text{C}$)**:
      * Discard von typischen SPI-Open-Circuit Werten ($701\,^\circ\text{C}$ und $705\,^\circ\text{C}$).
      * Hard-Jumps von $|\text{EGT}_i - \text{EGT}_{i-1}| > 50\,^\circ\text{C}$ pro Zeitschritt werden verworfen (Hold-Last-Valid).
-2. **KOSO Breitband-Lambda Kennlinie (Bosch LSU 4.2 Kit / 5001AFJ0)**:
-   * **Offizielle 0–5V Kennlinie**: $0{,}0\text{ V} = 10{,}0\text{ AFR}$ (maximal fett), $5{,}0\text{ V} = 20{,}0\text{ AFR}$ (maximal mager / Free Air).
-   * **Lineare Berechnungsformel**:
-     $$\text{AFR} = (2{,}0 \cdot V_{\text{A0}}) + 10{,}0$$
+2. **SIP-Tacho synchronisierte Breitband-Lambda Kennlinie (Bosch LSU 4.2 / KOSO Converter)**:
+   * **Justierte Eich-Formel (Sync mit SIP-Tacho 19.6 AFR bei stehendem Motor / Free Air)**:
+     $$\text{AFR} = 22{,}30 - (6{,}15 \cdot V_{\text{A0}})$$
+     * Clamping: $\text{AFR} \in [9{,}0; 19{,}6]$
    * **Bandgap-Kompensation**: Dynamische Erfassung der Betriebsspannung via interner $1{,}1\text{V}$ Bandgap-Referenz (`readVccMillivolts()`), um ADC-Drift bei schwankender Bordspannung auszugleichen.
-   * **Zonen-Schwellenwerte (Super E5)**:
-     * **Vollgas-WOT-Sicherheitsbereich**: $12{,}2\text{--}12{,}8\text{ AFR}$ (optimal $\approx 12{,}5$, $\lambda \approx 0{,}86$).
-     * **Magerwarnung unter Last**: $\text{AFR} > 13{,}5$ (ab $13{,}8$ roter Cockpit-Alarm & Klemmgefahr).
-     * **Teillast-Überfettung**: $\text{AFR} < 12{,}0$ bei $1/8\text{--}1/4$ Schieberöffnung $\rightarrow$ ND abmagern / größerer Schieber-Cutaway.
+   * **Reale 2-Takt Zonen-Schwellenwerte (Super E5)**:
+     * **Vollgas-WOT-Sicherheitsbereich (> 6.500 U/min)**: $11{,}6\text{--}12{,}6\text{ AFR}$ ist **OPTIMAL / FETT & SICHER** (kein Mageralarm!).
+     * **Teillast & Schieberbereich (2.800 – 4.500 U/min)**: $\text{AFR} > 14{,}5\text{--}15{,}0$ ist ein **MAGERLOCH** (Gemischschraube herausdrehen, ND anfetten auf z.B. `55/140` oder `50/120`).
+     * **Schiebebetrieb**: Bei abrupter Gaswegnahme und $\text{AFR} > 17{,}0$ liegt Schub-Magerlauf vor (Ursache für Krümmer-Patschen).
 3. **WOT Auto-Trigger (3. Gang)**:
    * Mindestgeschwindigkeit $v > 15{,}0\text{ km/h}$.
    * Getriebe-Fenster: $60 \le \frac{\text{RPM}}{\text{Speed}} \le 110$ (nominal 81.6 RPM/(km/h)).

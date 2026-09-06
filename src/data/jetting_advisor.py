@@ -142,10 +142,10 @@ def analyze_carb_jetting(
         }
 
     # Dynamic Lambda-Based Zone Boundaries for 2-Stroke Vespa Largeframe
-    # Zone 1 (ND & Idle, 1.500-3.200 RPM): Lambda 0.880 - 0.930 (AFR 12.6 - 13.3 for E5)
-    # Zone 2 (Slide Hub, 3.200-4.800 RPM): Lambda 0.874 - 0.909 (AFR 12.5 - 13.0 for E5)
-    # Zone 3 (Emulsion Tube / Pre-Reso, 4.800-6.500 RPM): Lambda 0.860 - 0.895 (AFR 12.3 - 12.8 for E5)
-    # Zone 4 (WOT Main Jet, 6.500-9.500 RPM): Lambda 0.853 - 0.895 (Target AFR 12.2 - 12.8, optimal ~12.5)
+    # Zone 1 (ND & Idle, 1.500-3.200 RPM): Lambda 0.880 - 0.940 (AFR 12.6 - 13.4 for E5)
+    # Zone 2 (Slide Hub, 3.200-4.800 RPM): Lambda 0.874 - 0.920 (AFR 12.5 - 13.2 for E5)
+    # Zone 3 (Emulsion Tube / Pre-Reso, 4.800-6.500 RPM): Lambda 0.840 - 0.885 (AFR 12.0 - 12.7 for E5)
+    # Zone 4 (WOT Main Jet, 6.500-9.500 RPM): Lambda 0.811 - 0.881 (Target AFR 11.6 - 12.6, optimal ~12.0-12.4 for 2-stroke safety & power)
     zones_def = [
         {
             "id": "zone1",
@@ -153,7 +153,7 @@ def analyze_carb_jetting(
             "rpm_min": 1500,
             "rpm_max": 3200,
             "lambda_min": 0.880,
-            "lambda_max": 0.930,
+            "lambda_max": 0.940,
             "component": f"Nebendüse (ND {nd}) & Gemischschraube",
             "desc": "Leerlaufgemisch & unterer Schieberhub"
         },
@@ -163,7 +163,7 @@ def analyze_carb_jetting(
             "rpm_min": 3200,
             "rpm_max": 4800,
             "lambda_min": 0.874,
-            "lambda_max": 0.909,
+            "lambda_max": 0.920,
             "component": f"Gasschieber ({slide_label})",
             "desc": "Teillast (1/4 - 1/2 Gas) & Cutaway"
         },
@@ -172,8 +172,8 @@ def analyze_carb_jetting(
             "name": "Resonanz & Mischrohr",
             "rpm_min": 4800,
             "rpm_max": 6500,
-            "lambda_min": 0.860,
-            "lambda_max": 0.895,
+            "lambda_min": 0.840,
+            "lambda_max": 0.885,
             "component": f"Mischrohr ({tube}) & HLKD ({hlkd})",
             "desc": "Vor-Resonanz & Gemisch-Voremulgierung"
         },
@@ -182,10 +182,10 @@ def analyze_carb_jetting(
             "name": "Volllast & Peak Power",
             "rpm_min": 6500,
             "rpm_max": 9500,
-            "lambda_min": 0.853,
-            "lambda_max": 0.895,
+            "lambda_min": 0.811,
+            "lambda_max": 0.881,
             "component": f"Hauptdüse (HD {hd}) & Ansaugung",
-            "desc": "Vollgas, Venturi-Strömung & thermischer Klemmschutz"
+            "desc": "Vollgas, Venturi-Strömung & thermischer Klemmschutz (11.6-12.6 AFR)"
         }
     ]
 
@@ -219,34 +219,56 @@ def analyze_carb_jetting(
         mean_afr = float(z_data[afr_col].mean())
         lambda_measured = round(mean_afr / stoich_afr, 3)
 
-        if mean_afr > t_max + 0.7:
-            status = "CRITICAL_LEAN"
-            status_text = "🚨 KRITISCH MAGER"
-            badge_class = "badge-danger"
-            has_critical_lean = True
-        elif mean_afr > t_max + 0.15:
-            status = "LEAN"
-            status_text = "⚠️ LEICHT MAGER"
-            badge_class = "badge-warning"
-            needs_tuning = True
-        elif mean_afr < t_min - 0.4:
-            status = "RICH"
-            status_text = "🔵 ZU FETT"
-            badge_class = "badge-info"
-            needs_tuning = True
+        # Zone-specific threshold evaluation
+        if z["id"] == "zone4":
+            if mean_afr > 13.5:
+                status = "CRITICAL_LEAN"
+                status_text = "🚨 KRITISCH MAGER"
+                badge_class = "badge-danger"
+                has_critical_lean = True
+            elif mean_afr > t_max + 0.2:
+                status = "LEAN"
+                status_text = "⚠️ LEICHT MAGER"
+                badge_class = "badge-warning"
+                needs_tuning = True
+            elif mean_afr < t_min - 0.4:
+                status = "RICH"
+                status_text = "🔵 ZU FETT"
+                badge_class = "badge-info"
+                needs_tuning = True
+            else:
+                status = "PERFECT"
+                status_text = "🟢 PERFEKT / FETT & SICHER"
+                badge_class = "badge-success"
         else:
-            status = "PERFECT"
-            status_text = "🟢 PERFEKT"
-            badge_class = "badge-success"
+            if mean_afr > 14.8:
+                status = "CRITICAL_LEAN"
+                status_text = "🚨 MAGERLOCH"
+                badge_class = "badge-danger"
+                has_critical_lean = True
+            elif mean_afr > t_max + 0.2:
+                status = "LEAN"
+                status_text = "⚠️ LEICHT MAGER"
+                badge_class = "badge-warning"
+                needs_tuning = True
+            elif mean_afr < t_min - 0.5:
+                status = "RICH"
+                status_text = "🔵 ZU FETT"
+                badge_class = "badge-info"
+                needs_tuning = True
+            else:
+                status = "PERFECT"
+                status_text = "🟢 PERFEKT"
+                badge_class = "badge-success"
 
         advice = ""
         zid = z["id"]
 
         if zid == "zone1":
             cur_q = parse_nd_ratio(nd)
-            if "LEAN" in status:
+            if "LEAN" in status or status == "CRITICAL_LEAN":
                 nd_advice = get_idle_jet_advice(nd, "RICHER")
-                advice = f"Gemischschraube 0.5 Umdrehungen herausdrehen (fetter). Falls AFR weiterhin > {t_max:.1f}, {nd_advice}"
+                advice = f"🚨 Magerloch im unteren Teillastbereich (AFR {mean_afr:.1f} > 14.5)! Gemischschraube 0.5-1.0 Umdrehungen herausdrehen (fetter). Falls AFR weiterhin > {t_max:.1f}, {nd_advice}"
             elif status == "RICH":
                 nd_advice = get_idle_jet_advice(nd, "LEANER")
                 advice = f"Teillast überfettet (AFR {mean_afr:.1f} < {t_min:.1f}). Gemischschraube 0.5 Umdrehungen hineindrehen (magerer) bzw. {nd_advice}"
@@ -254,19 +276,18 @@ def analyze_carb_jetting(
                 advice = f"Nebendüse {nd} (Q={cur_q:.2f}) & Gemischschraube arbeiten im optimalen Lambda-Bereich (λ={lambda_measured:.2f})."
 
         elif zid == "zone2":
-            if "LEAN" in status:
+            if "LEAN" in status or status == "CRITICAL_LEAN":
+                nd_advice = get_idle_jet_advice(nd, "RICHER")
                 if slide_key == "bgm_std_cutout":
-                    advice = f"🚨 Magerloch durch großen BGM Standard-Cutaway! Empfehlung: Wechsel auf 'Lemarxon Mid Cutaway' oder 'Lemarxon Low Cutaway' für sicheren Teillast-Übergang."
+                    advice = f"🚨 Starkes Magerloch durch großen BGM Standard-Cutaway! Empfehlung: Wechsel auf 'Lemarxon Mid Cutaway' oder 'Lemarxon Low Cutaway' für sicheren Teillast-Übergang bzw. {nd_advice}"
                 elif slide_key == "lemarxon_mid":
-                    nd_advice = get_idle_jet_advice(nd, "RICHER")
-                    advice = f"Teillast leicht mager. Empfehlung: Wechsel auf 'Lemarxon Low Cutaway' (fetter) oder {nd_advice}"
+                    advice = f"🚨 Magerloch im Schieberübergang (AFR {mean_afr:.1f})! Empfehlung: Wechsel auf 'Lemarxon Low Cutaway' (fetter) oder {nd_advice}"
                 else:
-                    nd_advice = get_idle_jet_advice(nd, "RICHER")
-                    advice = f"Magerlauf trotz {slide_label}. Mischrohr ({tube}) prüfen oder {nd_advice}"
+                    advice = f"🚨 Magerloch (AFR {mean_afr:.1f} > 14.5) trotz {slide_label}. Mischrohr ({tube}) prüfen oder {nd_advice}"
             elif status == "RICH":
                 if slide_key == "lemarxon_low":
                     nd_advice = get_idle_jet_advice(nd, "LEANER")
-                    advice = f"Überfettet bei 1/4 bis 1/2 Gas (AFR {mean_afr:.1f} < 12.0). Wechsel auf 'Lemarxon Mid Cutaway' (magerer) sorgt für agilere Gasannahme bzw. {nd_advice}"
+                    advice = f"Überfettet bei 1/4 bis 1/2 Gas (AFR {mean_afr:.1f} < 11.8). Wechsel auf 'Lemarxon Mid Cutaway' (magerer) sorgt für agilere Gasannahme bzw. {nd_advice}"
                 else:
                     nd_advice = get_idle_jet_advice(nd, "LEANER")
                     advice = f"Teillast überfettet leicht (AFR {mean_afr:.1f} < {t_min:.1f}). Schieber mit größerem Cutaway testen oder {nd_advice}"
@@ -293,9 +314,9 @@ def analyze_carb_jetting(
             elif status == "LEAN":
                 advice = f"Hauptdüse HD {hd} etwas zu mager (AFR {mean_afr:.1f} > 12.8). Empfehlung: HD um +2 bis +3 Nummern vergrößern (z.B. HD {hd+2}).{intake_note}"
             elif status == "RICH":
-                advice = f"Motor drosselt obenraus / überfettet (AFR {mean_afr:.1f} < 12.0). HD {hd} um 2 Nummern verkleinern (z.B. HD {hd-2})."
+                advice = f"Motor drosselt obenraus / überfettet (AFR {mean_afr:.1f} < 11.2). HD {hd} um 2 Nummern verkleinern (z.B. HD {hd-2})."
             else:
-                advice = f"Hauptdüse HD {hd} mit {intake_label} liefert maximale Leistung bei optimaler EGT-Kühlung (AFR {mean_afr:.1f}, λ={lambda_measured:.2f})."
+                advice = f"Hauptdüse HD {hd} mit {intake_label} liefert optimale Leistung bei maximaler Innenkühlung (AFR {mean_afr:.1f}, λ={lambda_measured:.2f} - FETT & SICHER)."
 
         gauge_pct = int(max(0, min(100, ((mean_afr - (stoich_afr * 0.70)) / (stoich_afr * 0.45)) * 100)))
 
@@ -323,6 +344,12 @@ def analyze_carb_jetting(
     else:
         overall_status = "PERFECT"
         overall_verdict = f"🟢 OPTIMAL: Vergaser-Bedüsung perfekt auf {fuel_type} (Stöchiometrie {stoich_afr:.2f}) abgestimmt."
+
+    # Schub-Magerlauf check (Gaswegnahme)
+    if "dRPM_dt" in df.columns:
+        schub_mask = (df["dRPM_dt"] < -400.0) & (df[afr_col] > 17.0)
+        if schub_mask.any():
+            overall_verdict += " (Hinweis: Schub-Magerlauf bei Gaswegnahme erkannt -> typische Ursache für Krümmer-Patschen)."
 
     max_egt = float(sub_df[egt_col].max()) if egt_col and not sub_df[egt_col].isna().all() else None
     avg_total_afr = float(sub_df[afr_col].mean())

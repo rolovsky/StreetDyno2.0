@@ -124,11 +124,13 @@ void loop() {
             lastValidRPM = calculatedRPM;
         }
 
-        // 3. Official KOSO Wideband AFR (0-5V Linear: 0V -> 10.0 AFR, 5V -> 20.0 AFR)
+        // 3. Calibrated Inverted AFR (SIP-Tacho Synchronized: 22.30 - 6.15 * V, 19.6 AFR at free air / engine off)
         // With dynamic 1.1V Bandgap VCC compensation to eliminate supply voltage drift
         const float vcc = static_cast<float>(readVccMillivolts()) / 1000.0f;
         const float afrV = static_cast<float>(analogRead(PIN_AFR)) * (vcc / 1023.0f);
-        const float afrValue = (2.0f * afrV) + 10.0f;
+        float afrValue = 22.30f - (afrV * 6.15f);
+        if (afrValue < 9.0f) afrValue = 9.0f;
+        else if (afrValue > 19.6f) afrValue = 19.6f;
 
         // 4. Send continuous unrounded stream to Raspberry Pi
         Serial.print('$');
