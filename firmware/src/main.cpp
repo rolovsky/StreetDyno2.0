@@ -124,13 +124,13 @@ void loop() {
             lastValidRPM = calculatedRPM;
         }
 
-        // 3. Calibrated Inverted AFR (SIP-Tacho Synchronized: 22.30 - 6.15 * V, 19.6 AFR at free air / engine off)
+        // 3. 2-Point Calibrated Inverted AFR (Synchronized with SIP-Tacho: 19.5 cold, 13.5 idle)
         // With dynamic 1.1V Bandgap VCC compensation to eliminate supply voltage drift
         const float vcc = static_cast<float>(readVccMillivolts()) / 1000.0f;
         const float afrV = static_cast<float>(analogRead(PIN_AFR)) * (vcc / 1023.0f);
-        float afrValue = 22.30f - (afrV * 6.15f);
+        float afrValue = 22.62f - (afrV * 5.72f);
         if (afrValue < 9.0f) afrValue = 9.0f;
-        else if (afrValue > 19.6f) afrValue = 19.6f;
+        else if (afrValue > 19.5f) afrValue = 19.5f;
 
         // 4. Send continuous unrounded stream to Raspberry Pi
         Serial.print('$');

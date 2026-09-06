@@ -65,13 +65,13 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
      * Discard von typischen SPI-Open-Circuit Werten ($701\,^\circ\text{C}$ und $705\,^\circ\text{C}$).
      * Hard-Jumps von $|\text{EGT}_i - \text{EGT}_{i-1}| > 50\,^\circ\text{C}$ pro Zeitschritt werden verworfen (Hold-Last-Valid).
 2. **SIP-Tacho synchronisierte Breitband-Lambda Kennlinie (Bosch LSU 4.2 / KOSO Converter)**:
-   * **Justierte Eich-Formel (Sync mit SIP-Tacho 19.6 AFR bei stehendem Motor / Free Air)**:
-     $$\text{AFR} = 22{,}30 - (6{,}15 \cdot V_{\text{A0}})$$
-     * Clamping: $\text{AFR} \in [9{,}0; 19{,}6]$
+   * **2-Punkt kalibrierte Eich-Formel (Sync mit SIP-Tacho: 19.5 AFR bei Motor aus / Free Air, 13.5 AFR im Standgas)**:
+     $$\text{AFR} = 22{,}62 - (5{,}72 \cdot V_{\text{A0}})$$
+     * Clamping: $\text{AFR} \in [9{,}0; 19{,}5]$
    * **Bandgap-Kompensation**: Dynamische Erfassung der Betriebsspannung via interner $1{,}1\text{V}$ Bandgap-Referenz (`readVccMillivolts()`), um ADC-Drift bei schwankender Bordspannung auszugleichen.
    * **Reale 2-Takt Zonen-Schwellenwerte (Super E5)**:
-     * **Vollgas-WOT-Sicherheitsbereich (> 6.500 U/min)**: $11{,}6\text{--}12{,}6\text{ AFR}$ ist **OPTIMAL / FETT & SICHER** (kein Mageralarm!).
-     * **Teillast & Schieberbereich (2.800 – 4.500 U/min)**: $\text{AFR} > 14{,}5\text{--}15{,}0$ ist ein **MAGERLOCH** (Gemischschraube herausdrehen, ND anfetten auf z.B. `55/140` oder `50/120`).
+     * **Vollgas-WOT-Sicherheitsbereich (> 6.500 U/min)**: $11{,}1\text{--}12{,}4\text{ AFR}$ ($\approx 11{,}9\text{ AFR}$ Peak) ist **OPTIMAL / FETT & SICHER** (kein Mageralarm!).
+     * **Teillast & Schieberbereich (2.800 – 4.500 U/min)**: $\text{AFR} > 14{,}5\text{--}15{,}0$ ist ein **MAGERLOCH** (Gemischschraube herausdrehen, ND anfetten auf z.B. `62/160` oder `55/140`).
      * **Schiebebetrieb**: Bei abrupter Gaswegnahme und $\text{AFR} > 17{,}0$ liegt Schub-Magerlauf vor (Ursache für Krümmer-Patschen).
 3. **WOT Auto-Trigger (3. Gang)**:
    * Mindestgeschwindigkeit $v > 15{,}0\text{ km/h}$.

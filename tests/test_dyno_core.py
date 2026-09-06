@@ -187,31 +187,36 @@ class TestDynoPhysics(unittest.TestCase):
         self.assertIn("größerem Quotienten", lean_adv)
 
     def test_sip_tacho_afr_calibration(self):
-        """Verify calibrated SIP-Tacho synchronized formula: AFR = 22.30 - (6.15 * V), clamped [9.0, 19.6]."""
-        # Free Air / Engine off (V ~ 0.439V) -> 19.6 AFR exactly (SIP-Tacho synchronization)
-        v_free_air = (22.30 - 19.60) / 6.15
-        afr_free_air = float(np.clip(22.30 - (6.15 * v_free_air), 9.0, 19.6))
-        self.assertAlmostEqual(afr_free_air, 19.60, places=2)
+        """Verify calibrated SIP-Tacho synchronized formula: AFR = 22.62 - (5.72 * V), clamped [9.0, 19.5]."""
+        # Free Air / Engine off (V ~ 0.545V) -> 19.50 AFR exactly (SIP-Tacho synchronization)
+        v_free_air = 0.5447
+        afr_free_air = float(np.clip(22.62 - (5.72 * v_free_air), 9.0, 19.5))
+        self.assertAlmostEqual(afr_free_air, 19.50, places=2)
 
-        # Vollgas / Rich power range (V = 1.70V) -> AFR = 22.30 - 10.455 = 11.85 (Optimal / Fett & Sicher)
-        v_wot = 1.70
-        afr_wot = float(np.clip(22.30 - (6.15 * v_wot), 9.0, 19.6))
-        self.assertAlmostEqual(afr_wot, 11.85, places=2)
+        # Standgas / Idle (V ~ 1.594V) -> 13.50 AFR (SIP-Tacho synchronization)
+        v_idle = 1.5935
+        afr_idle = float(np.clip(22.62 - (5.72 * v_idle), 9.0, 19.5))
+        self.assertAlmostEqual(afr_idle, 13.51, places=2)
 
-        # Magerloch in Teillast (V = 1.00V) -> AFR = 22.30 - 6.15 = 16.15
-        v_lean = 1.00
-        afr_lean = float(np.clip(22.30 - (6.15 * v_lean), 9.0, 19.6))
-        self.assertAlmostEqual(afr_lean, 16.15, places=2)
+        # Vollgas / Rich power range (V = 1.876V) -> AFR = 22.62 - 10.73 = 11.89 (Optimal / Fett & Sicher)
+        v_wot = 1.876
+        afr_wot = float(np.clip(22.62 - (5.72 * v_wot), 9.0, 19.5))
+        self.assertAlmostEqual(afr_wot, 11.89, places=2)
+
+        # Magerloch in Teillast (V = 0.872V) -> AFR = 22.62 - 4.99 = 17.63
+        v_lean = 0.872
+        afr_lean = float(np.clip(22.62 - (5.72 * v_lean), 9.0, 19.5))
+        self.assertAlmostEqual(afr_lean, 17.63, places=2)
 
         # Extreme Rich limit clamp (<= 9.0)
         v_max_rich = 3.0
-        afr_clamped_low = float(np.clip(22.30 - (6.15 * v_max_rich), 9.0, 19.6))
+        afr_clamped_low = float(np.clip(22.62 - (5.72 * v_max_rich), 9.0, 19.5))
         self.assertEqual(afr_clamped_low, 9.0)
 
-        # Free Air upper limit clamp (>= 19.6)
+        # Free Air upper limit clamp (>= 19.5)
         v_free_air_zero = 0.0
-        afr_clamped_high = float(np.clip(22.30 - (6.15 * v_free_air_zero), 9.0, 19.6))
-        self.assertEqual(afr_clamped_high, 19.6)
+        afr_clamped_high = float(np.clip(22.62 - (5.72 * v_free_air_zero), 9.0, 19.5))
+        self.assertEqual(afr_clamped_high, 19.5)
 
 
 class TestWebEndpoints(unittest.TestCase):
