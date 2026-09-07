@@ -245,10 +245,10 @@ class TestWebEndpoints(unittest.TestCase):
         self.assertIn(b"StreetDyno 2.0 - Live HUD", response.data)
 
     def test_logs_page(self):
-        """Verify Log archive loads with 200 OK."""
+        """Verify Dyno Pulls log archive loads with 200 OK."""
         response = self.client.get('/logs')
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"LOG ARCHIV", response.data)
+        self.assertIn(b"DYNO PULLS", response.data)
 
     def test_tuning_page(self):
         """Verify Tuning dashboard loads with 200 OK."""
