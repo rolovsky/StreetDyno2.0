@@ -16,6 +16,16 @@ Dieses Dokument definiert die verbindlichen Architektur-, Physik-, Hardware- und
   * **Lambda (AFR)**: PT1-Tiefpassfilter ($\tau \approx 350\text{ ms}$, $\alpha = 0{,}14$) und Formatierung auf **genau 1 Nachkommastelle** (`displayAfr.toFixed(1)`).
   * **Drehzahlbalken**: Kontinuierlicher Float-Sweep mit 60 FPS für ein analoges Zeigergefühl.
 
+### 1.2 Dual-Layer Logging-Architektur (Blackbox vs. Dyno-Pulls)
+* **Blackbox Trip-Logger (`logs/trips/trip_*.csv`)**:
+  * Startet automatisch bei $\text{RPM} \ge 400$ oder $v \ge 5{,}0\text{ km/h}$.
+  * Schreibt kontinuierlich 10Hz-Daten aller Fahrzustände (Cruising, Teillast, Standgas, Schiebebetrieb).
+  * Stoppt automatisch nach 30s Motorstillstand; verwirft Minifahrten unter 10s ($< 100$ Samples).
+  * Dient zur Berechnung der **2D-AFR Heatmap-Matrix** und ganzheitlichen Vergaserdiagnose.
+* **WOT Dyno-Logger (`logs/dyno_log_*.csv`)**:
+  * Bleibt strikt isoliert auf valide 3. Gang Vollgas-Beschleunigungsläufe.
+  * Hält das Haupt-Dashboard sauber für reine Leistungs-/Drehmoment-Kurven.
+
 ---
 
 ## 2. 🎯 Single Source of Truth (SSOT)

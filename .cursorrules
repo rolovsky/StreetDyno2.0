@@ -7,6 +7,9 @@ Follow these mandatory architecture, physics, and clean code rules for ALL code 
 - **Strict Separation of Logging vs. Display**:
   - Telemetry streaming (Arduino / GPS) and CSV logging must ALWAYS remain 100% undamped, unquantized raw floating-point numbers. Never round or dampen values in `hardware_service.py`, `logger.py`, or `/api/data`.
   - UI Damping (PT1 low-pass filter, 10-RPM step quantization, 1-decimal AFR formatting `displayAfr.toFixed(1)`) is strictly restricted to the browser client inside the 60fps `requestAnimationFrame` render loop in `hud.html`.
+- **Dual-Layer Logging Architecture**:
+  - **Blackbox Trip-Logger (`logs/trips/trip_*.csv`)**: Continuously records all engine operation states (RPM >= 400 or speed >= 5 km/h) into `TRIP_LOG_DIR`. Discards trips < 100 samples (<10s). Drives 2D AFR Heatmap Matrix analysis.
+  - **WOT Dyno-Logger (`logs/dyno_log_*.csv`)**: Strictly isolated 3rd-gear acceleration pulls for clean power/torque curves.
 
 ## 2. Single Source of Truth (SSOT)
 - All physical vehicle parameters (Total mass 190.0 kg, Rotational mass factor 1.05, Tire circumference 1.350m, Primary ratio 68/23, Gear ratios {1: 58/12, 2: 42/13, 3: 38/17, 4: 35/21}, CwA 0.50, Target Lambda 0.86, Fuel Stoichiometries) MUST reside strictly in `src/config.py`. Never hardcode duplicate constants in modules or templates.
