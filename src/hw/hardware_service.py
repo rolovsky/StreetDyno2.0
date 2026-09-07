@@ -174,7 +174,7 @@ class HardwareService:
 
         # Background Trip Logger Tracking State
         engine_start_streak = 0
-        last_engine_active_time = loop_now
+        last_engine_active_time = time.time()
 
         # Expected 3rd gear RPM/Speed ratio: ~81.6 (tolerance 65.0 - 105.0)
         i_gear3 = PRIMARY_RATIO * GEAR_RATIOS.get(3, 38.0 / 17.0)
