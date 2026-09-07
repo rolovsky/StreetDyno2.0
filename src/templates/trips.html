@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Blackbox Fahrten</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d0d11;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            padding: 15px;
+            padding-bottom: 80px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #222;
+        }
+        h1 { font-size: 1.25rem; font-weight: 800; color: #29b6f6; }
+        .nav-actions { display: flex; gap: 6px; align-items: center; }
+        .nav-btn {
+            background: #1f1f24;
+            color: #fff;
+            padding: 7px 11px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.85rem;
+            border: 1px solid #333;
+        }
+        .nav-btn-dyno { color: #00ffcc; border-color: rgba(0, 255, 204, 0.4); }
+        .nav-btn-tuning { color: #ff9800; }
+        .nav-btn-back { color: #aaa; }
+        
+        .trip-card {
+            background: #141418;
+            border: 1px solid #22222a;
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: border-color 0.2s;
+        }
+        .trip-card:hover { border-color: #29b6f6; }
+        .trip-left { display: flex; flex-direction: column; gap: 3px; }
+        .trip-title { font-size: 0.95rem; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace; }
+        .trip-meta { font-size: 0.8rem; color: #888; }
+        .trip-meta span { color: #ccc; font-weight: 600; }
+        .trip-actions { display: flex; gap: 6px; align-items: center; }
+        .btn-action {
+            background: #22222b;
+            color: #fff;
+            padding: 7px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.8rem;
+            font-weight: 700;
+            border: 1px solid #333;
+        }
+        .btn-heatmap { background: #29b6f6; color: #000; font-weight: 800; border: none; }
+        .btn-action:active { transform: scale(0.96); }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #777;
+            background: #141418;
+            border-radius: 12px;
+            border: 1px dashed #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🗺️ BLACKBOX FAHRTEN ({{ trips|length }})</h1>
+        <div class="nav-actions">
+            <a href="/logs" class="nav-btn nav-btn-dyno">🏁 DYNO PULLS</a>
+            <a href="/tuning" class="nav-btn nav-btn-tuning">🔧 VERGASER</a>
+            <a href="/" class="nav-btn nav-btn-back">⬅️ COCKPIT</a>
+        </div>
+    </div>
+
+    {% if trips %}
+        {% for t in trips %}
+        <div class="trip-card">
+            <div class="trip-left">
+                <div class="trip-title">{{ t.filename }}</div>
+                <div class="trip-meta">
+                    {{ t.mtime }} &nbsp;|&nbsp; 
+                    Dauer: <span>{{ t.duration_min }} Min</span> &nbsp;|&nbsp; 
+                    Distanz: <span>{{ t.distance_km }} km</span> &nbsp;|&nbsp; 
+                    {{ t.size_kb }} KB
+                </div>
+            </div>
+            <div class="trip-actions">
+                <a href="/trip_detail?file={{ t.filename }}" class="btn-action btn-heatmap">🔥 HEATMAP</a>
+                <a href="/download_trip/{{ t.filename }}" class="btn-action">CSV</a>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">
+            <h3 style="color:#aaa; margin-bottom:8px;">Noch keine Hintergrundfahrten aufgezeichnet</h3>
+            <p style="font-size:0.85rem;">Sobald der Motor anspringt (RPM > 400), zeichnet die Blackbox jede Fahrt im Hintergrund automatisch auf.</p>
+        </div>
+    {% endif %}
+</body>
+</html>

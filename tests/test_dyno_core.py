@@ -18,6 +18,7 @@ from config import (
     PRIMARY_RATIO,
     GEAR_RATIOS,
     DEFAULT_CARB_SETUP,
+    TRIP_LOG_DIR,
     load_carb_setup
 )
 from data.analyzer_logic import (
@@ -34,6 +35,12 @@ from data.jetting_advisor import (
     is_richer_idle_jet,
     is_leaner_idle_jet,
     get_idle_jet_advice
+)
+from data.logger import CSVLogger, TripLogger
+from data.trip_analyzer import (
+    calculate_gps_distance_km,
+    generate_afr_heatmap_matrix,
+    analyze_trip_session
 )
 from main import create_app
 
@@ -271,6 +278,141 @@ class TestWebEndpoints(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(data["status"], "success")
         self.assertEqual(data["setup"]["main_jet_hd"], 132)
+
+    def test_trips_endpoints(self):
+        """Verify /trips and /trip_detail web routes load properly."""
+        # 1. /trips page
+        response = self.client.get('/trips')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"BLACKBOX FAHRTEN", response.data)
+
+        # 2. Create synthetic trip file in TRIP_LOG_DIR
+        import tempfile
+        test_trip_file = os.path.join(TRIP_LOG_DIR, "trip_test_synthetic.csv")
+        try:
+            df_synth = pd.DataFrame({
+                "Time": ["12:00:00", "12:00:01", "12:00:02", "12:00:03", "12:00:04", "12:00:05", "12:00:06", "12:00:07", "12:00:08", "12:00:09", "12:00:10", "12:00:11"],
+                "RPM": [2800, 3000, 3100, 3200, 3300, 3400, 3500, 4000, 5000, 6000, 7000, 7200],
+                "AFR": [17.5, 17.2, 17.0, 16.8, 16.5, 16.2, 15.8, 14.5, 13.5, 12.8, 11.9, 11.8],
+                "EGT": [350, 360, 370, 380, 390, 400, 420, 450, 500, 550, 620, 630],
+                "Speed_kmh": [30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 45.0, 55.0, 65.0, 75.0, 78.0],
+                "Lat": [46.18, 46.18, 46.18, 46.18, 46.18, 46.18, 46.18, 46.18, 46.18, 46.18, 46.18, 46.18],
+                "Lon": [6.12, 6.12, 6.12, 6.12, 6.12, 6.12, 6.12, 6.12, 6.12, 6.12, 6.12, 6.12],
+                "Alt": [380.0] * 12,
+                "GPS_Fix": [True] * 12
+            })
+            df_synth.to_csv(test_trip_file, index=False)
+
+            # Test /trip_detail
+            resp_detail = self.client.get('/trip_detail?file=trip_test_synthetic.csv')
+            self.assertEqual(resp_detail.status_code, 200)
+            self.assertIn(b"2D-AFR KENNFIELD-MATRIX", resp_detail.data)
+
+            # Test /download_trip
+            resp_dl = self.client.get('/download_trip/trip_test_synthetic.csv')
+            self.assertEqual(resp_dl.status_code, 200)
+        finally:
+            if os.path.exists(test_trip_file):
+                os.remove(test_trip_file)
+
+
+class TestTripLoggerAndHeatmap(unittest.TestCase):
+
+    def test_trip_logger_lifecycle(self):
+        """Verify TripLogger start, sample logging, discard (<100 samples), and save (>=100 samples)."""
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = TripLogger(log_dir=temp_dir)
+            fpath = logger.start()
+            self.assertTrue(logger.is_logging)
+            self.assertTrue(os.path.exists(fpath))
+
+            # Log 5 samples (<100 min_samples) -> stop must discard
+            for _ in range(5):
+                logger.log(rpm=2500, afr=13.5, egt=400, speed=30)
+            res_path = logger.stop(min_samples=100)
+            self.assertIsNone(res_path)
+            self.assertFalse(os.path.exists(fpath))
+
+            # Log 110 samples (>=100 min_samples) -> stop must keep file
+            fpath2 = logger.start()
+            for _ in range(110):
+                logger.log(rpm=3000, afr=13.2, egt=450, speed=35)
+            res_path2 = logger.stop(min_samples=100)
+            self.assertEqual(res_path2, fpath2)
+            self.assertTrue(os.path.exists(fpath2))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_2d_afr_heatmap_matrix(self):
+        """Verify 2D AFR Heatmap Matrix correctly bins cruising lean spots and WOT power zones."""
+        # Cruising @ 3000 RPM, 35 km/h with lean AFR 17.5
+        cruising_rpm = [3000.0] * 20
+        cruising_spd = [35.0] * 20
+        cruising_afr = [17.5] * 20
+
+        # WOT @ 7200 RPM, 78 km/h with safe rich AFR 11.9
+        wot_rpm = [7200.0] * 20
+        wot_spd = [78.0] * 20
+        wot_afr = [11.9] * 20
+
+        df = pd.DataFrame({
+            "RPM": cruising_rpm + wot_rpm,
+            "Speed_kmh": cruising_spd + wot_spd,
+            "AFR": cruising_afr + wot_afr,
+            "EGT": [400.0] * 20 + [630.0] * 20
+        })
+
+        matrix = generate_afr_heatmap_matrix(df, stoich_afr=14.30)
+        self.assertEqual(len(matrix["speed_columns"]), 6)
+        self.assertEqual(len(matrix["rows"]), 6)
+
+        # Check Cruising Row (2500-3500 RPM)
+        row_cruising = [r for r in matrix["rows"] if "2500-3500" in r["rpm_label"]][0]
+        # Speed bin 30-45 km/h (index 2)
+        cell_cruising = row_cruising["cells"][2]
+        self.assertEqual(cell_cruising["count"], 20)
+        self.assertAlmostEqual(cell_cruising["avg_afr"], 17.5, places=1)
+        self.assertEqual(cell_cruising["status_class"], "cell-critical")
+        self.assertEqual(cell_cruising["status_label"], "Magerloch")
+
+        # Check WOT Row (>6500 RPM)
+        row_wot = [r for r in matrix["rows"] if ">6500" in r["rpm_label"]][0]
+        # Speed bin >75 km/h (index 5)
+        cell_wot = row_wot["cells"][5]
+        self.assertEqual(cell_wot["count"], 20)
+        self.assertAlmostEqual(cell_wot["avg_afr"], 11.9, places=1)
+        self.assertEqual(cell_wot["status_class"], "cell-rich")
+
+    def test_trip_analyzer_session(self):
+        """Verify analyze_trip_session calculates statistics, distance, and returns valid report."""
+        rpm = np.linspace(1500, 7500, 100)
+        speed = np.linspace(10, 80, 100)
+        afr = np.linspace(13.5, 12.0, 100)
+        egt = np.linspace(350, 600, 100)
+
+        df = pd.DataFrame({
+            "RPM": rpm,
+            "Speed_kmh": speed,
+            "AFR": afr,
+            "EGT": egt,
+            "Lat": [46.186] * 100,
+            "Lon": [6.128] * 100,
+            "Alt": [385.0] * 100,
+            "GPS_Fix": [True] * 100,
+            "Time": [f"14:00:{i:02d}" for i in range(100)]
+        })
+
+        report = analyze_trip_session(df, DEFAULT_CARB_SETUP)
+        self.assertTrue(report["valid"])
+        self.assertEqual(report["total_samples"], 100)
+        self.assertEqual(report["max_rpm"], 7500)
+        self.assertEqual(report["max_speed"], 80.0)
+        self.assertIn("heatmap", report)
+        self.assertIn("chart_timeline", report)
 
 
 class TestCSVLogger(unittest.TestCase):

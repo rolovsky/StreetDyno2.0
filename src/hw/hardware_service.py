@@ -21,6 +21,7 @@ from config import (
     SERIAL_PORT,
     SERIAL_BAUD,
     LOG_DIR,
+    TRIP_LOG_DIR,
     ALPHA_RPM,
     ALPHA_AFR,
     TIRE_CIRCUMFERENCE_M,
@@ -29,7 +30,7 @@ from config import (
 )
 from hw.gps_l76k import GPS_L76K, GPSData
 from hw.display_oled import OLEDDisplay
-from data.logger import CSVLogger
+from data.logger import CSVLogger, TripLogger
 
 
 @dataclass
@@ -46,6 +47,7 @@ class TelemetryState:
     alt: float = 0.0
     gps_fix: bool = False
     is_logging: bool = False
+    trip_active: bool = False
     status: str = "IDLE"
     last_update: float = field(default_factory=time.time)
 
@@ -60,6 +62,7 @@ class TelemetryState:
             "alt": self.alt,
             "fix": self.gps_fix,
             "is_logging": self.is_logging,
+            "trip_active": self.trip_active,
             "status": self.status
         }
 
@@ -71,9 +74,11 @@ class HardwareService:
     and intelligent automatic WOT pull detection.
     """
 
-    def __init__(self, log_dir: str = LOG_DIR) -> None:
+    def __init__(self, log_dir: str = LOG_DIR, trip_log_dir: str = TRIP_LOG_DIR) -> None:
         self.log_dir = log_dir
+        self.trip_log_dir = trip_log_dir
         self.logger = CSVLogger(log_dir=self.log_dir)
+        self.trip_logger = TripLogger(log_dir=self.trip_log_dir)
         self.gps = GPS_L76K()
         self.display = OLEDDisplay()
         
@@ -85,6 +90,7 @@ class HardwareService:
         # Pre-trigger rolling buffer (stores the last 1.0s / 10 samples)
         self._pre_buffer: Deque[Dict[str, Any]] = deque(maxlen=10)
         self.auto_trigger_enabled: bool = True
+        self.trip_logging_enabled: bool = True
 
     def start(self) -> None:
         """Starts the background hardware polling loop."""
@@ -102,6 +108,8 @@ class HardwareService:
         self.gps.stop()
         if self.logger.is_logging:
             self.logger.stop()
+        if self.trip_logger.is_logging:
+            self.trip_logger.stop(min_samples=50)
         print("🛑 [HardwareService] Background hardware daemon stopped.")
 
     def toggle_logging(self) -> bool:
@@ -130,6 +138,7 @@ class HardwareService:
                 alt=self.state.alt,
                 gps_fix=self.state.gps_fix,
                 is_logging=self.logger.is_logging,
+                trip_active=self.trip_logger.is_logging,
                 status=self.state.status,
                 last_update=self.state.last_update
             )
@@ -162,6 +171,10 @@ class HardwareService:
         pull_peak_rpm = 0.0
         pull_start_time = 0.0
         last_pull_stop_time = 0.0
+
+        # Background Trip Logger Tracking State
+        engine_start_streak = 0
+        last_engine_active_time = loop_now
 
         # Expected 3rd gear RPM/Speed ratio: ~81.6 (tolerance 65.0 - 105.0)
         i_gear3 = PRIMARY_RATIO * GEAR_RATIOS.get(3, 38.0 / 17.0)
@@ -255,7 +268,26 @@ class HardwareService:
             }
             self._pre_buffer.append(sample_entry)
 
-            # 5. Intelligent WOT Dyno Pull Auto-Detection (3. Gang)
+            # 5a. Continuous Background Trip Lifecycle (Blackbox)
+            is_engine_active = (filtered_rpm >= 400.0) or (spd >= 5.0)
+            if is_engine_active:
+                last_engine_active_time = loop_now
+                if not self.trip_logger.is_logging and self.trip_logging_enabled:
+                    engine_start_streak += 1
+                    if engine_start_streak >= 5:  # ~100ms continuous running
+                        with self._lock:
+                            self.trip_logger.start()
+                        engine_start_streak = 0
+                else:
+                    engine_start_streak = 0
+            else:
+                engine_start_streak = 0
+                if self.trip_logger.is_logging:
+                    if (loop_now - last_engine_active_time) >= 30.0:
+                        with self._lock:
+                            self.trip_logger.stop(min_samples=100)
+
+            # 5b. Intelligent WOT Dyno Pull Auto-Detection (3. Gang)
             if self.auto_trigger_enabled:
                 if not self.logger.is_logging:
                     # Strict 3rd gear validation: must be moving > 15 km/h and ratio between 60 and 110 RPM/(km/h)
@@ -332,6 +364,7 @@ class HardwareService:
                 self.state.alt = alt
                 self.state.gps_fix = fix
                 self.state.is_logging = self.logger.is_logging
+                self.state.trip_active = self.trip_logger.is_logging
                 if not self.logger.is_logging:
                     self.state.status = "IDLE"
                 self.state.last_update = loop_now
@@ -339,6 +372,19 @@ class HardwareService:
             # 7. Periodic CSV Logging
             if self.logger.is_logging:
                 self.logger.log(
+                    rpm=round(filtered_rpm, 1),
+                    afr=filtered_afr,
+                    egt=raw_egt,
+                    speed=spd,
+                    lat=lat,
+                    lon=lon,
+                    alt=alt,
+                    fix=fix
+                )
+
+            # Continuous Background Trip Logging
+            if self.trip_logger.is_logging:
+                self.trip_logger.log(
                     rpm=round(filtered_rpm, 1),
                     afr=filtered_afr,
                     egt=raw_egt,

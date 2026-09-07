@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StreetDyno 2.0 - Fahrten-Heatmap: {{ fname }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d0d11;
+            color: #f5f5f7;
+            font-family: 'Outfit', sans-serif;
+            padding: 15px;
+            padding-bottom: 60px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #222;
+        }
+        h1 { font-size: 1.15rem; font-weight: 800; color: #29b6f6; font-family: 'JetBrains Mono', monospace; }
+        .back-btn {
+            background: #1f1f24;
+            color: #29b6f6;
+            padding: 7px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.85rem;
+            border: 1px solid #333;
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #141418;
+            border: 1px solid #22222a;
+            border-radius: 12px;
+            padding: 10px 12px;
+            text-align: center;
+        }
+        .stat-label { font-size: 0.7rem; font-weight: 700; color: #888; text-transform: uppercase; margin-bottom: 2px; }
+        .stat-val { font-size: 1.25rem; font-weight: 900; font-family: 'JetBrains Mono', monospace; }
+        
+        /* Heatmap Section */
+        .section-card {
+            background: #141418;
+            border: 1px solid #22222a;
+            border-radius: 14px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .section-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        /* Heatmap Table Grid */
+        .heatmap-container {
+            overflow-x: auto;
+            margin-bottom: 10px;
+        }
+        .heatmap-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 4px;
+            font-size: 0.8rem;
+            min-width: 650px;
+        }
+        .heatmap-table th {
+            background: #1a1a22;
+            color: #aaa;
+            padding: 8px 6px;
+            font-weight: 700;
+            text-align: center;
+            border-radius: 6px;
+        }
+        .heatmap-table td {
+            padding: 10px 6px;
+            text-align: center;
+            border-radius: 8px;
+            transition: transform 0.15s;
+        }
+        .heatmap-table td:hover { transform: scale(1.04); z-index: 10; cursor: pointer; }
+        .row-header {
+            background: #1a1a22 !important;
+            color: #fff !important;
+            text-align: left !important;
+            padding-left: 10px !important;
+            font-weight: 700;
+            font-size: 0.75rem;
+            width: 150px;
+        }
+        .cell-val { font-size: 1.05rem; font-weight: 900; font-family: 'JetBrains Mono', monospace; display: block; }
+        .cell-sub { font-size: 0.65rem; font-weight: 700; opacity: 0.85; }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 10px;
+            font-size: 0.75rem;
+            color: #aaa;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-box { width: 14px; height: 14px; border-radius: 4px; }
+        
+        /* Chart container */
+        .chart-box {
+            position: relative;
+            height: 280px;
+            width: 100%;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🗺️ FAHRT: {{ fname }}</h1>
+        <a href="/trips" class="back-btn">⬅️ FAHRTEN-LISTE</a>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Dauer</div>
+            <div class="stat-val" style="color:#29b6f6;">{{ report.duration_min }} <span style="font-size:0.8rem;">min</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Distanz</div>
+            <div class="stat-val" style="color:#00ffcc;">{{ report.distance_km }} <span style="font-size:0.8rem;">km</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Ø AFR</div>
+            <div class="stat-val" style="color:#ffb74d;">{{ report.avg_afr }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Max Speed</div>
+            <div class="stat-val" style="color:#fff;">{{ report.max_speed }} <span style="font-size:0.8rem;">km/h</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Max RPM</div>
+            <div class="stat-val" style="color:#ff5252;">{{ report.max_rpm }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Max EGT</div>
+            <div class="stat-val" style="color:#ff7043;">{{ report.max_egt }} <span style="font-size:0.8rem;">°C</span></div>
+        </div>
+    </div>
+
+    <!-- 2D AFR Heatmap Matrix -->
+    <div class="section-card">
+        <div class="section-title">
+            <span>🔥 2D-AFR KENNFIELD-MATRIX (Drehzahl vs. Geschwindigkeit)</span>
+            <span style="font-size:0.8rem; color:#888;">{{ report.total_samples }} Messpunkte @ 10Hz</span>
+        </div>
+
+        <div class="heatmap-container">
+            <table class="heatmap-table">
+                <thead>
+                    <tr>
+                        <th class="row-header">Drehzahl \ Last</th>
+                        {% for col in report.heatmap.speed_columns %}
+                        <th>{{ col.label }}<br><span style="font-size:0.65rem; color:#777;">{{ col.desc }}</span></th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.heatmap.rows %}
+                    <tr>
+                        <td class="row-header">{{ row.rpm_label }}<br><span style="font-size:0.65rem; color:#777;">{{ row.rpm_desc }}</span></td>
+                        {% for cell in row.cells %}
+                        <td style="background: {{ cell.bg_color }}; color: {{ cell.text_color }};">
+                            {% if cell.avg_afr %}
+                                <span class="cell-val">{{ cell.avg_afr }}</span>
+                                <span class="cell-sub">{{ cell.count }} pts ({{ cell.status_label }})</span>
+                            {% else %}
+                                <span style="color:#444; font-weight:700;">--</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item"><div class="legend-box" style="background:#00e676;"></div> Optimal (12.5 - 14.2 AFR)</div>
+            <div class="legend-item"><div class="legend-box" style="background:#29b6f6;"></div> Fett (&lt; 12.0 AFR)</div>
+            <div class="legend-item"><div class="legend-box" style="background:#ff9800;"></div> Leicht Mager (14.2 - 15.0 AFR)</div>
+            <div class="legend-item"><div class="legend-box" style="background:#ff1744;"></div> 🚨 Magerloch (&gt; 15.0 AFR)</div>
+            <div class="legend-item"><div class="legend-box" style="background:#1a1a22;"></div> Keine Daten</div>
+        </div>
+    </div>
+
+    <!-- Whole-Trip Carburetor Diagnosis -->
+    <div class="section-card">
+        <div class="section-title">
+            <span>🔧 GESAMT-VERGASERDIAGNOSE DIESER FAHRT</span>
+            <span style="font-size:0.8rem; color:#00ffcc;">Setup: HD {{ report.carb_setup.main_jet_hd }} / ND {{ report.carb_setup.idle_jet_nd }}</span>
+        </div>
+        <div style="font-size:0.9rem; font-weight:700; margin-bottom:12px; color:#fff;">
+            {{ report.carb_diag.overall_verdict }}
+        </div>
+        {% for z in report.carb_diag.zones %}
+        <div style="background:#18181c; border:1px solid #27272e; border-radius:10px; padding:10px; margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <strong style="color:#fff; font-size:0.85rem;">{{ z.name }} ({{ z.rpm_range }})</strong>
+                <span style="background:{% if 'PERFEKT' in z.status_text %}#00e676{% elif 'KRITISCH' in z.status_text %}#ff1744{% elif 'LEICHT MAGER' in z.status_text %}#ff9800{% else %}#29b6f6{% endif %}; color:#000; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:4px;">{{ z.status_text }}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#bbb; margin-bottom:4px;">
+                <span>Bauteil: {{ z.component }}</span>
+                <span>Gemessen: <b style="color:#fff;">{{ z.mean_afr if z.mean_afr else '--' }} AFR</b></span>
+            </div>
+            <div style="font-size:0.75rem; color:#ddd; background:#0c0c0e; padding:6px 8px; border-radius:4px;">
+                💡 {{ z.advice }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Timeline Chart -->
+    <div class="section-card">
+        <div class="section-title">📈 TELEMETRIE-ZEITVERLAUF</div>
+        <div class="chart-box">
+            <canvas id="tripChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const timeline = {{ report.chart_timeline | tojson }};
+        const ctx = document.getElementById('tripChart').getContext('2d');
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timeline.time,
+                datasets: [
+                    {
+                        label: 'AFR (Gemisch)',
+                        data: timeline.afr,
+                        borderColor: '#ff9800',
+                        borderWidth: 1.8,
+                        pointRadius: 0,
+                        yAxisID: 'yAfr'
+                    },
+                    {
+                        label: 'Drehzahl (RPM)',
+                        data: timeline.rpm,
+                        borderColor: '#00ffcc',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        yAxisID: 'yRpm'
+                    },
+                    {
+                        label: 'Speed (km/h)',
+                        data: timeline.speed,
+                        borderColor: '#29b6f6',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        yAxisID: 'ySpeed'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#bbb', font: { family: 'Outfit', size: 11 } } }
+                },
+                scales: {
+                    x: { ticks: { color: '#777', maxTicksLimit: 10 }, grid: { color: '#222' } },
+                    yAfr: {
+                        type: 'linear',
+                        position: 'left',
+                        min: 10,
+                        max: 20,
+                        ticks: { color: '#ff9800' },
+                        grid: { color: '#222' }
+                    },
+                    yRpm: {
+                        type: 'linear',
+                        position: 'right',
+                        min: 0,
+                        max: 9000,
+                        ticks: { color: '#00ffcc' },
+                        grid: { display: false }
+                    },
+                    ySpeed: {
+                        type: 'linear',
+                        position: 'right',
+                        min: 0,
+                        max: 120,
+                        display: false
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

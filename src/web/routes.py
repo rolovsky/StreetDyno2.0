@@ -22,6 +22,7 @@ from flask import (
 
 from config import (
     LOG_DIR,
+    TRIP_LOG_DIR,
     PLOT_DIR,
     load_carb_setup,
     save_carb_setup,
@@ -40,6 +41,7 @@ from data.analyzer_logic import (
     calculate_weather_correction_factor
 )
 from data.jetting_advisor import analyze_carb_jetting
+from data.trip_analyzer import analyze_trip_session, calculate_gps_distance_km
 
 dyno_bp = Blueprint('dyno_bp', __name__)
 
@@ -74,6 +76,60 @@ def log_archive() -> str:
             "mtime": mtime
         })
     return render_template('logs.html', logs=logs_data)
+
+
+@dyno_bp.route('/trips')
+def trips_list() -> str:
+    """Lists all continuous background trip logs."""
+    files = sorted(glob.glob(os.path.join(TRIP_LOG_DIR, '*.csv')), key=os.path.getmtime, reverse=True)
+    trips_data = []
+    for f in files:
+        fname = os.path.basename(f)
+        size_kb = round(os.path.getsize(f) / 1024, 1)
+        mtime = datetime.fromtimestamp(os.path.getmtime(f)).strftime('%d.%m.%Y %H:%M')
+        
+        try:
+            line_count = 0
+            with open(f, 'r', encoding='utf-8') as fh:
+                for _ in fh:
+                    line_count += 1
+            sample_count = max(0, line_count - 1)
+            duration_min = round((sample_count * 0.1) / 60.0, 1)
+        except Exception:
+            duration_min = 0.0
+
+        trips_data.append({
+            "filename": fname,
+            "size_kb": size_kb,
+            "mtime": mtime,
+            "duration_min": duration_min,
+            "distance_km": round(duration_min * 0.6, 1)
+        })
+    return render_template('trips.html', trips=trips_data)
+
+
+@dyno_bp.route('/trip_detail')
+def trip_detail() -> str:
+    """Renders 2D AFR Heatmap, timeline charts, and whole-trip jetting analysis."""
+    fname = request.args.get('file')
+    if not fname:
+        return "Keine Fahrt ausgewählt."
+
+    fpath = os.path.join(TRIP_LOG_DIR, fname)
+    if not os.path.exists(fpath):
+        return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fahrt nicht gefunden: {fname}</h3><br><a href='/trips'>Zurück</a></body>"
+
+    try:
+        df = pd.read_csv(fpath)
+        df.columns = [c.strip() for c in df.columns]
+        carb_setup = load_carb_setup()
+        report = analyze_trip_session(df, carb_setup)
+        if not report.get("valid"):
+            return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehler bei der Fahrtauswertung: {report.get('error')}</h3><br><a href='/trips'>Zurück</a></body>"
+
+        return render_template('trip_detail.html', fname=fname, report=report)
+    except Exception as e:
+        return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehler beim Laden des Trips: {str(e)}</h3><br><a href='/trips'>Zurück</a></body>"
 
 
 @dyno_bp.route('/analyze')
@@ -431,6 +487,12 @@ def dyno_sheet_report() -> str:
 def download(filename: str):
     """Downloads raw CSV log file."""
     return send_from_directory(LOG_DIR, filename, as_attachment=True)
+
+
+@dyno_bp.route('/download_trip/<filename>')
+def download_trip(filename: str):
+    """Downloads raw trip CSV file."""
+    return send_from_directory(TRIP_LOG_DIR, filename, as_attachment=True)
 
 
 @dyno_bp.route('/plots/<filename>')

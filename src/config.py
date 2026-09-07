@@ -14,10 +14,12 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.abspath(os.path.join(SRC_DIR, ".."))
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")
+TRIP_LOG_DIR = os.path.join(LOG_DIR, "trips")
 PLOT_DIR = os.path.join(BASE_DIR, "plots")
 USER_SETUP_FILE = os.path.join(BASE_DIR, "user_setup.json")
 
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(TRIP_LOG_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 # --- Hardware & Serial Configuration ---

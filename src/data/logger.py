@@ -93,3 +93,87 @@ class CSVLogger:
                 f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
             self.samples_count += 1
 
+
+class TripLogger:
+    """
+    Thread-safe continuous background trip logger (Blackbox).
+    Automatically records 10Hz telemetry for all engine operation regimes
+    into the dedicated logs/trips/ folder.
+    """
+
+    def __init__(self, log_dir: str = "logs/trips") -> None:
+        self.log_dir = log_dir
+        self.filepath: Optional[str] = None
+        self.is_logging: bool = False
+        self.samples_count: int = 0
+        self.start_time: float = 0.0
+        self._file_handle = None
+
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir, exist_ok=True)
+
+    def start(self, filepath: Optional[str] = None) -> str:
+        """Initializes a new trip CSV file with header."""
+        if self.is_logging:
+            return self.filepath or ""
+
+        self.samples_count = 0
+        self.start_time = time.time()
+
+        if filepath is not None:
+            self.filepath = filepath
+        else:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            self.filepath = os.path.join(self.log_dir, f"trip_{timestamp}.csv")
+
+        with open(self.filepath, "w", encoding="utf-8") as f:
+            f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+
+        self.is_logging = True
+        print(f"\n🛵 [TRIP-LOGGER] Kontinuierliche Blackbox-Fahrt gestartet: {self.filepath}")
+        return self.filepath
+
+    def stop(self, min_samples: int = 100) -> Optional[str]:
+        """
+        Stops active trip logging.
+        Discards spurious recordings shorter than min_samples (default 100 = 10s @ 10Hz).
+        """
+        if not self.is_logging:
+            return None
+
+        self.is_logging = False
+        duration = time.time() - self.start_time if self.start_time > 0 else 0.0
+        target_path = self.filepath
+
+        if self.samples_count < min_samples:
+            if target_path and os.path.exists(target_path):
+                try:
+                    os.remove(target_path)
+                    print(f"🧹 [TRIP-LOGGER] Minifahrt verworfen (<{min_samples} Samples, {duration:.1f}s): {target_path}")
+                except Exception as e:
+                    print(f"[TRIP-LOGGER ERROR] Fehler beim Löschen: {e}")
+            self.filepath = None
+            return None
+
+        print(f"🏁 [TRIP-LOGGER] Fahrt erfolgreich gespeichert ({self.samples_count} Samples, {duration:.1f}s): {target_path}")
+        return target_path
+
+    def log(
+        self,
+        rpm: float,
+        afr: float,
+        egt: float,
+        speed: float,
+        lat: float = 0.0,
+        lon: float = 0.0,
+        alt: float = 0.0,
+        fix: bool = False
+    ) -> None:
+        """Appends a 10Hz telemetry sample to the trip file."""
+        if self.is_logging and self.filepath:
+            timestamp = time.strftime("%H:%M:%S")
+            with open(self.filepath, "a", encoding="utf-8") as f:
+                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
+            self.samples_count += 1
+
+
