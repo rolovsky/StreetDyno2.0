@@ -300,19 +300,19 @@ class HardwareService:
             # 4. GPS Telemetry Polling
             gps_data: GPSData = self.gps.get_data()
             # S-01: Guard against frozen GPS values after signal dropout.
-            # gpsd TPV reports arrive at ~1 Hz; if the last fix is older than
-            # GPS_STALENESS_LIMIT_S the speed value is stale — zero it out so the
-            # WOT trigger never latches onto outdated velocity data.
-            GPS_STALENESS_LIMIT_S = 1.5
-            _gps_ts = gps_data.timestamp.timestamp() if (gps_data and gps_data.timestamp) else 0.0
-            _gps_age = loop_now - _gps_ts
-            _gps_fresh = gps_data is not None and _gps_age < GPS_STALENESS_LIMIT_S
+            # Using monotonic packet reception age (immune to NTP/system clock jumps/timezones).
+            # If gpsd TPV report is older than GPS_STALENESS_LIMIT_S or mode < 2 (no fix),
+            # speed is zeroed out and fix is marked False.
+            GPS_STALENESS_LIMIT_S = 2.5
+            _now_mono = time.monotonic()
+            _gps_age = (_now_mono - gps_data.last_seen) if (gps_data and gps_data.last_seen > 0) else 999.0
+            _gps_fresh = (gps_data is not None) and (_gps_age < GPS_STALENESS_LIMIT_S)
 
-            spd = gps_data.speed_kmh if _gps_fresh else 0.0
+            fix = bool(gps_data and gps_data.fix and _gps_fresh)
+            spd = gps_data.speed_kmh if fix else 0.0
             lat = gps_data.lat if (gps_data and gps_data.lat is not None) else 0.0
             lon = gps_data.lon if (gps_data and gps_data.lon is not None) else 0.0
             alt = gps_data.alt if (gps_data and gps_data.alt is not None) else 0.0
-            fix = (gps_data.fix and _gps_fresh) if gps_data else False
 
             # Update rolling pre-trigger buffer
             sample_entry = {

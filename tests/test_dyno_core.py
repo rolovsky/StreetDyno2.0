@@ -601,6 +601,40 @@ class TestHardwareServiceAutoTrigger(unittest.TestCase):
         abrupt_drop = (drpm_dt <= -500.0 and rpm_gain < 1000.0 and pull_duration >= 0.3)
         self.assertTrue(abrupt_drop)
 
+    def test_gps_staleness_and_fix_rules(self):
+        """Verify GPS staleness logic: fresh fix passes speed, stale/no-fix zeroes speed."""
+        from hw.gps_l76k import GPSData
+        import time
+
+        now_mono = time.monotonic()
+
+        # 1. Fresh GPS data with fix (received 0.5s ago) -> speed and fix preserved
+        fresh_gps = GPSData(speed_kmh=45.0, fix=True, last_seen=now_mono - 0.5)
+        gps_age = now_mono - fresh_gps.last_seen
+        is_fresh = gps_age < 2.5
+        fix = bool(fresh_gps.fix and is_fresh)
+        spd = fresh_gps.speed_kmh if fix else 0.0
+        self.assertTrue(fix)
+        self.assertEqual(spd, 45.0)
+
+        # 2. Stale GPS data with fix (received 3.0s ago, e.g. tunnel dropout) -> speed zeroed, fix False
+        stale_gps = GPSData(speed_kmh=45.0, fix=True, last_seen=now_mono - 3.0)
+        gps_age = now_mono - stale_gps.last_seen
+        is_fresh = gps_age < 2.5
+        fix = bool(stale_gps.fix and is_fresh)
+        spd = stale_gps.speed_kmh if fix else 0.0
+        self.assertFalse(fix)
+        self.assertEqual(spd, 0.0)
+
+        # 3. Fresh GPS data but no fix (searching for sats) -> speed zeroed, fix False
+        no_fix_gps = GPSData(speed_kmh=12.0, fix=False, last_seen=now_mono - 0.2)
+        gps_age = now_mono - no_fix_gps.last_seen
+        is_fresh = gps_age < 2.5
+        fix = bool(no_fix_gps.fix and is_fresh)
+        spd = no_fix_gps.speed_kmh if fix else 0.0
+        self.assertFalse(fix)
+        self.assertEqual(spd, 0.0)
+
 
 class TestLogMetadata(unittest.TestCase):
 

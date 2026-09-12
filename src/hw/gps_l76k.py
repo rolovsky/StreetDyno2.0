@@ -4,7 +4,7 @@ from typing import Optional
 import json
 import socket
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 @dataclass
 class GPSData:
@@ -15,6 +15,7 @@ class GPSData:
     sats: Optional[int] = 0
     fix: bool = False
     timestamp: Optional[datetime] = None
+    last_seen: float = 0.0  # Monotonic timestamp of last received TPV packet
 
 class GPS_L76K:
     def __init__(self, host: str = "127.0.0.1", port: int = 2947, timeout: float = 0.1) -> None:
@@ -87,11 +88,12 @@ class GPS_L76K:
                         
                         mode = msg.get("mode") or 0
                         self._data.fix = mode >= 2
+                        self._data.last_seen = time.monotonic()
                         
                         time_str = msg.get("time")
                         if time_str:
                             try:
-                                parsed_time = datetime.strptime(time_str[:19], "%Y-%m-%dT%H:%M:%S")
+                                parsed_time = datetime.strptime(time_str[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
                                 self._data.timestamp = parsed_time
                             except ValueError:
                                 pass

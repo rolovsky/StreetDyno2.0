@@ -307,7 +307,9 @@ Die Version **Master v6.0** repräsentiert das bisher präziseste und physikalis
    * **Microsecond-Hardware-Zeitbasis & NMEA-XOR-Checksumme**: Streaming im Format `$MICROS;RPM;AFR;EGT*XX` mit lückenloser Integritätsprüfung.
 
 5. **Logging, GPS & Telemetrie-Pipeline:**
-   * **GPS-Staleness Guard (S-01)**: Bei Signalabriss oder Daten älter als $1{,}5\text{ s}$ wird `speed_kmh` auf `0.0` und `fix` auf `False` gesetzt, damit der automatische WOT-Trigger nicht auf eingefrorenen Geschwindigkeiten hängenbleibt.
+   * **GPS-Staleness Guard (S-01 / Postmortem Fix)**: 
+     * *Ursprünglicher Bug*: Der Vergleich von `loop_now` (`time.time()`) mit dem GPSD-Satelliten-Zeitstempel scheiterte, weil naive Datetimes von Python in lokaler Zeitzone (CEST = UTC+2) interpretiert wurden ($\Delta t = 7.200\text{ s}$), und der Pi Zero 2 W auf der Straße keine RTC/NTP besitzt. Dadurch wurde `fix` dauerhaft auf `False` und `spd` auf `0.0` gesetzt.
+     * *Hardened Solution*: Vollständig entkoppelt von Satelliten- und System-Uhrzeiten über `time.monotonic()` Paket-Empfangsalter (`last_seen`). Erlaubt bis zu $2{,}5\text{ s}$ Paketabstand (toleriert 1Hz NMEA Jitter), nullt bei Signalabriss (Tunnel) sofort die Geschwindigkeit und setzt `fix = False`.
    * **Aktive EMA-Glättung (S-02)**: Die Filterkoeffizienten `ALPHA_RPM` ($0{,}20$) und `ALPHA_AFR` ($0{,}15$) aus `config.py` werden im Hardware-Daemon aktiv auf den Live-Stream angewendet (mit sanftem Abklingen bei Motorstillstand).
    * **Sub-Sekunden Unix-Zeitstempel**: CSV-Logs schreiben Fließkomma-Zeitstempel mit Millisekundenauflösung (`f"{time.time():.3f}"`) zur stufenlosen Differenzierung.
    * **Nicht-blockierender Akkumulator-Puffer**: Verhindert bis zu 100 ms serielle I/O-Blockaden in `HardwareService`.
