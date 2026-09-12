@@ -68,10 +68,11 @@ class PullFilterConfig:
     min_duration_sec: float = 1.8          # Minimum duration for valid power run (s)
     min_rpm_gain: float = 1500.0           # Minimum RPM band swept during pull (RPM)
     drop_threshold_rpm: float = 350.0      # RPM drop to mark end of pull (RPM)
-    clutch_pull_drpm_threshold: float = 1400.0  # Unloaded dRPM/dt spike (RPM/s) signaling clutch-pull /
+    clutch_pull_drpm_threshold: float = 800.0   # Unloaded dRPM/dt spike (RPM/s) signaling clutch-pull /
                                                  # load-dump at end of pull. Requires rpm_gain > 1200 already
                                                  # achieved (not a cold-start rev). Validated against
-                                                 # 2026-09-12 Vespa coast-down data: spike = 2000 RPM/s.
+                                                 # 2026-09-12 Vespa coast-down data: spike reaches ~1157 RPM/s
+                                                 # (smoothed); genuine WOT stays < 250 RPM/s.
 
 
 DEFAULT_FILTER_CONFIG = PullFilterConfig()
