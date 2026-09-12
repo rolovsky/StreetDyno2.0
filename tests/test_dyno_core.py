@@ -17,6 +17,7 @@ from config import (
     TOTAL_MASS_KG,
     PRIMARY_RATIO,
     GEAR_RATIOS,
+    TRANSMISSION_EFFICIENCY,
     DEFAULT_CARB_SETUP,
     TRIP_LOG_DIR,
     load_carb_setup
@@ -230,6 +231,129 @@ class TestDynoPhysics(unittest.TestCase):
         v_free_air_zero = 0.0
         afr_clamped_high = float(np.clip(22.62 - (5.72 * v_free_air_zero), 9.0, 19.5))
         self.assertEqual(afr_clamped_high, 19.5)
+
+    def test_detect_dyno_pull_signature_compatibility(self):
+        """Verify detect_dyno_pull handles legacy keyword arguments, positional args, and PullFilterConfig."""
+        from data.analyzer_logic import PullFilterConfig
+        
+        # Valid acceleration data
+        n = 30
+        rpm = np.linspace(3000, 7500, n)
+        spd = rpm / 81.6
+        df = pd.DataFrame({
+            'RPM': rpm,
+            'Speed_kmh': spd,
+            'AFR': np.full(n, 12.5),
+            'EGT': np.full(n, 550.0)
+        })
+
+        # 1. Standard call with no extra kwargs
+        trimmed1, ok1 = detect_dyno_pull(df)
+        self.assertTrue(ok1)
+        self.assertGreater(len(trimmed1), 0)
+
+        # 2. Legacy keyword arguments from routes.py
+        trimmed2, ok2 = detect_dyno_pull(
+            df,
+            min_rpm=2800.0,
+            min_duration_sec=0.8,
+            drop_threshold=400.0,
+            slope_percent=0.0,
+            temp_c=20.0,
+            pressure_hpa=1013.25,
+            norm_standard="DIN70020"
+        )
+        self.assertTrue(ok2)
+
+        # 3. PullFilterConfig explicit instance
+        cfg = PullFilterConfig(min_rpm=2500.0, min_duration_sec=1.5)
+        trimmed3, ok3 = detect_dyno_pull(df, cfg=cfg)
+        self.assertTrue(ok3)
+
+        # 4. PullFilterConfig as positional argument
+        trimmed4, ok4 = detect_dyno_pull(df, cfg)
+        self.assertTrue(ok4)
+
+    def test_hybrid_wheel_and_loss_power(self):
+        """Verify hybrid wheel & loss power relationship: P_Motor = P_Wheel + P_Loss = P_Wheel / eta."""
+        n = 30
+        rpm = np.linspace(3000, 7500, n)
+        df = pd.DataFrame({
+            'RPM': rpm,
+            'Speed_kmh': rpm / 81.6,
+            'AFR': np.full(n, 12.6),
+            'EGT': np.full(n, 550.0)
+        })
+        res = calculate_telemetry_metrics(df, temp_c=20.0, pressure_hpa=1013.25, norm_standard="RAW")
+        self.assertIn("P_Wheel_PS", res.columns)
+        self.assertIn("P_Loss_PS", res.columns)
+        self.assertIn("PS", res.columns)
+
+        # Check at peak power: P_Wheel + P_Loss must equal PS within floating precision
+        peak_idx = res["PS"].idxmax()
+        p_motor = res.loc[peak_idx, "PS"]
+        p_wheel = res.loc[peak_idx, "P_Wheel_PS"]
+        p_loss = res.loc[peak_idx, "P_Loss_PS"]
+
+        self.assertGreater(p_motor, 0.0)
+        self.assertGreater(p_wheel, 0.0)
+        self.assertGreater(p_loss, 0.0)
+        self.assertAlmostEqual(p_motor, p_wheel + p_loss, places=2)
+        # Wheel power should be TRANSMISSION_EFFICIENCY ratio of engine power
+        self.assertAlmostEqual(p_wheel / p_motor, TRANSMISSION_EFFICIENCY, places=2)
+
+    def test_gear_override_options(self):
+        """Verify gear override parameter ('auto', 3, 4, '4')."""
+        n = 30
+        rpm = np.linspace(3000, 7500, n)
+        # Speed corresponding to 4th gear (~58.1 RPM per km/h)
+        speed_g4 = rpm / 58.15
+        df = pd.DataFrame({
+            'RPM': rpm,
+            'Speed_kmh': speed_g4,
+            'AFR': np.full(n, 12.6),
+            'EGT': np.full(n, 550.0)
+        })
+        # 1. Auto detect 4th gear
+        res_auto = calculate_telemetry_metrics(df, gear="auto")
+        self.assertEqual(res_auto["Detected_Gear"].iloc[0], 4)
+
+        # 2. Force 3rd gear override
+        res_g3 = calculate_telemetry_metrics(df, gear=3)
+        self.assertEqual(res_g3["Detected_Gear"].iloc[0], 3)
+
+        # 3. Force 4th gear override as string
+        res_g4 = calculate_telemetry_metrics(df, gear="4")
+        self.assertEqual(res_g4["Detected_Gear"].iloc[0], 4)
+
+    def test_dynamic_transient_lean_filter(self):
+        """Verify transient lean filter allows brief 0.2s throttle snap lean spikes but rejects sustained coasting."""
+        n = 35
+        rpm = np.linspace(3000, 7500, n)
+        spd = rpm / 81.6
+        
+        # 1. Pull with 2 samples of lean spike (0.2s @ AFR 16.5) at the start of throttle snap, then normal 12.5
+        afr_transient = [16.5, 16.2] + [12.5] * (n - 2)
+        df_transient = pd.DataFrame({
+            'RPM': rpm,
+            'Speed_kmh': spd,
+            'AFR': afr_transient,
+            'EGT': np.full(n, 550.0)
+        })
+        trimmed_t, ok_t = detect_dyno_pull(df_transient)
+        self.assertTrue(ok_t)
+        self.assertGreater(len(trimmed_t), 15)
+
+        # 2. Pull with sustained lean AFR (18.5 coasting throughout) -> MUST be rejected
+        df_coasting = pd.DataFrame({
+            'RPM': rpm,
+            'Speed_kmh': spd,
+            'AFR': np.full(n, 18.5),
+            'EGT': np.full(n, 400.0)
+        })
+        trimmed_c, ok_c = detect_dyno_pull(df_coasting)
+        self.assertFalse(ok_c)
+
 
 
 class TestWebEndpoints(unittest.TestCase):
@@ -478,7 +602,142 @@ class TestHardwareServiceAutoTrigger(unittest.TestCase):
         self.assertTrue(abrupt_drop)
 
 
+class TestLogMetadata(unittest.TestCase):
+
+    def test_log_metadata_header_writing_and_reading(self):
+        """Verify CSVLogger writes structured # SETUP_META header and read_log_metadata parses it."""
+        import tempfile
+        import shutil
+        from data.logger import CSVLogger, read_log_metadata, load_telemetry_csv, get_setup_badge_string
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = CSVLogger(log_dir=temp_dir)
+            custom_setup = {
+                "displacement_cc": 187.0,
+                "ignition_deg": 18.0,
+                "carb": {
+                    "main_jet_hd": 125,
+                    "idle_jet_nd": "60/160",
+                    "air_corrector_hlkd": 160,
+                    "emulsion_tube": "Lemarxon x234",
+                    "exhaust": "Polini Box"
+                },
+                "notes": "Test Pull HD 125"
+            }
+            fpath = logger.start(setup_meta=custom_setup)
+            logger.log(rpm=4800, afr=11.5, egt=420.0, speed=42.0)
+            logger.log(rpm=6500, afr=11.0, egt=540.0, speed=72.0)
+            logger.stop()
+
+            # Verify file content starts with comment lines
+            with open(fpath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            self.assertTrue(lines[0].startswith("# STREETDYNO_LOG_VERSION"))
+            self.assertTrue(lines[2].startswith("# SETUP_META:"))
+
+            # Test fast metadata reader
+            meta = read_log_metadata(fpath)
+            self.assertTrue(meta.get("is_embedded", False))
+            self.assertEqual(meta["carb"]["main_jet_hd"], 125)
+            self.assertEqual(meta["carb"]["idle_jet_nd"], "60/160")
+            self.assertEqual(meta["displacement_cc"], 187.0)
+
+            # Test setup badge
+            badge = get_setup_badge_string(meta)
+            self.assertIn("HD 125", badge)
+            self.assertIn("ND 60/160", badge)
+            self.assertIn("18° Zdg", badge)
+
+            # Test load_telemetry_csv
+            df, loaded_meta = load_telemetry_csv(fpath)
+            self.assertEqual(len(df), 2)
+            self.assertEqual(list(df.columns), ['Time', 'RPM', 'AFR', 'EGT', 'Speed_kmh', 'Lat', 'Lon', 'Alt', 'GPS_Fix'])
+            self.assertEqual(loaded_meta["carb"]["main_jet_hd"], 125)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_legacy_log_backward_compatibility(self):
+        """Verify legacy CSVs without # headers are correctly loaded with default metadata fallback."""
+        import tempfile
+        import shutil
+        from data.logger import read_log_metadata, load_telemetry_csv
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            legacy_csv = os.path.join(temp_dir, "legacy_dyno_log.csv")
+            with open(legacy_csv, "w", encoding="utf-8") as f:
+                f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                f.write("20:00:00,5000,12.5,450.0,55.0,0.0,0.0,0.0,True\n")
+
+            meta = read_log_metadata(legacy_csv)
+            self.assertFalse(meta.get("is_embedded", True))
+            self.assertIn("carb", meta)
+
+            df, meta = load_telemetry_csv(legacy_csv)
+            self.assertEqual(len(df), 1)
+            self.assertEqual(df["RPM"].iloc[0], 5000)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_retroactive_metadata_update(self):
+        """Verify write_log_metadata retroactively upgrades legacy logs and updates existing headers without corrupting data."""
+        import tempfile
+        import shutil
+        from data.logger import write_log_metadata, read_log_metadata, load_telemetry_csv
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            log_file = os.path.join(temp_dir, "test_upgrade_log.csv")
+            with open(log_file, "w", encoding="utf-8") as f:
+                f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                f.write("14:00:01,4800,11.8,450.0,50.0,46.12,6.12,380.0,True\n")
+                f.write("14:00:02,6200,10.9,520.0,75.0,46.13,6.13,380.0,True\n")
+
+            # Retroactively update to HD 135
+            success, new_meta = write_log_metadata(log_file, {"main_jet_hd": 135, "idle_jet_nd": "60/160"}, notes="Fahrt mit HD 135")
+            self.assertTrue(success)
+            self.assertEqual(new_meta["carb"]["main_jet_hd"], 135)
+
+            # Check that file now has valid header
+            meta = read_log_metadata(log_file)
+            self.assertTrue(meta.get("is_embedded", False))
+            self.assertEqual(meta["carb"]["main_jet_hd"], 135)
+            self.assertEqual(meta["notes"], "Fahrt mit HD 135")
+
+            # Check that all telemetry rows remain intact
+            df, loaded_meta = load_telemetry_csv(log_file)
+            self.assertEqual(len(df), 2)
+            self.assertEqual(df["RPM"].iloc[0], 4800)
+            self.assertEqual(df["RPM"].iloc[1], 6200)
+            self.assertEqual(loaded_meta["carb"]["main_jet_hd"], 135)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_log_creation_datetime_sorting(self):
+        """Verify get_log_creation_datetime parses timestamps accurately and sorts logs by creation date regardless of modification."""
+        from datetime import datetime
+        from data.logger import get_log_creation_datetime
+
+        # 1. Filename format YYYYMMDD-HHMMSS
+        dt1 = get_log_creation_datetime("/tmp/dyno_log_20260908-091455.csv")
+        self.assertEqual(dt1, datetime(2026, 9, 8, 9, 14, 55))
+
+        # 2. Filename format YYYYMMDD_HHMMSS
+        dt2 = get_log_creation_datetime("/tmp/trip_20260911_140700.csv")
+        self.assertEqual(dt2, datetime(2026, 9, 11, 14, 7, 0))
+
+        # 3. Sorting order check
+        f_old = "/tmp/dyno_log_20260902-142433.csv"
+        f_mid = "/tmp/dyno_log_20260908-091455.csv"
+        f_new = "/tmp/trip_20260911-140700.csv"
+        files = [f_mid, f_new, f_old]
+        sorted_files = sorted(files, key=get_log_creation_datetime, reverse=True)
+        self.assertEqual(sorted_files, [f_new, f_mid, f_old])
+
+
 if __name__ == '__main__':
     unittest.main()
+
 
 

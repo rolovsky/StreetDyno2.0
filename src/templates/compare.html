@@ -67,11 +67,17 @@
     <div class="comparison-cards">
         <div class="run-card card-run1">
             <div class="run-title" style="color:#00ffcc;">RUN 1 ({{ f1_short }})</div>
+            {% if badge1 %}
+            <div style="font-size:0.75rem; color:#00ffcc; font-family:'JetBrains Mono',monospace; margin-bottom:4px; opacity:0.9;">⚙️ {{ badge1 }}</div>
+            {% endif %}
             <div class="run-val" style="color:#00ffcc;">{{ "%.1f"|format(m1_ps) }} PS</div>
             <div style="font-size:0.8rem; color:#aaa;">{{ "%.1f"|format(m1_nm) }} Nm &nbsp;|&nbsp; AFR {{ "%.2f"|format(m1_afr) }}</div>
         </div>
         <div class="run-card card-run2">
             <div class="run-title" style="color:#ff9800;">RUN 2 ({{ f2_short }})</div>
+            {% if badge2 %}
+            <div style="font-size:0.75rem; color:#ff9800; font-family:'JetBrains Mono',monospace; margin-bottom:4px; opacity:0.9;">⚙️ {{ badge2 }}</div>
+            {% endif %}
             <div class="run-val" style="color:#ff9800;">{{ "%.1f"|format(m2_ps) }} PS</div>
             <div style="font-size:0.8rem; color:#aaa;">{{ "%.1f"|format(m2_nm) }} Nm &nbsp;|&nbsp; AFR {{ "%.2f"|format(m2_afr) }}</div>
         </div>

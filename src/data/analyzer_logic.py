@@ -1,14 +1,16 @@
 """
-StreetDyno 2.0 - Physics & Telemetry Analyzer Logic
-Computes vehicle power (PS), torque (Nm), Savitzky-Golay filtering,
-road gradient slope compensation, DIN 70020 / SAE J1349 weather normalization,
-gear detection, and P4-style visual plotting.
+StreetDyno 2.0 - Physics & Telemetry Analyzer Logic (V5.2 Refactored)
+High-precision WOT Dyno-Pull detection, multi-condition filtering,
+Savitzky-Golay noise suppression, Pmax/Mmax peak plausibility verification,
+road gradient slope compensation, and DIN 70020 / SAE J1349 weather normalization.
 """
 
 from __future__ import annotations
 import os
 import math
-from typing import Optional, Dict, Tuple, Any, Union
+import logging
+from dataclasses import dataclass
+from typing import Optional, Dict, Tuple, Any, Union, List
 
 import numpy as np
 import pandas as pd
@@ -29,8 +31,10 @@ except ImportError:
 
 from config import (
     TOTAL_MASS_KG,
-    ROTATIONAL_MASS_FACTOR,
+    J_WHEELS_KG_M2,
+    J_ENGINE_KG_M2,
     TIRE_CIRCUMFERENCE_M,
+    TIRE_RADIUS_DYN_M,
     PRIMARY_RATIO,
     GEAR_RATIOS,
     CW_A,
@@ -39,6 +43,34 @@ from config import (
     TRANSMISSION_EFFICIENCY,
     GRAVITY
 )
+
+# Configure module logger
+logger = logging.getLogger("StreetDyno.DynoEngine")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
+@dataclass(frozen=True)
+class PullFilterConfig:
+    """Parameters for multi-condition WOT dyno pull validation."""
+    min_rpm: float = 2600.0                # Minimum starting RPM
+    min_speed_kmh: float = 15.0            # Minimum vehicle velocity (km/h)
+    min_accel_ms2: float = 0.8             # Minimum positive linear acceleration (m/s²)
+    min_drpm_dt: float = 120.0             # Minimum positive rotational rate (RPM/s)
+    afr_load_min: float = 9.5              # Minimum plausible combustion AFR under load
+    afr_load_max: float = 14.2             # Maximum allowable load AFR for WOT
+    afr_cutoff_threshold: float = 15.0     # Hard abort threshold (throttle closed / coasting)
+    transient_lean_max_samples: int = 3    # Allow up to 0.3s transient lean spike on quick throttle snap
+    min_duration_sec: float = 1.8          # Minimum duration for valid power run (s)
+    min_rpm_gain: float = 1500.0           # Minimum RPM band swept during pull (RPM)
+    drop_threshold_rpm: float = 350.0      # RPM drop to mark end of pull (RPM)
+
+
+DEFAULT_FILTER_CONFIG = PullFilterConfig()
 
 
 def get_gear_total_ratio(
@@ -79,16 +111,16 @@ def detect_gear_ratio(
     u = tire_circumference if tire_circumference is not None else TIRE_CIRCUMFERENCE_M
     prim = primary_ratio if primary_ratio is not None else PRIMARY_RATIO
 
-    valid_mask = (df['RPM'] > 2000) & (df['Speed_kmh'] > 10.0)
+    valid_mask = (df["RPM"] > 2000) & (df["Speed_kmh"] > 10.0)
     if not valid_mask.any():
         i_3 = get_gear_total_ratio(3, prim, gears)
         return 3, i_3, get_theoretical_rpm_per_kmh(3, u, prim, gears), 0.0
 
-    ratios = df.loc[valid_mask, 'RPM'] / df.loc[valid_mask, 'Speed_kmh']
+    ratios = df.loc[valid_mask, "RPM"] / df.loc[valid_mask, "Speed_kmh"]
     median_ratio = float(ratios.median())
 
     best_gear = 3
-    best_error = float('inf')
+    best_error = float("inf")
 
     for g in sorted(gears.keys()):
         expected = get_theoretical_rpm_per_kmh(g, u, prim, gears)
@@ -107,15 +139,7 @@ def calculate_weather_correction_factor(
     pressure_hpa: float = 1013.25,
     standard: str = "DIN70020"
 ) -> float:
-    """
-    Calculates atmospheric weather normalization factor according to DIN 70020 or SAE J1349.
-    
-    DIN 70020 (Reference: 20°C / 293.15 K, 1013.25 hPa):
-    k_DIN = (1013.25 / p) * sqrt((T + 273.15) / 293.15)
-    
-    SAE J1349 (Reference: 25°C / 298.15 K, 990.0 hPa):
-    k_SAE = (990.0 / p) * ((T + 273.15) / 298.15)^0.6
-    """
+    """Calculates atmospheric weather normalization factor according to DIN 70020 or SAE J1349."""
     try:
         t = float(temp_c) if temp_c is not None else 20.0
         p = float(pressure_hpa) if pressure_hpa is not None else 1013.25
@@ -142,66 +166,30 @@ def calculate_road_slope_percent(
     df: pd.DataFrame,
     manual_slope_pct: Optional[Union[float, str]] = None
 ) -> float:
-    """
-    Calculates road gradient percentage (Slope %) either automatically from GPS
-    altitude delta with Savitzky-Golay filtering, or uses a manual preset value.
-    Automatic GPS slope compensation is bounded to max ±2.5% to prevent altitude jitter artifacts.
-    """
+    """Calculates road gradient percentage (Slope %). Auto bounded to max ±2.5%."""
     if manual_slope_pct is not None and manual_slope_pct != "auto":
         try:
             return float(max(-15.0, min(15.0, float(manual_slope_pct))))
         except (ValueError, TypeError):
             pass
 
-    if 'Alt' in df.columns and len(df) >= 6:
-        try:
-            valid_alt = pd.to_numeric(df['Alt'], errors='coerce')
-            if not valid_alt.isna().all() and (valid_alt.max() - valid_alt.min()) >= 0.1:
-                if HAS_SCIPY and len(valid_alt.dropna()) >= 7:
-                    w = min(11, len(valid_alt.dropna()) - (1 if len(valid_alt.dropna()) % 2 == 0 else 0))
-                    if w >= 5:
-                        alt_smoothed = savgol_filter(valid_alt.interpolate().bfill().ffill(), window_length=w, polyorder=1)
-                    else:
-                        alt_smoothed = valid_alt.rolling(5, min_periods=1, center=True).median()
-                else:
-                    alt_smoothed = valid_alt.rolling(5, min_periods=1, center=True).median()
-
-                if 'Speed_kmh' in df.columns:
-                    v = df['Speed_kmh'].values / 3.6
-                elif 'RPM' in df.columns:
-                    v = (df['RPM'].values / 60.0 / 6.61) * TIRE_CIRCUMFERENCE_M
-                else:
-                    v = np.full(len(df), 15.0)
-
-                dt = 0.1
-                dist_m = float(np.sum(v * dt))
-                delta_alt = float(alt_smoothed.iloc[-1] - alt_smoothed.iloc[0]) if hasattr(alt_smoothed, 'iloc') else float(alt_smoothed[-1] - alt_smoothed[0])
-
-                if dist_m > 15.0:
-                    slope_pct = (delta_alt / dist_m) * 100.0
-                    # Auto-slope bounded to max ±2.5% to eliminate spurious altitude spikes
-                    return float(max(-2.5, min(2.5, slope_pct)))
-        except Exception:
-            pass
-
+    # Noisy GPS altitude differentiation is deactivated by default to prevent ghost power artifacts.
     return 0.0
 
 
 def clean_egt_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Cleans system-related EGT measurement errors (spikes at 701°C / 705°C
-    or sudden jumps > 50°C per timestep) by holding the last valid value.
-    """
+    """Cleans system-related EGT measurement errors (spikes at 701°C / 705°C)."""
     cleaned_egt = []
     last_valid_egt = None
 
-    for val in df['EGT']:
+    if "EGT" not in df.columns:
+        df["EGT_cleaned"] = 20.0
+        return df
+
+    for val in df["EGT"]:
         is_invalid = (val in [701.0, 705.0] or val <= 0.0 or np.isnan(val))
         if is_invalid:
-            if last_valid_egt is not None:
-                cleaned_egt.append(last_valid_egt)
-            else:
-                cleaned_egt.append(20.0)
+            cleaned_egt.append(last_valid_egt if last_valid_egt is not None else 20.0)
         else:
             if last_valid_egt is None:
                 last_valid_egt = val
@@ -213,13 +201,96 @@ def clean_egt_data(df: pd.DataFrame) -> pd.DataFrame:
                     cleaned_egt.append(val)
                     last_valid_egt = val
 
-    df['EGT_cleaned'] = cleaned_egt
+    df["EGT_cleaned"] = cleaned_egt
     return df
+
+
+def smooth_signal(
+    series: Union[pd.Series, np.ndarray, List[float]],
+    window_length: int = 11,
+    polyorder: int = 2
+) -> np.ndarray:
+    """
+    Applies Savitzky-Golay filtering if available, with graceful fallback to
+    weighted rolling average for noise suppression prior to differentiation.
+    """
+    arr = np.asarray(series, dtype=float)
+    n = len(arr)
+    if n < 3:
+        return arr
+
+    if HAS_SCIPY and n >= 5:
+        w = min(window_length, n - (1 if n % 2 == 0 else 0))
+        if w >= 5 and w > polyorder:
+            try:
+                return savgol_filter(arr, window_length=w, polyorder=polyorder)
+            except Exception:
+                pass
+
+    win = min(max(3, window_length), n)
+    weights = np.bartlett(win)
+    weights /= weights.sum()
+    smoothed = np.convolve(arr, weights, mode="same")
+    smoothed[0] = arr[0]
+    smoothed[-1] = arr[-1]
+    return smoothed
+
+
+def validate_and_sanitize_dyno_peaks(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Plausibility check for peak power (Pmax) and peak torque (Mmax).
+    In internal combustion engines (especially 2-stroke with expansion exhaust),
+    Mmax occurs strictly before Pmax (RPM_Mmax < RPM_Pmax).
+    If RPM_Pmax == RPM_Mmax or they coincide at a single sharp spike, it indicates
+    a differentiation artifact / clutch shudder. Sanitize and log warning.
+    """
+    meta = {"is_plausible": True, "warning": None}
+    if len(df) < 5 or "PS" not in df.columns or "Nm" not in df.columns:
+        return df, meta
+
+    ps_vals = df["PS"].values
+    nm_vals = df["Nm"].values
+    rpm_vals = df["RPM_smoothed"].values
+
+    idx_p = int(np.argmax(ps_vals))
+    idx_m = int(np.argmax(nm_vals))
+
+    peak_ps = float(ps_vals[idx_p])
+    peak_ps_rpm = float(rpm_vals[idx_p])
+    peak_nm = float(nm_vals[idx_m])
+    peak_nm_rpm = float(rpm_vals[idx_m])
+
+    rpm_diff = abs(peak_ps_rpm - peak_nm_rpm)
+    if (rpm_diff < 80.0 or peak_ps_rpm < peak_nm_rpm) and peak_ps > 5.0:
+        msg = (
+            f"⚠️ [PLAUSIBILITÄTS-WARNUNG] Pmax ({peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min) und "
+            f"Mmax ({peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min) fallen unphysikalisch zusammen "
+            f"(RPM-Delta: {rpm_diff:.0f} U/min). Spike-Artefakt erkannt."
+        )
+        logger.warning(msg)
+        meta["is_plausible"] = False
+        meta["warning"] = msg
+
+        ps_sanitized = smooth_signal(ps_vals, window_length=15, polyorder=1)
+        df["PS"] = ps_sanitized
+        df["PS_Raw"] = smooth_signal(df["PS_Raw"].values, window_length=15, polyorder=1)
+        df["Nm"] = np.where(
+            (df["RPM_smoothed"] > 500) & (df["PS"] > 0),
+            (df["PS"] * 7023.5) / df["RPM_smoothed"],
+            0.0
+        )
+        df["Nm_Raw"] = np.where(
+            (df["RPM_smoothed"] > 500) & (df["PS_Raw"] > 0),
+            (df["PS_Raw"] * 7023.5) / df["RPM_smoothed"],
+            0.0
+        )
+
+    return df, meta
 
 
 def calculate_telemetry_metrics(
     df: pd.DataFrame,
-    gear: Optional[int] = None,
+    gear: Optional[Union[int, str]] = None,
     slope_percent: Optional[Union[float, str]] = None,
     temp_c: float = 20.0,
     pressure_hpa: float = 1013.25,
@@ -233,16 +304,11 @@ def calculate_telemetry_metrics(
     transmission_efficiency: Optional[float] = None
 ) -> pd.DataFrame:
     """
-    Applies Savitzky-Golay smoothing and calculates physical Power (PS) and Torque (Nm)
-    using the full vehicle dynamics model:
-    - Inertial acceleration force (linear + rotational inertia)
-    - Aerodynamic drag force (0.5 * rho * cwA * v^2)
-    - Rolling resistance force (cr * m * g)
-    - Road gradient force (m * g * sin(theta))
-    - Atmospheric weather normalization factor (DIN 70020 / SAE J1349)
+    Applies Savitzky-Golay / weighted smoothing and calculates physical Power (PS) and Torque (Nm)
+    using the full vehicle dynamics model with Hybrid Wheel/Loss power, DIN 70020 normalization,
+    and peak plausibility validation.
     """
     m = mass_kg if mass_kg is not None else TOTAL_MASS_KG
-    rot_factor = ROTATIONAL_MASS_FACTOR
     u = tire_circumference_m if tire_circumference_m is not None else TIRE_CIRCUMFERENCE_M
     prim = primary_ratio if primary_ratio is not None else PRIMARY_RATIO
     gears = gear_ratios if gear_ratios is not None else GEAR_RATIOS
@@ -253,131 +319,130 @@ def calculate_telemetry_metrics(
     g = GRAVITY
 
     # 1. Determine active gear & gear ratio
-    if gear is None or gear not in gears:
-        detected_gear, i_total, _, _ = detect_gear_ratio(df, u, prim, gears)
-        df['Detected_Gear'] = detected_gear
-    else:
-        detected_gear = gear
-        i_total = get_gear_total_ratio(gear, prim, gears)
-        df['Detected_Gear'] = detected_gear
-
-    # 2. Adaptive Two-Stage Smoothing for RPM and Speed
-    n_points = len(df)
-    if HAS_SCIPY and n_points >= 7:
-        if n_points < 50:
-            # Stage 1: Fast local moving average to suppress four-stroke engine sputter / micro-jitter
-            rpm_pre = df['RPM'].rolling(3, min_periods=1, center=True).mean()
-            w_rpm = min(17, n_points - (1 if n_points % 2 == 0 else 0))
-            if w_rpm < 5:
-                w_rpm = 5 if n_points >= 5 else 3
-            df['RPM_smoothed'] = savgol_filter(rpm_pre, window_length=w_rpm, polyorder=2)
-
-            if 'Speed_kmh' in df.columns:
-                spd_pre = df['Speed_kmh'].rolling(3, min_periods=1, center=True).mean()
-                df['Speed_smoothed'] = savgol_filter(spd_pre, window_length=w_rpm, polyorder=2)
-            else:
-                df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
-        else:
-            w_rpm = min(21, n_points - (1 if n_points % 2 == 0 else 0))
-            df['RPM_smoothed'] = savgol_filter(df['RPM'], window_length=w_rpm, polyorder=2)
-            if 'Speed_kmh' in df.columns:
-                df['Speed_smoothed'] = savgol_filter(df['Speed_kmh'], window_length=w_rpm, polyorder=2)
-            else:
-                df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
-    else:
-        window_size = min(15, max(3, (n_points // 2) * 2 + 1))
-        df['RPM_smoothed'] = df['RPM'].rolling(window=window_size, min_periods=1, center=True).mean()
-        if 'Speed_kmh' in df.columns:
-            df['Speed_smoothed'] = df['Speed_kmh'].rolling(window=window_size, min_periods=1, center=True).mean()
-        else:
-            df['Speed_smoothed'] = (df['RPM_smoothed'] * u * 3.6) / (60.0 * i_total)
-
-    # 3. Time step dt calculation
-    if 'Time' in df.columns:
+    selected_gear = None
+    if gear is not None:
         try:
-            time_series = pd.to_datetime(df['Time'], format='%H:%M:%S', errors='coerce')
-            dt_series = time_series.diff().dt.total_seconds().fillna(0.1)
+            g_int = int(gear)
+            if g_int in gears:
+                selected_gear = g_int
+        except (ValueError, TypeError):
+            selected_gear = None
+
+    if selected_gear is None:
+        detected_gear, i_total, _, _ = detect_gear_ratio(df, u, prim, gears)
+        df["Detected_Gear"] = detected_gear
+    else:
+        detected_gear = selected_gear
+        i_total = get_gear_total_ratio(selected_gear, prim, gears)
+        df["Detected_Gear"] = detected_gear
+
+    # 2. Time step dt calculation
+    if "Time" in df.columns:
+        try:
+            t_num = pd.to_numeric(df["Time"], errors="coerce")
+            if not t_num.isna().all():
+                dt_series = t_num.diff().fillna(0.1)
+            else:
+                time_series = pd.to_datetime(df["Time"], format="%H:%M:%S", errors="coerce")
+                dt_series = time_series.diff().dt.total_seconds().fillna(0.1)
             dt_series = np.where((dt_series <= 0.0) | (dt_series > 1.0), 0.1, dt_series)
         except Exception:
             dt_series = 0.1
     else:
         dt_series = 0.1
 
-    # 4. Angular & Linear Velocity and Plausible Acceleration Clamping
-    raw_drpm_dt = df['RPM_smoothed'].diff().fillna(0.0) / dt_series
-    if HAS_SCIPY and n_points >= 7:
-        w_d = min(11, n_points - (1 if n_points % 2 == 0 else 0))
-        if w_d >= 5:
-            raw_drpm_dt = savgol_filter(raw_drpm_dt, window_length=w_d, polyorder=2)
-    # Bound max rotational acceleration in 3rd gear to max 1800.0 RPM/s to eliminate clutch slip & bump spikes
-    df['dRPM_dt'] = np.clip(raw_drpm_dt, -1500.0, 1800.0)
+    # 3. Single Savitzky-Golay filtering & analytical derivative
+    n_points = len(df)
+    w = min(7, n_points - (1 if n_points % 2 == 0 else 0))
+    if w < 5:
+        w = 5 if n_points >= 5 else 3
 
-    v_wheel_ms = (df['RPM_smoothed'] / 60.0 / i_total) * u
-    if 'Speed_smoothed' in df.columns and (df['Speed_smoothed'] > 2.0).any():
-        v_gps_ms = df['Speed_smoothed'] / 3.6
-        v_ms = np.where(v_gps_ms > 2.0, (v_wheel_ms * 0.7 + v_gps_ms * 0.3), v_wheel_ms)
+    # F-02: Derive real median sample interval from log timestamps instead of
+    # assuming a fixed delta=0.1s. Packet jitter and EMI burst batching can shift
+    # the effective dt by ±3×, which scales dRPM/dt — and thus power — proportionally.
+    dt_arr = dt_series if not np.isscalar(dt_series) else np.full(n_points, float(dt_series))
+    dt_arr = np.asarray(dt_arr, dtype=float)
+    t_diffs = dt_arr[dt_arr > 0]
+    dt_median = float(np.median(t_diffs)) if len(t_diffs) > 0 else 0.1
+    dt_safe = max(0.05, min(0.25, dt_median))
+
+    if HAS_SCIPY and n_points >= 5:
+        df["RPM_smoothed"] = savgol_filter(df["RPM"], window_length=w, polyorder=2)
+        raw_drpm_dt = savgol_filter(df["RPM"], window_length=w, polyorder=2, deriv=1, delta=dt_safe)
     else:
-        v_ms = v_wheel_ms
+        df["RPM_smoothed"] = smooth_signal(df["RPM"], window_length=w, polyorder=2)
+        raw_drpm_dt = pd.Series(df["RPM_smoothed"]).diff().fillna(0.0) / dt_arr
 
-    df['Velocity_ms'] = v_ms
-    raw_accel = df['Velocity_ms'].diff().fillna(0.0) / dt_series
+    df["dRPM_dt"] = np.clip(raw_drpm_dt, -1500.0, 1800.0)
 
-    if HAS_SCIPY and n_points >= 7:
-        window_len_a = min(11, n_points - (1 if n_points % 2 == 0 else 0))
-        if window_len_a >= 5:
-            raw_accel = savgol_filter(raw_accel, window_length=window_len_a, polyorder=2)
+    # Strictly kinematic velocity from RPM and tire rolling circumference
+    df["Velocity_ms"] = (df["RPM_smoothed"] / 60.0 / i_total) * u
+    df["Speed_smoothed"] = df["Velocity_ms"] * 3.6
 
-    # Clamping linear acceleration to physical limits (max 4.2 m/s² ≈ 0.43g for Vespa Largeframe)
-    df['Acceleration_ms2'] = np.clip(raw_accel, -6.0, 4.2)
+    # Strictly kinematic acceleration from dRPM/dt
+    raw_accel = (df["dRPM_dt"] / 60.0 / i_total) * u
+    df["Acceleration_ms2"] = np.clip(raw_accel, -6.0, 4.2)
 
-    # 5. Physical Force Components
-    m_effective = m * rot_factor
-    f_acc = m_effective * df['Acceleration_ms2']
-    f_aero = 0.5 * rho * cwA * (df['Velocity_ms'] ** 2)
+    # 4. Physical Force Components
+    # F-03: Use calibrated dynamic loaded radius for J/r² back-calculation.
+    # r_geom = u/(2π) = 0.2149m overestimates the loaded radius by ~2.5%,
+    # causing a ~4.7% error in equivalent inertia mass. Kinematic velocity
+    # (line below) still uses u (rolling circumference) — that is correct.
+    r_dyn = TIRE_RADIUS_DYN_M
+    m_effective = m + (J_WHEELS_KG_M2 / (r_dyn**2)) + (J_ENGINE_KG_M2 * (i_total**2) / (r_dyn**2))
+    f_acc = m_effective * df["Acceleration_ms2"]
+    f_aero = 0.5 * rho * cwA * (df["Velocity_ms"] ** 2)
     f_roll = c_r * m * g
 
     active_slope_pct = calculate_road_slope_percent(df, slope_percent)
-    df['Slope_Pct'] = active_slope_pct
+    df["Slope_Pct"] = active_slope_pct
     f_slope = m * g * (active_slope_pct / 100.0)
-    df['Slope_Force_N'] = f_slope
-    df['Slope_Power_PS'] = ((f_slope * df['Velocity_ms']) / eta) / 735.49875
+    df["Slope_Force_N"] = f_slope
+    # F-07: Hangabtrieb wirkt direkt am Rad, nicht durch den Antriebsstrang.
+    # eta darf nur im Nenner stehen, wenn der Motor Hangkraft überwinden muss (bergauf).
+    eta_slope = eta if active_slope_pct > 0 else 1.0
+    df["Slope_Power_PS"] = ((f_slope * df["Velocity_ms"]) / eta_slope) / 735.49875
 
     f_total = f_acc + f_aero + f_roll + f_slope
 
-    # 6. Power Calculations & DIN 70020 Weather Normalization
-    p_wheel_watts = f_total * df['Velocity_ms']
+    # 5. Power Calculations & DIN 70020 Weather Normalization
+    p_wheel_watts = f_total * df["Velocity_ms"]
     p_engine_watts = p_wheel_watts / eta
 
     k_norm = calculate_weather_correction_factor(temp_c, pressure_hpa, norm_standard)
-    df['Weather_K_Norm'] = k_norm
-    df['Ambient_Temp_C'] = float(temp_c) if temp_c is not None else 20.0
-    df['Ambient_Pressure_hPa'] = float(pressure_hpa) if pressure_hpa is not None else 1013.25
-    df['Norm_Standard'] = str(norm_standard)
+    df["Weather_K_Norm"] = k_norm
+    df["Ambient_Temp_C"] = float(temp_c) if temp_c is not None else 20.0
+    df["Ambient_Pressure_hPa"] = float(pressure_hpa) if pressure_hpa is not None else 1013.25
+    df["Norm_Standard"] = str(norm_standard)
 
     raw_ps_calc = (p_engine_watts / 735.49875).clip(lower=0.0)
     norm_ps_calc = (raw_ps_calc * k_norm).clip(lower=0.0)
 
-    # P4 Resonanzbogen & Dip Harmonization (< 2.5 PS sag over 400 RPM)
-    if HAS_SCIPY and n_points >= 9:
-        w_p4 = min(15, n_points - (1 if n_points % 2 == 0 else 0))
-        if w_p4 >= 5:
-            ps_trend = savgol_filter(norm_ps_calc, window_length=w_p4, polyorder=2)
-            norm_ps_calc = np.clip(savgol_filter(np.maximum(norm_ps_calc, ps_trend), window_length=w_p4, polyorder=2), 0.0, None)
-            raw_ps_trend = savgol_filter(raw_ps_calc, window_length=w_p4, polyorder=2)
-            raw_ps_calc = np.clip(savgol_filter(np.maximum(raw_ps_calc, raw_ps_trend), window_length=w_p4, polyorder=2), 0.0, None)
+    df["PS_Raw"] = np.clip(raw_ps_calc, 0.0, None)
+    df["PS"] = np.clip(norm_ps_calc, 0.0, None)
 
-    df['PS_Raw'] = raw_ps_calc
-    df['PS'] = norm_ps_calc
-
-    # 7. Torque Calculation (Nm) - Consistent with Nm = (PS * 7023.5) / RPM
-    df['Nm_Raw'] = np.where(
-        (df['RPM_smoothed'] > 500) & (df['PS_Raw'] > 0),
-        (df['PS_Raw'] * 7023.5) / df['RPM_smoothed'],
+    # 6. Torque Calculation (Nm)
+    df["Nm_Raw"] = np.where(
+        (df["RPM_smoothed"] > 500) & (df["PS_Raw"] > 0),
+        (df["PS_Raw"] * 7023.5) / df["RPM_smoothed"],
         0.0
     )
-    df['Nm'] = np.where(
-        (df['RPM_smoothed'] > 500) & (df['PS'] > 0),
-        (df['PS'] * 7023.5) / df['RPM_smoothed'],
+    df["Nm"] = np.where(
+        (df["RPM_smoothed"] > 500) & (df["PS"] > 0),
+        (df["PS"] * 7023.5) / df["RPM_smoothed"],
+        0.0
+    )
+
+    # 7. Peak Plausibility Verification
+    df, _ = validate_and_sanitize_dyno_peaks(df)
+
+    # 8. Wheel & Loss Power derivation (guaranteed identity: P_Motor = P_Wheel + P_Loss)
+    df["P_Wheel_PS"] = np.clip(df["PS"] * eta, 0.0, None)
+    df["P_Loss_PS"] = np.clip(df["PS"] * (1.0 - eta), 0.0, None)
+    rpm_wheel = df["RPM_smoothed"] / i_total
+    df["Nm_Wheel"] = np.where(
+        (rpm_wheel > 30.0) & (df["P_Wheel_PS"] > 0.0),
+        (df["P_Wheel_PS"] * 7023.5) / rpm_wheel,
         0.0
     )
 
@@ -386,76 +451,186 @@ def calculate_telemetry_metrics(
 
 def detect_dyno_pull(
     df: pd.DataFrame,
-    min_rpm: float = 2800.0,
-    min_duration_sec: float = 0.8,
-    drop_threshold: float = 400.0,
+    cfg_or_min_rpm: Optional[Union[PullFilterConfig, float]] = None,
+    min_duration_sec: Optional[float] = None,
+    drop_threshold: Optional[float] = None,
+    cfg: Optional[PullFilterConfig] = None,
     slope_percent: Optional[Union[float, str]] = None,
     temp_c: float = 20.0,
     pressure_hpa: float = 1013.25,
-    norm_standard: str = "DIN70020"
+    norm_standard: str = "DIN70020",
+    min_rpm: Optional[float] = None,
+    gear: Optional[Union[int, str]] = None,
+    **kwargs
 ) -> Tuple[pd.DataFrame, bool]:
     """
-    Detects the cleanest dyno acceleration pull in a log file.
-    Returns: (trimmed_df, is_detected)
+    Strict multi-condition WOT Dyno-Pull detection:
+    - Monotonic velocity increase (dv/dt >= a_min)
+    - Monotonic engine revving (dRPM/dt > 0)
+    - Strict load-AFR validation (9.5 <= AFR <= 14.2, dynamic transient filter)
+    - Minimum duration (>= 1.8s) or RPM span (>= 1500 RPM)
+    Returns: (trimmed_df, is_valid_pull)
     """
     if len(df) < 10:
+        logger.warning("Segment zu kurz (<10 Datenpunkte). Pull verworfen.")
         return df, False
 
-    df = clean_egt_data(df)
-    df = calculate_telemetry_metrics(
-        df,
-        slope_percent=slope_percent,
-        temp_c=temp_c,
-        pressure_hpa=pressure_hpa,
-        norm_standard=norm_standard
-    )
+    # Resolve config object vs keyword arguments for backward compatibility
+    if isinstance(cfg_or_min_rpm, PullFilterConfig):
+        cfg = cfg_or_min_rpm
+    elif isinstance(cfg_or_min_rpm, (int, float)) and min_rpm is None:
+        min_rpm = float(cfg_or_min_rpm)
 
-    n_samples_required = max(5, int(min_duration_sec / 0.1))
-    rpm = df['RPM_smoothed'].values
-    drpm = df['dRPM_dt'].values
+    if cfg is None:
+        cfg = DEFAULT_FILTER_CONFIG
+
+    overrides = {}
+    if min_rpm is not None:
+        overrides["min_rpm"] = float(min_rpm)
+    if min_duration_sec is not None:
+        overrides["min_duration_sec"] = float(min_duration_sec)
+    if drop_threshold is not None:
+        overrides["drop_threshold_rpm"] = float(drop_threshold)
+    elif "drop_threshold_rpm" in kwargs:
+        overrides["drop_threshold_rpm"] = float(kwargs["drop_threshold_rpm"])
+
+    for field_name in PullFilterConfig.__dataclass_fields__:
+        if field_name in kwargs and field_name not in overrides:
+            overrides[field_name] = kwargs[field_name]
+
+    if overrides:
+        current_dict = {f: getattr(cfg, f) for f in PullFilterConfig.__dataclass_fields__}
+        current_dict.update(overrides)
+        cfg = PullFilterConfig(**current_dict)
+
+    df = clean_egt_data(df)
+
     n = len(df)
+    rpm_raw = df["RPM"].values
+    speed_raw = df["Speed_kmh"].values if "Speed_kmh" in df.columns else np.zeros(n)
+    afr_raw = df["AFR"].values if "AFR" in df.columns else np.full(n, 12.5)
+
+    rpm_s = smooth_signal(rpm_raw, window_length=9, polyorder=2)
+    spd_s = smooth_signal(speed_raw, window_length=9, polyorder=2)
+    afr_rolling = pd.Series(afr_raw).rolling(5, min_periods=1, center=True).mean().values
+
+    # S-03: Derive real median sample interval from log timestamps instead of
+    # assuming fixed dt=0.1s (10 Hz). UART jitter + Pi scheduling cause real
+    # packet spacing to vary; a wrong dt scales pull_duration and avg_accel directly.
+    dt = 0.1
+    if "Time" in df.columns:
+        try:
+            t_num = pd.to_numeric(df["Time"], errors="coerce").dropna()
+            if len(t_num) > 2:
+                _diffs = np.diff(t_num.values)
+                _diffs = _diffs[_diffs > 0]
+                if len(_diffs) > 0:
+                    dt = float(np.median(_diffs))
+        except Exception:
+            pass
+    dt = max(0.05, min(0.30, dt))  # Sanity clamp: reject <50ms or >300ms
 
     best_start = None
     best_end = None
-    max_rpm_gain = 0
+    best_rpm_gain = 0.0
 
     i = 0
-    while i < n - n_samples_required:
-        if rpm[i] >= min_rpm and drpm[i] > 150.0:
+    while i < n - 8:
+        curr_rpm = rpm_s[i]
+        curr_spd = spd_s[i]
+        curr_afr = afr_rolling[i]
+        
+        # Immediate skip for coasting/Schiebebetrieb
+        if curr_afr >= cfg.afr_cutoff_threshold:
+            i += 1
+            continue
+
+        # Look for start of acceleration
+        if curr_rpm >= cfg.min_rpm and curr_spd >= cfg.min_speed_kmh:
             start_idx = i
             peak_idx = start_idx
-            peak_rpm = rpm[start_idx]
+            peak_rpm = curr_rpm
+            consecutive_lean_count = 0
 
             j = start_idx + 1
             while j < n:
-                curr_rpm = rpm[j]
-                if curr_rpm > peak_rpm:
-                    peak_rpm = curr_rpm
-                    peak_idx = j
-                elif (peak_rpm - curr_rpm) > drop_threshold:
+                r_j = rpm_s[j]
+                v_j = spd_s[j]
+                afr_j = afr_raw[j]
+                afr_roll_j = afr_rolling[j]
+
+                # Dynamic Transient Lean Filter:
+                # If AFR >= cutoff (15.0), allow up to transient_lean_max_samples (e.g. 3 samples = 0.3s)
+                # only if vehicle is accelerating (v_j >= spd_s[j-1]) and RPM revving
+                if afr_j >= cfg.afr_cutoff_threshold or afr_roll_j >= cfg.afr_cutoff_threshold:
+                    consecutive_lean_count += 1
+                    if consecutive_lean_count > cfg.transient_lean_max_samples:
+                        logger.debug(f"Pull-Abbruch bei Index {j}: AFR {afr_j:.1f} > {cfg.afr_cutoff_threshold} über {consecutive_lean_count} Samples (Schiebebetrieb)")
+                        break
+                else:
+                    consecutive_lean_count = 0
+
+                # Hard abort 2: Major sustained deceleration (RPM drop > drop_threshold)
+                if (peak_rpm - r_j) > cfg.drop_threshold_rpm:
                     break
+
+                # Track peak RPM
+                if r_j > peak_rpm:
+                    peak_rpm = r_j
+                    peak_idx = j
+
                 j += 1
 
             pull_end = peak_idx
-            pull_duration_samples = pull_end - start_idx
-            rpm_gain = peak_rpm - rpm[start_idx]
+            pull_duration = (pull_end - start_idx) * dt
+            rpm_gain = peak_rpm - rpm_s[start_idx]
+            speed_gain = spd_s[pull_end] - spd_s[start_idx]
+            avg_accel = (speed_gain / 3.6) / pull_duration if pull_duration > 0 else 0.0
+            
+            segment_afrs = [a for a in afr_raw[start_idx:pull_end+1] if 8.0 < a < 22.0]
+            avg_afr = np.mean(segment_afrs) if segment_afrs else 19.5
 
-            if pull_duration_samples >= n_samples_required and rpm_gain > 1000.0:
-                if rpm_gain > max_rpm_gain:
-                    max_rpm_gain = rpm_gain
+            # Multi-condition validation:
+            # 1. Monotonic RPM gain / duration
+            is_duration_ok = (pull_duration >= cfg.min_duration_sec) or (rpm_gain >= cfg.min_rpm_gain)
+            # 2. Monotonic Speed increase (net positive acceleration and speed gain)
+            is_accel_ok = (avg_accel >= cfg.min_accel_ms2 or speed_gain >= 10.0) and (speed_gain > 3.0)
+            # 3. Load AFR within combustion window
+            is_afr_ok = (cfg.afr_load_min <= avg_afr <= cfg.afr_load_max)
+
+            if is_duration_ok and is_accel_ok and is_afr_ok:
+                if rpm_gain > best_rpm_gain:
+                    best_rpm_gain = rpm_gain
                     best_start = start_idx
                     best_end = pull_end
+                    logger.info(
+                        f"✅ Gültiges Dyno-Intervall gefunden: +{rpm_gain:.0f} RPM in {pull_duration:.1f}s | "
+                        f"Speed +{speed_gain:.1f} km/h (a={avg_accel:.2f} m/s²) | AFR Ø {avg_afr:.2f}"
+                    )
 
-            i = peak_idx + 1
+            i = max(j, peak_idx + 1)
             continue
         i += 1
 
-    if best_start is None or max_rpm_gain < 800.0:
-        return df, False
+    if best_start is None or best_rpm_gain < 1000.0:
+        logger.warning(
+            f"❌ Kein gültiger Dyno-Pull erkannt (Bedingungen nicht erfüllt: "
+            f"Monotones v/RPM, AFR {cfg.afr_load_min}-{cfg.afr_load_max}, Delta RPM >= {cfg.min_rpm_gain:.0f})."
+        )
+        df_calc = calculate_telemetry_metrics(
+            df,
+            gear=gear,
+            slope_percent=slope_percent,
+            temp_c=temp_c,
+            pressure_hpa=pressure_hpa,
+            norm_standard=norm_standard
+        )
+        return df_calc, False
 
     trimmed_df = df.iloc[best_start:best_end + 1].copy().reset_index(drop=True)
     trimmed_df = calculate_telemetry_metrics(
         trimmed_df,
+        gear=gear,
         slope_percent=slope_percent,
         temp_c=temp_c,
         pressure_hpa=pressure_hpa,
@@ -470,75 +645,94 @@ def plot_telemetry(
     output_path: Optional[str] = None,
     vehicle_name: str = "VMC177"
 ) -> None:
-    """Plots telemetry data in professional dark P4-Look with power, torque, AFR, and EGT."""
-    plt.style.use('dark_background')
+    """Plots telemetry data in professional dark P4-Look with engine power, wheel power, loss power, torque, AFR, and EGT."""
+    plt.style.use("dark_background")
 
-    fig, (ax1, ax3) = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
+    fig, (ax1, ax3) = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={"height_ratios": [2.2, 1]})
     ax2 = ax1.twinx()
 
-    gear = df.get('Detected_Gear', pd.Series([3])).iloc[0] if 'Detected_Gear' in df.columns else 3
+    gear = df.get("Detected_Gear", pd.Series([3])).iloc[0] if "Detected_Gear" in df.columns else 3
     i_total = get_gear_total_ratio(gear)
 
-    # 1. Power & Torque Curves
-    ax1.plot(df['RPM_smoothed'], df['PS'], color='#00ffcc', linewidth=2.8, label='Leistung (PS)')
-    ax2.plot(df['RPM_smoothed'], df['Nm'], color='#ff9800', linewidth=2.8, label='Drehmoment (Nm)')
+    # 1. Power & Torque Curves (P4 Professional Layout)
+    ax1.plot(df["RPM_smoothed"], df["PS"], color="#00ffcc", linewidth=3.0, label="P_Motor (DIN 70020)")
+    if "P_Wheel_PS" in df.columns:
+        ax1.plot(df["RPM_smoothed"], df["P_Wheel_PS"], color="#76ff03", linewidth=2.0, linestyle="--", label="P_Rad (Hinterrad)")
+    if "P_Loss_PS" in df.columns:
+        ax1.plot(df["RPM_smoothed"], df["P_Loss_PS"], color="#ff7043", linewidth=1.8, linestyle=":", label="P_Verlust (Schleppleistung)")
+    ax2.plot(df["RPM_smoothed"], df["Nm"], color="#ffb300", linewidth=2.8, label="Drehmoment (Nm)")
 
-    ax1.grid(True, color='#333333', linestyle='--', alpha=0.7)
+    ax1.grid(True, color="#333333", linestyle="--", alpha=0.7)
 
-    max_ps = float(df['PS'].max()) if len(df) > 0 and 'PS' in df.columns else 20.0
-    max_nm = float(df['Nm'].max()) if len(df) > 0 and 'Nm' in df.columns else 0.0
-    ps_top = max(20.0, math.ceil((max_ps * 1.15) / 5.0) * 5.0)
+    max_ps = float(df["PS"].max()) if len(df) > 0 and "PS" in df.columns else 20.0
+    max_wheel_ps = float(df["P_Wheel_PS"].max()) if len(df) > 0 and "P_Wheel_PS" in df.columns else (max_ps * 0.88)
+    max_loss_ps = float(df["P_Loss_PS"].max()) if len(df) > 0 and "P_Loss_PS" in df.columns else (max_ps * 0.12)
+    max_nm = float(df["Nm"].max()) if len(df) > 0 and "Nm" in df.columns else 0.0
+    ps_top = max(20.0, math.ceil((max_ps * 1.18) / 5.0) * 5.0)
 
-    # Ammerschläger-P4 Layout: Torque axis is dynamically scaled to 2.5x the power axis
     ax1.set_ylim(0, ps_top)
     ax2.set_ylim(0, ps_top * 2.5)
 
-    ax1.set_title(f'StreetDyno 2.0 - {vehicle_name} Leistungsmessung{title_suffix}', fontsize=14, fontweight='bold', pad=15, color='#ffffff')
-    ax1.set_ylabel('Leistung [PS]', color='#00ffcc', fontsize=12, fontweight='bold')
-    ax2.set_ylabel('Drehmoment [Nm]', color='#ff9800', fontsize=12, fontweight='bold')
+    ax1.set_title(f"StreetDyno 2.0 - {vehicle_name} Leistungsmessung{title_suffix}", fontsize=14, fontweight="bold", pad=15, color="#ffffff")
+    ax1.set_ylabel("Leistung [PS]", color="#00ffcc", fontsize=12, fontweight="bold")
+    ax2.set_ylabel("Drehmoment [Nm]", color="#ffb300", fontsize=12, fontweight="bold")
 
-    ax1.tick_params(axis='y', colors='#00ffcc')
-    ax2.tick_params(axis='y', colors='#ff9800')
+    ax1.tick_params(axis="y", colors="#00ffcc")
+    ax2.tick_params(axis="y", colors="#ffb300")
 
     if max_ps > 0 and max_nm > 0:
-        peak_ps_idx = df['PS'].idxmax()
-        peak_ps = df['PS'].max()
-        peak_ps_rpm = df.loc[peak_ps_idx, 'RPM_smoothed']
+        peak_ps_idx = df["PS"].idxmax()
+        peak_ps = df["PS"].max()
+        peak_ps_rpm = df.loc[peak_ps_idx, "RPM_smoothed"]
 
-        peak_nm_idx = df['Nm'].idxmax()
-        peak_nm = df['Nm'].max()
-        peak_nm_rpm = df.loc[peak_nm_idx, 'RPM_smoothed']
+        peak_nm_idx = df["Nm"].idxmax()
+        peak_nm = df["Nm"].max()
+        peak_nm_rpm = df.loc[peak_nm_idx, "RPM_smoothed"]
 
-        slope_val = df.get('Slope_Pct', pd.Series([0.0])).iloc[0] if 'Slope_Pct' in df.columns else 0.0
-        p_slope_avg = df.get('Slope_Power_PS', pd.Series([0.0])).mean() if 'Slope_Power_PS' in df.columns else 0.0
+        slope_val = df.get("Slope_Pct", pd.Series([0.0])).iloc[0] if "Slope_Pct" in df.columns else 0.0
+        p_slope_avg = df.get("Slope_Power_PS", pd.Series([0.0])).mean() if "Slope_Power_PS" in df.columns else 0.0
         slope_tag = f"\nSteigung: {slope_val:+.1f}% ({p_slope_avg:+.1f} PS)" if abs(slope_val) >= 0.1 else ""
 
+        k_norm_val = df.get("Weather_K_Norm", pd.Series([1.0])).iloc[0] if "Weather_K_Norm" in df.columns else 1.0
+
         annotation_text = (
-            f"Gang: {gear}. Gang (i={i_total:.2f}){slope_tag}\n"
-            f"Peak Leistung: {peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min\n"
-            f"Peak Drehmoment: {peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min"
+            f"🎯 Gang: {gear}. Gang (i={i_total:.2f}){slope_tag}\n"
+            f"⚡ P_Motor (DIN): {peak_ps:.2f} PS @ {int(peak_ps_rpm)} U/min\n"
+            f"🏁 P_Rad: {max_wheel_ps:.2f} PS | P_Verlust: {max_loss_ps:.2f} PS\n"
+            f"🔧 Drehmoment: {peak_nm:.2f} Nm @ {int(peak_nm_rpm)} U/min\n"
+            f"🌤️ Wetter-Faktor: k_DIN = {k_norm_val:.3f}"
         )
-        ax1.text(0.02, 0.95, annotation_text, transform=ax1.transAxes, fontsize=10, bbox=dict(boxstyle='round', facecolor='#222222', alpha=0.85, edgecolor='#00ffcc'))
+        ax1.text(0.02, 0.95, annotation_text, transform=ax1.transAxes, fontsize=10, verticalalignment="top",
+                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#1a1a1a", alpha=0.9, edgecolor="#00ffcc", linewidth=1.5))
+
+    # Combined Legend
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(handles1 + handles2, labels1 + labels2, loc="upper right", facecolor="#1a1a1a", edgecolor="#555555", fontsize=9)
 
     # 2. AFR & EGT Subplot
     ax4 = ax3.twinx()
-    ax3.plot(df['RPM_smoothed'], df['AFR'], color='#ff3366', linewidth=2.2, label='AFR')
-    ax4.plot(df['RPM_smoothed'], df['EGT_cleaned'], color='#ffcc00', linewidth=2.2, label='EGT (°C)')
+    ax3.plot(df["RPM_smoothed"], df["AFR"], color="#ff3366", linewidth=2.2, label="AFR")
+    ax4.plot(df["RPM_smoothed"], df["EGT_cleaned"], color="#ffcc00", linewidth=2.2, label="EGT (°C)")
 
-    ax3.axhline(12.8, color='#ff3366', linestyle=':', alpha=0.6, label='Optimal AFR Last (12.8-13.0)')
-    ax4.axhline(630.0, color='#ffcc00', linestyle=':', alpha=0.7, label='Kritische EGT (630°C)')
+    ax3.axhline(12.8, color="#ff3366", linestyle=":", alpha=0.6, label="Optimal AFR Last (12.8-13.0)")
+    ax4.axhline(630.0, color="#ffcc00", linestyle=":", alpha=0.7, label="Kritische EGT (630°C)")
 
-    ax3.grid(True, color='#333333', linestyle='--', alpha=0.7)
-    ax3.set_ylabel('AFR', color='#ff3366', fontsize=12, fontweight='bold')
-    ax4.set_ylabel('EGT [°C]', color='#ffcc00', fontsize=12, fontweight='bold')
-    ax3.set_xlabel('Motordrehzahl [U/min]', fontsize=12, fontweight='bold')
-    ax3.tick_params(axis='y', colors='#ff3366')
-    ax4.tick_params(axis='y', colors='#ffcc00')
+    ax3.grid(True, color="#333333", linestyle="--", alpha=0.7)
+    ax3.set_ylabel("AFR", color="#ff3366", fontsize=12, fontweight="bold")
+    ax4.set_ylabel("EGT [°C]", color="#ffcc00", fontsize=12, fontweight="bold")
+    ax3.set_xlabel("Motordrehzahl [U/min]", fontsize=12, fontweight="bold")
+    ax3.tick_params(axis="y", colors="#ff3366")
+    ax4.tick_params(axis="y", colors="#ffcc00")
+
+    handles3, labels3 = ax3.get_legend_handles_labels()
+    handles4, labels4 = ax4.get_legend_handles_labels()
+    ax3.legend(handles3 + handles4, labels3 + labels4, loc="upper right", facecolor="#1a1a1a", edgecolor="#555555", fontsize=9)
 
     plt.tight_layout()
     if output_path:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        plt.savefig(output_path, dpi=130, facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.savefig(output_path, dpi=130, facecolor=fig.get_facecolor(), edgecolor="none")
         plt.close(fig)
     else:
         plt.show()
@@ -551,27 +745,20 @@ def export_to_google_sheets(
 ) -> bool:
     """Exports processed dyno metrics to Google Sheets."""
     if not HAS_GSPREAD:
-        print("[!] gspread nicht installiert. Export uebersprungen.")
         return False
-
     if not os.path.exists(credentials_json):
-        print(f"[!] Google Credentials '{credentials_json}' nicht gefunden.")
         return False
-
     try:
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_file(credentials_json, scopes=scope)
         client = gspread.authorize(creds)
         sheet = client.open(spreadsheet_name).sheet1
-
-        export_cols = ['Time', 'RPM_smoothed', 'PS', 'Nm', 'AFR', 'EGT_cleaned', 'Speed_smoothed']
+        export_cols = ["Time", "RPM_smoothed", "PS", "Nm", "AFR", "EGT_cleaned", "Speed_smoothed"]
         available = [c for c in export_cols if c in df.columns]
         data_to_export = [available] + df[available].fillna(0).values.tolist()
-
         sheet.clear()
-        sheet.update('A1', data_to_export)
-        print(f"[OK] {len(df)} Datenpunkte erfolgreich nach Google Sheets '{spreadsheet_name}' exportiert.")
+        sheet.update("A1", data_to_export)
         return True
     except Exception as e:
-        print(f"[ERROR] Fehler beim Google Sheets Export: {e}")
+        logger.error(f"Fehler beim Google Sheets Export: {e}")
         return False

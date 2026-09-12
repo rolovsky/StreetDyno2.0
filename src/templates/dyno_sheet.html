@@ -94,7 +94,7 @@
 </head>
 <body>
     <div class="print-actions">
-        <a href="/analyze?file={{ fname }}&slope={{ slope_param }}&temp={{ temp_param }}&pressure={{ pressure_param }}&norm={{ norm_param }}" class="btn-back">⬅️ ZURÜCK</a>
+        <a href="/analyze?file={{ fname }}&slope={{ slope_param }}&temp={{ temp_param }}&pressure={{ pressure_param }}&norm={{ norm_param }}&gear={{ gear_param }}" class="btn-back">⬅️ ZURÜCK</a>
         <button class="btn-print" onclick="window.print()">🖨️ DRUCKEN / ALS PDF SPEICHERN</button>
     </div>
 
@@ -106,18 +106,18 @@
         <div class="meta-table">
             <div><b>Datum:</b> {{ mtime }}</div>
             <div><b>Datei:</b> {{ fname }}</div>
-            <div><b>Messgang:</b> {{ gear }}. Gang</div>
+            <div><b>Messgang:</b> {{ gear }}. Gang (i = {{ "%.2f"|format(i_total) if i_total else '6.61' }})</div>
         </div>
     </div>
 
     <div class="results-grid">
         <div class="result-card">
-            <div class="res-label">Pmax ({{ norm_param }})</div>
+            <div class="res-label">P_Motor ({{ norm_param }})</div>
             <div class="res-val">{{ "%.1f"|format(max_ps) }} PS</div>
-            <div class="res-sub">@{{ peak_ps_rpm|int }} U/min (Raw: {{ "%.1f"|format(max_ps_raw) }})</div>
+            <div class="res-sub">@{{ peak_ps_rpm|int }} U/min (Rad: {{ "%.1f"|format(max_wheel_ps) }} | Verlust: {{ "%.1f"|format(max_loss_ps) }})</div>
         </div>
         <div class="result-card">
-            <div class="res-label">Mmax ({{ norm_param }})</div>
+            <div class="res-label">M_Motor ({{ norm_param }})</div>
             <div class="res-val" style="color:#ff9800;">{{ "%.1f"|format(max_nm) }} Nm</div>
             <div class="res-sub">@{{ peak_nm_rpm|int }} U/min</div>
         </div>
@@ -139,10 +139,11 @@
 
     <div class="grid-2">
         <div class="box">
-            <div class="box-title">⚙️ FAHRZEUG & VERGASER-SETUP</div>
-            <div class="spec-row"><span>Fahrzeug / Kraftstoff:</span><span class="spec-val">Vespa PX (VMC 177) &bull; {{ carb.fuel_type or 'Super_E5' }} (Stöch. {{ "%.2f"|format(carb_diag.stoich_afr if carb_diag and carb_diag.stoich_afr else 14.30) }})</span></div>
-            <div class="spec-row"><span>Gesamtmasse:</span><span class="spec-val">190.0 kg (Roller + Fahrer)</span></div>
-            <div class="spec-row"><span>Vergaser:</span><span class="spec-val">{{ carb.carburetor_type }}</span></div>
+            <div class="box-title">⚙️ FAHRZEUG-, MOTOR- & VERGASER-SETUP</div>
+            <div class="spec-row"><span>Motor / Hubraum:</span><span class="spec-val">VMC Super G &bull; {{ setup_meta.displacement_cc or 187.0 }} ccm (Hub {{ setup_meta.stroke_mm or 60.0 }} mm &bull; {{ setup_meta.ignition_deg or carb.ignition_deg or 18 }}° Zdg)</span></div>
+            <div class="spec-row"><span>Steuerzeiten:</span><span class="spec-val">A 176.5° &bull; Ü 121.1° &bull; VA 27.7° (DS 161.5°)</span></div>
+            <div class="spec-row"><span>Messgang / Übersetzung:</span><span class="spec-val">{{ gear }}. Gang (i = {{ "%.2f"|format(i_total) if i_total else '6.61' }})</span></div>
+            <div class="spec-row"><span>Vergaser & Kraftstoff:</span><span class="spec-val">{{ carb.carburetor_type }} &bull; {{ carb.fuel_type or 'Super_E5' }}</span></div>
             <div class="spec-row"><span>Bedüsung:</span><span class="spec-val">HD {{ carb.main_jet_hd }} | ND {{ carb.idle_jet_nd }} | HLKD {{ carb.air_corrector_hlkd }}</span></div>
             <div class="spec-row"><span>Mischrohr / Schieber:</span><span class="spec-val">{{ carb.emulsion_tube }} | {{ slide_label }}</span></div>
             <div class="spec-row"><span>Ansaugung & Wanne:</span><span class="spec-val">{{ intake_label }} &bull; {{ airbox_label }}</span></div>
@@ -173,7 +174,7 @@
             data: {
                 datasets: [
                     {
-                        label: 'Leistung (PS)',
+                        label: 'P_Motor DIN 70020 (PS)',
                         data: d.map(p => ({ x: p.RPM_smoothed, y: p.PS })),
                         borderColor: '#e53935',
                         backgroundColor: '#e53935',
@@ -183,12 +184,33 @@
                         yAxisID: 'y'
                     },
                     {
+                        label: 'P_Rad (Hinterrad)',
+                        data: d.map(p => ({ x: p.RPM_smoothed, y: p.P_Wheel_PS || (p.PS * 0.88) })),
+                        borderColor: '#7cb342',
+                        backgroundColor: '#7cb342',
+                        borderWidth: 2,
+                        borderDash: [5, 4],
+                        pointRadius: 0,
+                        tension: 0.3,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'P_Verlust (Schleppleistung)',
+                        data: d.map(p => ({ x: p.RPM_smoothed, y: p.P_Loss_PS || (p.PS * 0.12) })),
+                        borderColor: '#fb8c00',
+                        backgroundColor: '#fb8c00',
+                        borderWidth: 1.5,
+                        borderDash: [2, 2],
+                        pointRadius: 0,
+                        tension: 0.3,
+                        yAxisID: 'y'
+                    },
+                    {
                         label: 'Drehmoment (Nm)',
                         data: d.map(p => ({ x: p.RPM_smoothed, y: p.Nm })),
-                        borderColor: '#43a047',
-                        backgroundColor: '#43a047',
+                        borderColor: '#1e88e5',
+                        backgroundColor: '#1e88e5',
                         borderWidth: 2.5,
-                        borderDash: [4, 4],
                         pointRadius: 0,
                         tension: 0.3,
                         yAxisID: 'y1'

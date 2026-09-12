@@ -72,7 +72,12 @@
     <div class="header">
         <div>
             <h1>📊 DYNO-ANALYSE</h1>
-            <div style="font-size:0.75rem; color:#888; font-family:monospace;">{{ fname }}</div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:3px; flex-wrap:wrap;">
+                <span style="font-size:0.75rem; color:#888; font-family:monospace;">{{ fname }}</span>
+                {% if setup_badge %}
+                <span style="background:#132626; color:#00ffcc; border:1px solid rgba(0,255,204,0.35); font-size:0.72rem; font-weight:700; padding:2px 6px; border-radius:4px; font-family:'JetBrains Mono', monospace;">⚙️ {{ setup_badge }}</span>
+                {% endif %}
+            </div>
         </div>
         <div>
             <a href="/logs" class="back-btn">⬅️ LOGS</a>
@@ -87,7 +92,7 @@
                 <span style="font-family:monospace; font-weight:bold; color:#fff; font-size:1.0rem; margin-left:6px;">k = {{ "%.3f"|format(k_norm) }}</span>
                 <span style="font-size:0.8rem; color:#aaa; margin-left:4px;">({{ "%+.1f"|format((k_norm - 1.0)*100) }}%)</span>
             </div>
-            <a href="/dyno_sheet?file={{ fname }}&slope={{ slope_param }}&temp={{ temp_param }}&pressure={{ pressure_param }}&norm={{ norm_param }}" target="_blank" 
+            <a href="/dyno_sheet?log={{ fname }}&slope={{ slope_param }}&temp={{ temp_param }}&pressure={{ pressure_param }}&norm={{ norm_param }}&gear={{ gear_param }}" target="_blank" 
                style="background:#00ffcc; color:#000; padding:6px 12px; border-radius:8px; font-weight:800; font-size:0.8rem; text-decoration:none;">
                 📄 A4 DYNO-SHEET
             </a>
@@ -123,19 +128,27 @@
             </button>
         </div>
 
-        <div style="margin-top:10px; padding-top:8px; border-top:1px solid #222; display:flex; justify-content:space-between; align-items:center; font-size:0.8rem;">
+        <div style="margin-top:10px; padding-top:8px; border-top:1px solid #222; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; font-size:0.8rem;">
             <div>
                 <span style="color:#888; font-weight:bold;">🏔️ NEIGUNG:</span>
                 <span style="color:#fff; font-weight:bold; font-family:monospace;">{{ "%+.1f"|format(detected_slope) }}%</span>
                 <span style="color:#aaa;">({{ "%+.1f"|format(avg_slope_ps) }} PS)</span>
-            </div>
-            <div>
-                <select id="slopeSelect" onchange="changeSlope()" style="background:#0d0d11; border:1px solid #444; color:#00ffcc; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">
+                <select id="slopeSelect" onchange="changeSlope()" style="margin-left:6px; background:#0d0d11; border:1px solid #444; color:#00ffcc; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">
                     <option value="auto" {% if slope_param == 'auto' %}selected{% endif %}>🛰️ Auto-GPS</option>
                     <option value="0.0" {% if slope_param == '0.0' %}selected{% endif %}>0.0% Ebene</option>
                     <option value="0.8" {% if slope_param == '0.8' %}selected{% endif %}>+0.8% Hausstrecke</option>
                     <option value="1.5" {% if slope_param == '1.5' %}selected{% endif %}>+1.5% Bergauf</option>
                     <option value="-0.8" {% if slope_param == '-0.8' %}selected{% endif %}>-0.8% Gegenhang</option>
+                </select>
+            </div>
+            <div>
+                <span style="color:#888; font-weight:bold;">🎯 GANG:</span>
+                <span style="color:#fff; font-weight:bold; font-family:monospace;">{{ detected_gear }}. Gang</span>
+                <select id="gearSelect" onchange="changeGear()" style="margin-left:6px; background:#0d0d11; border:1px solid #444; color:#ffb300; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">
+                    <option value="auto" {% if gear_param == 'auto' %}selected{% endif %}>🎯 Auto ({{ detected_gear }}. Gang)</option>
+                    <option value="3" {% if gear_param == '3' %}selected{% endif %}>3. Gang (Standard)</option>
+                    <option value="4" {% if gear_param == '4' %}selected{% endif %}>4. Gang</option>
+                    <option value="2" {% if gear_param == '2' %}selected{% endif %}>2. Gang</option>
                 </select>
             </div>
         </div>
@@ -144,12 +157,12 @@
     <!-- Telemetry Cards -->
     <div class="grid">
         <div class="card card-ps">
-            <span class="label">Leistung ({{ norm_param }})</span>
+            <span class="label">P_Motor ({{ norm_param }})</span>
             <span class="value">{{ "%.1f"|format(max_ps) }} PS</span>
-            <span class="sub">@{{ peak_ps_rpm|int }} U/min (Raw: {{ "%.1f"|format(ps_raw) }})</span>
+            <span class="sub">@{{ peak_ps_rpm|int }} U/min (Rad: {{ "%.1f"|format(max_wheel_ps) }} | Verlust: {{ "%.1f"|format(max_loss_ps) }})</span>
         </div>
         <div class="card card-nm">
-            <span class="label">Drehmoment</span>
+            <span class="label">Drehmoment (M_Motor)</span>
             <span class="value">{{ "%.1f"|format(max_nm) }} Nm</span>
             <span class="sub">@{{ peak_nm_rpm|int }} U/min</span>
         </div>
@@ -183,6 +196,13 @@
     </div>
 
     <script>
+        function changeGear() {
+            const val = document.getElementById('gearSelect').value;
+            const url = new URL(window.location.href);
+            url.searchParams.set('gear', val);
+            window.location.href = url.toString();
+        }
+
         function changeSlope() {
             const val = document.getElementById('slopeSelect').value;
             const url = new URL(window.location.href);
@@ -194,10 +214,12 @@
             const temp = document.getElementById('tempInput').value;
             const press = document.getElementById('pressInput').value;
             const norm = document.getElementById('normSelect').value;
+            const gear = document.getElementById('gearSelect') ? document.getElementById('gearSelect').value : '{{ gear_param }}';
             const url = new URL(window.location.href);
             url.searchParams.set('temp', temp);
             url.searchParams.set('pressure', press);
             url.searchParams.set('norm', norm);
+            url.searchParams.set('gear', gear);
             window.location.href = url.toString();
         }
 

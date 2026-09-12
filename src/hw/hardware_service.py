@@ -36,6 +36,7 @@ from data.logger import CSVLogger, TripLogger
 @dataclass
 class TelemetryState:
     """Thread-safe telemetry data snapshot."""
+    arduino_micros: int = 0
     rpm: float = 0.0
     rpm_filtered: float = 0.0
     afr: float = 0.0
@@ -53,6 +54,7 @@ class TelemetryState:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "arduino_micros": self.arduino_micros,
             "rpm": round(self.rpm_filtered, 0),
             "speed": round(self.speed_kmh, 1),
             "afr": round(self.afr_filtered, 2),
@@ -91,6 +93,44 @@ class HardwareService:
         self._pre_buffer: Deque[Dict[str, Any]] = deque(maxlen=10)
         self.auto_trigger_enabled: bool = True
         self.trip_logging_enabled: bool = True
+        self._serial_buffer: str = ""
+        self.current_micros: int = 0
+        self.current_rpm: float = 0.0
+        self.current_afr: float = 0.0
+        self.current_egt: float = 0.0
+        self.last_serial_time: float = time.time()
+
+    def _parse_telemetry_line(self, line: str) -> bool:
+        """Parses $MICROS;RPM;AFR;EGT*CHECKSUM line with XOR checksum validation."""
+        if not (line.startswith('$') and '*' in line):
+            return False
+        payload, checksum_str = line[1:].split('*', 1)
+
+        # XOR checksum validation over payload characters (without '$' and '*')
+        calc_cs = 0
+        for ch in payload:
+            calc_cs ^= ord(ch)
+
+        try:
+            expected_cs = int(checksum_str.strip(), 16)
+        except ValueError:
+            return False
+
+        if calc_cs != expected_cs:
+            return False
+
+        parts = payload.split(';')
+        if len(parts) >= 4:
+            try:
+                self.current_micros = int(parts[0])
+                self.current_rpm = float(parts[1])
+                self.current_afr = float(parts[2])
+                self.current_egt = float(parts[3])
+                self.last_serial_time = time.time()
+                return True
+            except (ValueError, TypeError):
+                return False
+        return False
 
     def start(self) -> None:
         """Starts the background hardware polling loop."""
@@ -127,6 +167,7 @@ class HardwareService:
         """Returns a snapshot of the current telemetry state."""
         with self._lock:
             return TelemetryState(
+                arduino_micros=self.state.arduino_micros,
                 rpm=self.state.rpm,
                 rpm_filtered=self.state.rpm_filtered,
                 afr=self.state.afr,
@@ -158,9 +199,6 @@ class HardwareService:
         last_display_update = 0.0
         last_loop_time = time.time()
 
-        filtered_rpm = 0.0
-        filtered_afr = 0.0
-
         # High-Precision 3-Point Derivative History [(timestamp, rpm), ...]
         rpm_history: Deque[tuple[float, float]] = deque(maxlen=4)
 
@@ -175,6 +213,11 @@ class HardwareService:
         # Background Trip Logger Tracking State
         engine_start_streak = 0
         last_engine_active_time = time.time()
+
+        # S-02: EMA filter state — ALPHA_RPM / ALPHA_AFR from config.py now active.
+        # Previously filtered_rpm / filtered_afr were raw pass-throughs (dead code).
+        _ema_rpm: float = 0.0
+        _ema_afr: float = 0.0
 
         # Expected 3rd gear RPM/Speed ratio: ~81.6 (tolerance 65.0 - 105.0)
         i_gear3 = PRIMARY_RATIO * GEAR_RATIOS.get(3, 38.0 / 17.0)
@@ -198,21 +241,17 @@ class HardwareService:
                     ser = None
                     time.sleep(1.0)
 
-            # 2. Read Serial packet: $RPM;AFR;EGT
-            raw_rpm = 0.0
-            raw_afr = 0.0
-            raw_egt = 0.0
-
+            # 2. Read all available Serial packets via non-blocking buffer
             if ser is not None:
                 try:
                     if ser.in_waiting > 0:
-                        line = ser.readline().decode('ascii', errors='ignore').strip()
-                        if line.startswith('$'):
-                            parts = line[1:].split(';')
-                            if len(parts) >= 3:
-                                raw_rpm = float(parts[0])
-                                raw_afr = float(parts[1])
-                                raw_egt = float(parts[2])
+                        chunk = ser.read(ser.in_waiting).decode('ascii', errors='ignore')
+                        self._serial_buffer += chunk
+                        while '\n' in self._serial_buffer:
+                             line, self._serial_buffer = self._serial_buffer.split('\n', 1)
+                             line = line.strip()
+                             if line.startswith('$') and '*' in line:
+                                 self._parse_telemetry_line(line)
                 except Exception:
                     try:
                         ser.close()
@@ -220,16 +259,28 @@ class HardwareService:
                         pass
                     ser = None
 
-            # 3. EMA Filtering for smooth visual display
-            if raw_rpm > 0:
-                filtered_rpm = (ALPHA_RPM * raw_rpm) + ((1.0 - ALPHA_RPM) * filtered_rpm)
-            else:
-                filtered_rpm = 0.0
+            # Disconnect / Stall Timeout: If no packet received for > 1.0s, reset values
+            if loop_now - self.last_serial_time > 1.0:
+                self.current_rpm = 0.0
+                self.current_afr = 0.0
+                self.current_egt = 0.0
 
-            if raw_afr > 0:
-                filtered_afr = (ALPHA_AFR * raw_afr) + ((1.0 - ALPHA_AFR) * filtered_afr) if filtered_afr > 0 else raw_afr
+            # S-02: Apply EMA smoothing — ALPHA_* from config.py now active (was dead code).
+            # On stall (rpm=0): decay at ×0.8 per loop instead of hard zero to avoid
+            # transient WOT-trigger resets from isolated zero-packets.
+            _raw_rpm = self.current_rpm
+            if _raw_rpm > 0.0:
+                _ema_rpm = ALPHA_RPM * _raw_rpm + (1.0 - ALPHA_RPM) * _ema_rpm
             else:
-                filtered_afr = 0.0
+                _ema_rpm = max(0.0, _ema_rpm * 0.8)
+
+            _raw_afr = self.current_afr
+            if _raw_afr > 0.0:
+                _ema_afr = ALPHA_AFR * _raw_afr + (1.0 - ALPHA_AFR) * _ema_afr
+
+            filtered_rpm = _ema_rpm
+            filtered_afr = _ema_afr if _ema_afr > 0.0 else _raw_afr
+            raw_egt = self.current_egt
 
             # 4. Robust 3-Point Rolling Central Derivative (dRPM/dt)
             rpm_history.append((loop_now, filtered_rpm))
@@ -248,15 +299,24 @@ class HardwareService:
 
             # 4. GPS Telemetry Polling
             gps_data: GPSData = self.gps.get_data()
-            spd = gps_data.speed_kmh if gps_data else 0.0
-            lat = gps_data.lat if gps_data and gps_data.lat is not None else 0.0
-            lon = gps_data.lon if gps_data and gps_data.lon is not None else 0.0
-            alt = gps_data.alt if gps_data and gps_data.alt is not None else 0.0
-            fix = gps_data.fix if gps_data else False
+            # S-01: Guard against frozen GPS values after signal dropout.
+            # gpsd TPV reports arrive at ~1 Hz; if the last fix is older than
+            # GPS_STALENESS_LIMIT_S the speed value is stale — zero it out so the
+            # WOT trigger never latches onto outdated velocity data.
+            GPS_STALENESS_LIMIT_S = 1.5
+            _gps_ts = gps_data.timestamp.timestamp() if (gps_data and gps_data.timestamp) else 0.0
+            _gps_age = loop_now - _gps_ts
+            _gps_fresh = gps_data is not None and _gps_age < GPS_STALENESS_LIMIT_S
+
+            spd = gps_data.speed_kmh if _gps_fresh else 0.0
+            lat = gps_data.lat if (gps_data and gps_data.lat is not None) else 0.0
+            lon = gps_data.lon if (gps_data and gps_data.lon is not None) else 0.0
+            alt = gps_data.alt if (gps_data and gps_data.alt is not None) else 0.0
+            fix = (gps_data.fix and _gps_fresh) if gps_data else False
 
             # Update rolling pre-trigger buffer
             sample_entry = {
-                "time": time.strftime("%H:%M:%S"),
+                "time": f"{time.time():.3f}",
                 "rpm": filtered_rpm,
                 "afr": filtered_afr,
                 "egt": raw_egt,
@@ -324,11 +384,15 @@ class HardwareService:
 
                     # Abrupt Drop-Filter (e.g. clutch pulled or shift before real pull)
                     abrupt_drop = (drpm_dt <= -500.0 and rpm_gain < 1000.0 and pull_duration >= 0.3)
+                    
+                    # Hard lean cutoff (throttle closed / deceleration / coasting)
+                    lean_cutoff = (filtered_afr >= 14.8 and pull_duration >= 0.5)
 
                     # Auto-Stop Conditions (Throttle closed / shift / rev limiter)
                     rpm_drop = pull_peak_rpm - filtered_rpm
                     should_stop = (
                         abrupt_drop or
+                        lean_cutoff or
                         (pull_duration >= 0.8 and rpm_drop >= 350.0) or
                         (pull_duration >= 1.2 and drpm_dt <= -250.0) or
                         (filtered_rpm < 2600.0) or
@@ -340,12 +404,12 @@ class HardwareService:
                         last_pull_stop_time = loop_now
 
                         with self._lock:
-                            if not abrupt_drop and pull_duration >= 1.0 and rpm_gain >= 1200.0:
+                            if not abrupt_drop and pull_duration >= 1.5 and rpm_gain >= 1600.0:
                                 saved_file = self.logger.stop()
                                 print(f"🏁 [AUTO-DYNO] ✅ Prüflauf erfolgreich abgeschlossen (+{rpm_gain:.0f} RPM in {pull_duration:.1f}s): {saved_file}")
                             else:
                                 self.logger.discard_current()
-                                reason = "Abrupter Einbruch" if abrupt_drop else f"nur +{rpm_gain:.0f} RPM in {pull_duration:.1f}s"
+                                reason = "Abrupter Einbruch" if abrupt_drop else ("Magerlauf/Schiebebetrieb" if lean_cutoff else f"nur +{rpm_gain:.0f} RPM in {pull_duration:.1f}s")
                                 print(f"⚠️ [AUTO-DYNO] Verworfener Fehltrigger ({reason}).")
 
                             self.state.is_logging = False
@@ -353,9 +417,10 @@ class HardwareService:
 
             # 6. Thread-safe state update
             with self._lock:
-                self.state.rpm = raw_rpm
+                self.state.arduino_micros = self.current_micros
+                self.state.rpm = self.current_rpm
                 self.state.rpm_filtered = filtered_rpm
-                self.state.afr = raw_afr
+                self.state.afr = self.current_afr
                 self.state.afr_filtered = filtered_afr
                 self.state.egt = raw_egt
                 self.state.speed_kmh = spd

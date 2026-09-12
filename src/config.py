@@ -30,15 +30,36 @@ SERIAL_BAUD: int = 115200
 ALPHA_RPM: float = 0.20
 ALPHA_AFR: float = 0.15
 
-# --- Vehicle Baseline Parameters (VMC 177 / Vespa PX 125 Lusso) ---
+# --- Vehicle Baseline Parameters (VMC Super G 177 / 187cc Langhub / Vespa PX 125 Lusso) ---
 VEHICLE_NAME: str = "VMC177"
-VEHICLE_DESCRIPTION: str = "Vespa PX 125 Lusso (VMC 177 / 60mm Welle / SI 24)"
+VEHICLE_DESCRIPTION: str = "Vespa PX 125 Lusso (VMC Super G 187cc / 60mm Langhub / SI 24)"
 PULSES_PER_REV: int = 3  # 3 pulses per crankshaft revolution (SIP / Ducati CDI)
+
+# Engine Geometry & Port Timing
+DISPLACEMENT_CC: float = 187.0        # 63mm bore x 60mm stroke
+STROKE_MM: float = 60.0               # 60mm Langhubwelle
+BORE_MM: float = 63.0                 # 63mm VMC Super G Grauguss
+CONROD_MM: float = 105.0              # 105mm standard conrod
+SQUISH_MM: float = 1.4                # 1.4mm Quetschkante
+IGNITION_DEG_BTDC: float = 18.0       # 18° v.OT statisch
+TIMING_EXHAUST_DEG: float = 176.5     # 176.46° Auslasszeit
+TIMING_TRANSFER_DEG: float = 121.1    # 121.11° Überströmzeit
+TIMING_BLOWDOWN_DEG: float = 27.7     # 27.67° Vorauslass
+TIMING_INTAKE_VOT: float = 107.5      # 107.51° v.OT Einlass öffnet
+TIMING_INTAKE_NOT: float = 54.0       # 53.98° n.OT Einlass schließt
 
 # Physical Vehicle Dynamics Parameters
 TOTAL_MASS_KG: float = 190.0          # 112 kg Vespa PX + 78 kg Rider
 ROTATIONAL_MASS_FACTOR: float = 1.05  # Rotational inertia multiplier (wheels, flywheel, crank)
+J_WHEELS_KG_M2: float = 0.12          # Massenträgheitsmoment beider Räder inkl. Trommeln/Reifen
+J_ENGINE_KG_M2: float = 0.0120        # Massenträgheitsmoment Kurbelwelle, Kupplung und Polrad
+                                       # SIP Touren 2.0 (1800g, ø197mm): J_Polrad = ½·1.8·0.0985² ≈ 0.0087 kg·m²
+                                       # + BGM 60mm Welle + Pleuel + Kupplungskorb ≈ 0.0033 kg·m²
 TIRE_CIRCUMFERENCE_M: float = 1.350   # 100/90-10 tire rolling circumference in meters
+TIRE_RADIUS_DYN_M: float = 0.2095    # F-03: Dynamic loaded radius for J/r² back-calculation (m).
+                                      # = U/(2π) × 0.975 ≈ 0.2149 × 0.975 — tyre deflects ~2.5% under load.
+                                      # ⚠ Nachmessen: Fahrzeug auf ebenem Boden, Reifendruck 2.0 bar,
+                                      #   Rider drauf → Radmitte–Boden × 2 = dynamischer Durchmesser.
 
 PRIMARY_RATIO: float = 68.0 / 23.0    # 23/68 teeth = 2.9565
 GEAR_RATIOS: Dict[int, float] = {
@@ -68,8 +89,8 @@ SLIDE_TYPES: Dict[str, str] = {
 }
 
 INTAKE_TYPES: Dict[str, str] = {
-    "polini_venturi": "Polini Venturi Trichter",
     "lemarxon_22mm": "22mm Reduzierhülse Lemarxon",
+    "polini_venturi": "Polini Venturi Trichter",
     "orig_drilled": "Originalfilter mit Bohrungen (5mm/8mm)",
     "open_no_filter": "Ohne Filter / Trichter"
 }
@@ -84,14 +105,17 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
     "slide_type": "lemarxon_low",
-    "intake_type": "polini_venturi",
+    "intake_type": "lemarxon_22mm",
     "airbox_type": "polini_airbox",
-    "main_jet_hd": 132,
+    "main_jet_hd": 125,
     "idle_jet_nd": "60/160",
     "air_corrector_hlkd": 160,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",
-    "notes": "VMC 177 / 60mm Welle / HD 132 (Optimal & Klemmsicher)"
+    "ignition_deg": 18.0,
+    "displacement_cc": 187.0,
+    "stroke_mm": 60.0,
+    "notes": "VMC Super G 187cc Langhub / HD 125 / ND 60/160 / 18° Zdg"
 }
 
 
@@ -120,6 +144,34 @@ def save_carb_setup(setup_dict: Dict[str, Any]) -> bool:
     except Exception as e:
         print(f"[CONFIG ERROR] Failed to save carb setup: {e}")
         return False
+
+
+def get_full_setup_metadata(custom_notes: str = "") -> Dict[str, Any]:
+    """Builds a comprehensive standardized engine, carburetor, and vehicle metadata dictionary."""
+    carb = load_carb_setup()
+    return {
+        "displacement_cc": DISPLACEMENT_CC,
+        "stroke_mm": STROKE_MM,
+        "bore_mm": BORE_MM,
+        "squish_mm": SQUISH_MM,
+        "ignition_deg": IGNITION_DEG_BTDC,
+        "timing": {
+            "exhaust_deg": TIMING_EXHAUST_DEG,
+            "transfer_deg": TIMING_TRANSFER_DEG,
+            "blowdown_deg": TIMING_BLOWDOWN_DEG,
+            "intake_vot_deg": TIMING_INTAKE_VOT,
+            "intake_not_deg": TIMING_INTAKE_NOT,
+        },
+        "carb": carb,
+        "vehicle": {
+            "name": VEHICLE_NAME,
+            "mass_kg": TOTAL_MASS_KG,
+            "tire_circumference_m": TIRE_CIRCUMFERENCE_M,
+            "primary_ratio": PRIMARY_RATIO,
+            "gear_ratios": GEAR_RATIOS,
+        },
+        "notes": custom_notes or carb.get("notes", "")
+    }
 
 
 CARB_SETUP: Dict[str, Any] = load_carb_setup()

@@ -87,6 +87,100 @@
             z-index: 999;
         }
         input[type="checkbox"] { width: 18px; height: 18px; accent-color: #00ffcc; }
+        .btn-edit-badge {
+            background: rgba(0,255,204,0.12);
+            color: #00ffcc;
+            border: 1px solid rgba(0,255,204,0.35);
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+        .btn-edit-badge:hover {
+            background: rgba(0,255,204,0.25);
+            border-color: #00ffcc;
+        }
+        /* Setup Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 15px;
+        }
+        .modal-content {
+            background: #16161b;
+            border: 1px solid #2d2d38;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 480px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #262633;
+            padding-bottom: 10px;
+        }
+        .modal-title { font-size: 1.1rem; font-weight: 800; color: #00ffcc; }
+        .modal-close { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; }
+        .form-row { margin-bottom: 12px; }
+        .form-row label { display: block; font-size: 0.75rem; color: #aaa; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; }
+        .form-input, .form-select {
+            width: 100%;
+            background: #0d0d11;
+            border: 1px solid #333344;
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-family: inherit;
+        }
+        .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+            border-top: 1px solid #262633;
+            padding-top: 12px;
+        }
+        .btn-modal-save {
+            background: #00ffcc;
+            color: #000;
+            border: none;
+            padding: 9px 18px;
+            border-radius: 8px;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .btn-modal-cancel {
+            background: #22222b;
+            color: #ccc;
+            border: 1px solid #333;
+            padding: 9px 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
@@ -100,11 +194,19 @@
     </div>
 
     {% for l in logs %}
-    <div class="log-item">
+    <div class="log-item" id="item-{{ loop.index }}">
         <div class="log-left">
             <input type="checkbox" class="log-cb" value="{{ l.filename }}" onchange="handleCheckboxChange()">
             <div class="log-info">
-                <div class="log-title">{{ l.filename }}</div>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <span class="log-title">{{ l.filename }}</span>
+                    <button class="btn-edit-badge" id="badge-{{ loop.index0 }}" 
+                            onclick="openSetupModalByIndex({{ loop.index0 }})" 
+                            title="Setup nachträglich anpassen">
+                        <span id="badge-text-{{ loop.index0 }}">{{ l.setup_badge }}</span>
+                        <span style="font-size:0.65rem; opacity:0.8;">✏️</span>
+                    </button>
+                </div>
                 <div class="log-meta">{{ l.mtime }} &nbsp;|&nbsp; {{ l.size_kb }} KB</div>
             </div>
         </div>
@@ -119,7 +221,187 @@
         📊 2 RUNS VERGLEICHEN
     </div>
 
+    <!-- Modal for Editing Setup Metadata -->
+    <div id="setupModal" class="modal-overlay" onclick="handleOverlayClick(event)">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title">⚙️ Setup bearbeiten</div>
+                    <div id="modalFilename" style="font-size:0.75rem; color:#00ffcc; font-family:monospace; margin-top:2px;"></div>
+                </div>
+                <button class="modal-close" onclick="closeSetupModal()">&times;</button>
+            </div>
+
+            <form id="setupForm" onsubmit="saveSetupModal(event)">
+                <input type="hidden" id="modal_filename" value="">
+                <input type="hidden" id="modal_badge_idx" value="">
+
+                <div class="form-grid-3">
+                    <div class="form-row">
+                        <label>Hauptdüse (HD)</label>
+                        <input type="number" id="inp_hd" class="form-input" required value="125">
+                    </div>
+                    <div class="form-row">
+                        <label>Nebendüse (ND)</label>
+                        <input type="text" id="inp_nd" class="form-input" required value="60/160" placeholder="60/160">
+                    </div>
+                    <div class="form-row">
+                        <label>HLKD</label>
+                        <input type="number" id="inp_hlkd" class="form-input" required value="160">
+                    </div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-row">
+                        <label>Mischrohr</label>
+                        <input type="text" id="inp_tube" class="form-input" required value="Lemarxon x234" placeholder="Lemarxon x234">
+                    </div>
+                    <div class="form-row">
+                        <label>Zündung (° v.OT)</label>
+                        <input type="number" step="0.5" id="inp_ign" class="form-input" required value="18.0">
+                    </div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-row">
+                        <label>Gasschieber</label>
+                        <select id="inp_slide" class="form-select">
+                            <option value="lemarxon_low" selected>Lemarxon Low Cutaway (fett)</option>
+                            <option value="lemarxon_mid">Lemarxon Mid Cutaway (mittel)</option>
+                            <option value="bgm_std_cutout">BGM FastFlow Standard (mager)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>Ansaugung</label>
+                        <select id="inp_intake" class="form-select">
+                            <option value="lemarxon_22mm" selected>22mm Reduzierhülse Lemarxon</option>
+                            <option value="polini_venturi">Polini Venturi Trichter</option>
+                            <option value="orig_drilled">Originalfilter mit Bohrungen</option>
+                            <option value="open_no_filter">Ohne Filter / Trichter</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-row">
+                        <label>Auspuff</label>
+                        <input type="text" id="inp_exhaust" class="form-input" value="Polini Box">
+                    </div>
+                    <div class="form-row">
+                        <label>Hubraum (ccm)</label>
+                        <input type="number" step="0.1" id="inp_disp" class="form-input" value="187.0">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label>Notizen / Setup-Kommentar</label>
+                    <input type="text" id="inp_notes" class="form-input" placeholder="z. B. Testlauf mit HD 135 vor Umdüsen">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn-modal-cancel" onclick="closeSetupModal()">Abbrechen</button>
+                    <button type="submit" class="btn-modal-save">💾 Speichern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Embedded Safe JSON Data -->
+    <script id="logsDataJson" type="application/json">
+        {{ logs|tojson }}
+    </script>
+
     <script>
+        const allLogs = JSON.parse(document.getElementById('logsDataJson').textContent || '[]');
+
+        function openSetupModalByIndex(idx) {
+            const logItem = allLogs[idx];
+            if (!logItem) return;
+
+            const filename = logItem.filename;
+            document.getElementById('modal_filename').value = filename;
+            document.getElementById('modal_badge_idx').value = idx;
+            document.getElementById('modalFilename').innerText = filename;
+
+            const meta = logItem.setup_meta || {};
+            const carb = (meta && meta.carb) ? meta.carb : (meta || {});
+
+            document.getElementById('inp_hd').value = carb.main_jet_hd !== undefined ? carb.main_jet_hd : 125;
+            document.getElementById('inp_nd').value = carb.idle_jet_nd || "60/160";
+            document.getElementById('inp_hlkd').value = carb.air_corrector_hlkd !== undefined ? carb.air_corrector_hlkd : 160;
+            document.getElementById('inp_tube').value = carb.emulsion_tube || "Lemarxon x234";
+            document.getElementById('inp_ign').value = meta.ignition_deg !== undefined ? meta.ignition_deg : (carb.ignition_deg !== undefined ? carb.ignition_deg : 18.0);
+            document.getElementById('inp_slide').value = carb.slide_type || "lemarxon_low";
+            document.getElementById('inp_intake').value = carb.intake_type || "lemarxon_22mm";
+            document.getElementById('inp_exhaust').value = carb.exhaust || "Polini Box";
+            document.getElementById('inp_disp').value = meta.displacement_cc !== undefined ? meta.displacement_cc : (carb.displacement_cc !== undefined ? carb.displacement_cc : 187.0);
+            document.getElementById('inp_notes').value = meta.notes || carb.notes || "";
+
+            document.getElementById('setupModal').style.display = 'flex';
+        }
+
+        function closeSetupModal() {
+            document.getElementById('setupModal').style.display = 'none';
+        }
+
+        function handleOverlayClick(e) {
+            if (e.target.id === 'setupModal') closeSetupModal();
+        }
+
+        async function saveSetupModal(e) {
+            e.preventDefault();
+            const filename = document.getElementById('modal_filename').value;
+            const badgeIdx = document.getElementById('modal_badge_idx').value;
+
+            if (!filename) {
+                alert('Fehler: Dateiname fehlt.');
+                return;
+            }
+
+            const payload = {
+                filename: filename,
+                is_trip: false,
+                setup: {
+                    main_jet_hd: parseInt(document.getElementById('inp_hd').value) || 125,
+                    idle_jet_nd: document.getElementById('inp_nd').value.trim() || "60/160",
+                    air_corrector_hlkd: parseInt(document.getElementById('inp_hlkd').value) || 160,
+                    emulsion_tube: document.getElementById('inp_tube').value.trim() || "Lemarxon x234",
+                    ignition_deg: parseFloat(document.getElementById('inp_ign').value) || 18.0,
+                    slide_type: document.getElementById('inp_slide').value,
+                    intake_type: document.getElementById('inp_intake').value,
+                    exhaust: document.getElementById('inp_exhaust').value.trim() || "Polini Box",
+                    displacement_cc: parseFloat(document.getElementById('inp_disp').value) || 187.0,
+                    notes: document.getElementById('inp_notes').value.trim()
+                }
+            };
+
+            try {
+                const res = await fetch('/api/update_log_metadata', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    if (badgeIdx !== "") {
+                        const badgeText = document.getElementById('badge-text-' + badgeIdx);
+                        if (badgeText) {
+                            badgeText.innerText = data.badge;
+                        }
+                        if (allLogs[badgeIdx]) {
+                            allLogs[badgeIdx].setup_badge = data.badge;
+                            allLogs[badgeIdx].setup_meta = data.meta;
+                        }
+                    }
+                    closeSetupModal();
+                } else {
+                    alert('Fehler beim Speichern: ' + data.message);
+                }
+            } catch (err) {
+                alert('Verbindungsfehler: ' + err);
+            }
+        }
+
         function handleCheckboxChange() {
             const checked = document.querySelectorAll('.log-cb:checked');
             const bar = document.getElementById('compareBar');

@@ -25,6 +25,7 @@
             overflow: hidden;
             width: 100vw;
             height: 100vh;
+            height: 100dvh;
             height: -webkit-fill-available;
             user-select: none;
             -webkit-user-select: none;
@@ -34,35 +35,43 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            padding: max(12px, var(--sat)) max(14px, var(--sar)) max(12px, var(--sab)) max(14px, var(--sal));
+            padding: max(8px, var(--sat)) max(10px, var(--sar)) max(8px, var(--sab)) max(10px, var(--sal));
+            box-sizing: border-box;
         }
         .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px 14px;
-            background: rgba(18, 18, 22, 0.85);
+            padding: 6px 10px;
+            background: rgba(18, 18, 22, 0.88);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            margin-bottom: 8px;
-            font-size: 0.85rem;
+            border-radius: 14px;
+            margin-bottom: 6px;
+            font-size: 0.78rem;
             font-weight: 700;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
+            flex-shrink: 0;
+        }
+        .top-left {
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         .status-pill {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 5px 12px;
-            border-radius: 30px;
+            gap: 6px;
+            padding: 4px 9px;
+            border-radius: 20px;
             background: #141418;
             border: 1px solid #2a2a32;
+            font-size: 0.75rem;
         }
         .rec-dot {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: #00e676;
             box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
@@ -70,28 +79,28 @@
         }
         .rec-dot.active {
             background: #ff1744;
-            box-shadow: 0 0 16px #ff1744;
+            box-shadow: 0 0 14px #ff1744;
             animation: pulse-dot 0.6s infinite alternate;
         }
         @keyframes pulse-dot { from { opacity: 0.3; } to { opacity: 1; } }
         .heartbeat-dot {
-            width: 8px;
-            height: 8px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: #00ffcc;
             opacity: 0.25;
             transition: opacity 0.1s;
         }
-        .heartbeat-dot.beat { opacity: 1; box-shadow: 0 0 8px #00ffcc; }
-        .top-actions { display: flex; gap: 8px; }
+        .heartbeat-dot.beat { opacity: 1; box-shadow: 0 0 6px #00ffcc; }
+        .top-actions { display: flex; gap: 6px; }
         .btn-icon {
             background: #1c1c22;
             border: 1px solid #33333e;
             color: #fff;
-            padding: 6px 14px;
-            border-radius: 10px;
+            padding: 4px 10px;
+            border-radius: 8px;
             font-weight: 800;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             text-decoration: none;
             cursor: pointer;
             display: flex;
@@ -100,16 +109,24 @@
             -webkit-tap-highlight-color: transparent;
         }
         .btn-icon:active { background: #333; transform: scale(0.96); }
+        .btn-sound {
+            border-color: #ff9800;
+            color: #ff9800;
+            background: #181510;
+        }
+        .btn-sound:active { background: #2e1d08; }
+
         .rev-bar-container {
             width: 100%;
-            height: 16px;
+            height: 12px;
             background: #111116;
-            border-radius: 8px;
+            border-radius: 6px;
             border: 1px solid #22222a;
             overflow: hidden;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
             position: relative;
             box-shadow: inset 0 2px 6px rgba(0,0,0,0.8);
+            flex-shrink: 0;
         }
         .rev-bar-fill {
             height: 100%;
@@ -131,73 +148,93 @@
             animation: flash-border 0.1s infinite;
         }
         @keyframes flash-border { 50% { opacity: 0.15; } }
+
+        /* --- 4 Main HUD Gauges Grid --- */
         .hud-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            flex-grow: 1;
-            margin-bottom: 10px;
+            grid-template-rows: 1fr 1fr;
+            gap: 8px;
+            flex: 1;
+            min-height: 0;
+            margin-bottom: 6px;
         }
         @media (orientation: landscape) {
             .hud-grid {
                 grid-template-columns: repeat(4, 1fr);
-                gap: 10px;
+                grid-template-rows: 1fr;
+                gap: 8px;
             }
         }
         .hud-card {
             background: linear-gradient(165deg, #131318 0%, #0a0a0d 100%);
             border: 2px solid rgba(255, 255, 255, 0.07);
-            border-radius: 22px;
-            padding: 14px;
+            border-radius: 18px;
+            padding: 8px 12px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             text-align: center;
             position: relative;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.7);
+            box-shadow: 0 6px 24px rgba(0,0,0,0.7);
+            min-height: 0;
+            overflow: hidden;
         }
         .hud-card .card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 0.85rem;
+            font-size: 0.72rem;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.06em;
             color: #71717a;
         }
         .hud-card .card-value {
             font-family: 'JetBrains Mono', monospace;
-            font-size: clamp(3.2rem, 9.5vw, 4.8rem);
+            font-size: clamp(2.4rem, 7.8vw, 3.8rem);
             font-weight: 800;
             line-height: 0.95;
-            margin: 6px 0;
+            margin: auto 0;
             letter-spacing: -0.05em;
         }
         .hud-card .card-unit {
-            font-size: 0.8rem;
+            font-size: 0.70rem;
             font-weight: 800;
             color: #52525b;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
         }
-        .card-speed .card-value { color: #00ffcc; text-shadow: 0 0 35px rgba(0,255,204,0.35); }
-        .card-rpm .card-value { color: #ff9800; text-shadow: 0 0 35px rgba(255,152,0,0.35); }
-        .card-afr .card-value { color: #00e676; text-shadow: 0 0 35px rgba(0,230,118,0.35); }
-        .card-egt .card-value { color: #ffd600; text-shadow: 0 0 35px rgba(255,214,0,0.35); }
+        .card-speed .card-value { color: #00ffcc; text-shadow: 0 0 30px rgba(0,255,204,0.35); }
+        .card-rpm .card-value { color: #ff9800; text-shadow: 0 0 30px rgba(255,152,0,0.35); }
+        .card-afr .card-value { color: #00e676; text-shadow: 0 0 30px rgba(0,230,118,0.35); }
+        .card-egt .card-value { color: #ffd600; text-shadow: 0 0 30px rgba(255,214,0,0.35); }
         @keyframes danger-blink {
             0% { background: #131318; border-color: #ff1744; }
-            50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 40px rgba(255,23,68,0.8); }
+            50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 35px rgba(255,23,68,0.8); }
             100% { background: #131318; border-color: #ff1744; }
         }
         .card-danger { animation: danger-blink 0.35s infinite !important; }
         .card-danger .card-value { color: #ff1744 !important; text-shadow: 0 0 35px #ff1744 !important; }
-        .bottom-bar { display: flex; gap: 10px; min-height: 56px; }
+
+        /* --- Bottom Control & Navigation Cluster --- */
+        .bottom-cluster {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        @media (orientation: landscape) {
+            .bottom-cluster {
+                flex-direction: row;
+                gap: 8px;
+            }
+        }
         .btn-rec {
-            flex: 2.2;
-            padding: 16px;
-            border-radius: 16px;
-            font-size: 1.05rem;
+            width: 100%;
+            padding: 12px;
+            border-radius: 14px;
+            font-size: 0.95rem;
             font-weight: 900;
             letter-spacing: 0.04em;
             border: none;
@@ -209,42 +246,58 @@
             background: #18181f;
             color: #00ffcc;
             border: 2px solid #00ffcc;
-            box-shadow: 0 4px 20px rgba(0,255,204,0.2);
+            box-shadow: 0 4px 18px rgba(0,255,204,0.2);
             transition: all 0.15s;
             -webkit-tap-highlight-color: transparent;
+        }
+        @media (orientation: landscape) {
+            .btn-rec {
+                flex: 1.8;
+                width: auto;
+                padding: 10px 14px;
+            }
         }
         .btn-rec.recording {
             background: #ff1744;
             color: #ffffff;
             border: 2px solid #ff5252;
-            box-shadow: 0 0 30px rgba(255,23,68,0.7);
+            box-shadow: 0 0 25px rgba(255,23,68,0.7);
             animation: pulse-btn 1s infinite alternate;
         }
         @keyframes pulse-btn { from { transform: scale(1); } to { transform: scale(0.98); } }
         .btn-rec:active { transform: scale(0.96); }
+
+        .nav-row {
+            display: flex;
+            gap: 6px;
+            width: 100%;
+        }
+        @media (orientation: landscape) {
+            .nav-row {
+                flex: 2.2;
+                gap: 8px;
+            }
+        }
         .btn-nav {
             flex: 1;
-            padding: 16px;
-            border-radius: 16px;
-            font-size: 0.95rem;
+            padding: 10px 6px;
+            border-radius: 12px;
+            font-size: 0.78rem;
             font-weight: 800;
             background: #18181f;
             color: #ffffff;
-            border: 2px solid #2a2a34;
+            border: 1.5px solid #2a2a34;
             text-decoration: none;
             text-align: center;
             display: flex;
             align-items: center;
             justify-content: center;
+            gap: 4px;
+            white-space: nowrap;
             -webkit-tap-highlight-color: transparent;
+            transition: background 0.15s;
         }
         .btn-nav:active { background: #272730; transform: scale(0.96); }
-        .btn-sound {
-            border-color: #ff9800;
-            color: #ff9800;
-            background: #181510;
-        }
-        .btn-sound:active { background: #2e1d08; }
 
         /* --- Audio Test Modal --- */
         .modal-overlay {
@@ -263,35 +316,35 @@
         .modal-box {
             background: #131318;
             border: 2px solid #2a2a38;
-            border-radius: 24px;
-            padding: 24px;
+            border-radius: 22px;
+            padding: 20px;
             width: 100%;
-            max-width: 420px;
+            max-width: 380px;
             box-shadow: 0 20px 50px rgba(0,0,0,0.9);
             text-align: center;
         }
         .modal-title {
-            font-size: 1.3rem;
+            font-size: 1.2rem;
             font-weight: 900;
             color: #ffffff;
-            margin-bottom: 6px;
-            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+            letter-spacing: 0.03em;
         }
         .modal-subtitle {
-            font-size: 0.85rem;
+            font-size: 0.80rem;
             color: #71717a;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
         .test-sound-grid {
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            margin-bottom: 20px;
+            gap: 10px;
+            margin-bottom: 16px;
         }
         .btn-test-tone {
-            padding: 14px 16px;
-            border-radius: 14px;
-            font-size: 0.95rem;
+            padding: 12px 14px;
+            border-radius: 12px;
+            font-size: 0.85rem;
             font-weight: 800;
             border: 2px solid transparent;
             cursor: pointer;
@@ -302,31 +355,15 @@
             -webkit-tap-highlight-color: transparent;
         }
         .btn-test-tone:active { transform: scale(0.97); }
-        .tone-start {
-            background: #0d2218;
-            border-color: #00e676;
-            color: #00e676;
-        }
-        .tone-stop {
-            background: #082126;
-            border-color: #00ffcc;
-            color: #00ffcc;
-        }
-        .tone-alarm {
-            background: #2b080f;
-            border-color: #ff1744;
-            color: #ff1744;
-        }
-        .tone-shift {
-            background: #261b07;
-            border-color: #ff9800;
-            color: #ff9800;
-        }
+        .tone-start { background: #0d2218; border-color: #00e676; color: #00e676; }
+        .tone-stop { background: #082126; border-color: #00ffcc; color: #00ffcc; }
+        .tone-alarm { background: #2b080f; border-color: #ff1744; color: #ff1744; }
+        .tone-shift { background: #261b07; border-color: #ff9800; color: #ff9800; }
         .modal-close-btn {
             width: 100%;
-            padding: 14px;
-            border-radius: 14px;
-            font-size: 1rem;
+            padding: 12px;
+            border-radius: 12px;
+            font-size: 0.90rem;
             font-weight: 800;
             background: #22222c;
             color: #ffffff;
@@ -338,24 +375,32 @@
 </head>
 <body>
     <div id="shiftLight" class="shift-light"></div>
+    
+    <!-- Top Status Bar -->
     <div class="top-bar">
-        <div class="status-pill">
-            <div id="recDot" class="rec-dot"></div>
-            <span id="statusText">V5.1 READY</span>
-            <div id="heartbeat" class="heartbeat-dot"></div>
-        </div>
-        <div id="gpsPill" class="status-pill">
-            <span>🛰️ GPS:</span>
-            <span id="gpsText" style="color:#00ffcc;">SUCHE...</span>
+        <div class="top-left">
+            <div class="status-pill">
+                <div id="recDot" class="rec-dot"></div>
+                <span id="statusText">V5.1 READY</span>
+                <div id="heartbeat" class="heartbeat-dot"></div>
+            </div>
+            <div id="gpsPill" class="status-pill">
+                <span>🛰️</span>
+                <span id="gpsText" style="color:#00ffcc;">SUCHE...</span>
+            </div>
         </div>
         <div class="top-actions">
             <button class="btn-icon btn-sound" onclick="openSoundModal()">🔊 SOUND</button>
             <button class="btn-icon" onclick="toggleFullScreen()">⛶ HUD</button>
         </div>
     </div>
+
+    <!-- Graphical Rev-Bar -->
     <div class="rev-bar-container">
         <div id="revBar" class="rev-bar-fill"></div>
     </div>
+
+    <!-- 4 Main Telemetry Cards -->
     <div class="hud-grid">
         <div class="hud-card card-speed">
             <div class="card-header"><span>Speed</span><span>GPS</span></div>
@@ -377,11 +422,16 @@
             <div id="egt" class="card-value">0</div>
             <div class="card-unit">°C (EGT)</div>
         </div>
-    <div class="bottom-bar">
+    </div>
+
+    <!-- Bottom Navigation & Pull Control -->
+    <div class="bottom-cluster">
         <button id="recBtn" class="btn-rec" onclick="toggleLogging()">🔴 PULL LOGGING STARTEN</button>
-        <a href="/logs" class="btn-nav">🏁 DYNO</a>
-        <a href="/trips" class="btn-nav" style="color:#29b6f6; border-color:rgba(41,182,246,0.35);">🗺️ FAHRTEN</a>
-        <a href="/tuning" class="btn-nav">🔧 VERGASER</a>
+        <div class="nav-row">
+            <a href="/logs" class="btn-nav">🏁 DYNO</a>
+            <a href="/trips" class="btn-nav" style="color:#29b6f6; border-color:rgba(41,182,246,0.4);">🗺️ FAHRTEN</a>
+            <a href="/tuning" class="btn-nav">🔧 VERGASER</a>
+        </div>
     </div>
 
     <!-- Interactive Sound Test Modal -->
@@ -469,7 +519,6 @@
         }
 
         function notifyPullStart() {
-            // High single beep: 880 Hz (A5)
             playTone(880, 'triangle', 130);
             if ('vibrate' in navigator) {
                 try { navigator.vibrate(100); } catch(e){}
@@ -477,7 +526,6 @@
         }
 
         function notifyPullStop() {
-            // Ascending dual chime: 880 Hz -> 1174 Hz (A5 -> D6)
             playTone(880, 'sine', 80, 0.0);
             playTone(1174, 'triangle', 180, 0.10);
             if ('vibrate' in navigator) {
@@ -486,7 +534,6 @@
         }
 
         function notifyDangerAlarm() {
-            // Pulsating Siren: 980 Hz -> 750 Hz -> 980 Hz
             playTone(980, 'sawtooth', 90, 0.0);
             playTone(750, 'sawtooth', 90, 0.11);
             playTone(980, 'sawtooth', 120, 0.22);
@@ -496,7 +543,6 @@
         }
 
         function notifyShiftLight() {
-            // High-Pitch Shift Beep: 1300 Hz
             playTone(1300, 'square', 100);
             const sl = document.getElementById('shiftLight');
             if (sl) {
@@ -571,7 +617,6 @@
         let lastDangerAlarmTime = 0;
 
         // --- Automotive Cockpit Display Damping (PT1 / Lerp) ---
-        // Industry Standard (Bosch/MoTeC): tau_rpm ≈ 180-220ms, tau_afr ≈ 300-400ms
         let targetRpm = 0.0;
         let targetSpeed = 0.0;
         let targetAfr = 0.0;
@@ -590,14 +635,14 @@
         const shiftLight = document.getElementById('shiftLight');
 
         function renderDampedCockpit() {
-            // 1. Damped RPM gliding (PT1 Filter) + 10 RPM Quantization for calm digits
+            // 1. Damped RPM gliding
             if (targetRpm <= 10.0) {
                 displayRpm = 0.0;
             } else {
                 displayRpm += (targetRpm - displayRpm) * 0.20;
             }
 
-            // 2. Damped AFR gliding (filters single-stroke combustion flutter)
+            // 2. Damped AFR gliding
             if (displayAfr === 0.0) {
                 displayAfr = targetAfr;
             } else if (targetAfr > 0.0) {
@@ -610,7 +655,6 @@
 
             // --- Render Numbers ---
             if (rpmEl) {
-                // Automotive Digital Standard: Round to 10 RPM increments to prevent digit flutter
                 const calmRpm = Math.round(displayRpm / 10) * 10;
                 rpmEl.innerText = calmRpm.toLocaleString('de-DE');
             }
@@ -624,7 +668,7 @@
                 egtEl.innerText = (displayEgt > 0) ? Math.round(displayEgt) : '0';
             }
 
-            // Graphical Rev-Bar: continuous floating sweep for silky 60fps animation
+            // Graphical Rev-Bar: continuous sweep
             if (revBar) {
                 const revPct = Math.min(100, Math.max(0, (displayRpm / 9000) * 100));
                 revBar.style.width = revPct.toFixed(1) + '%';
@@ -652,7 +696,6 @@
                         else hb.classList.remove('beat');
                     }
 
-                    // Feed raw targets into 60fps damping engine
                     targetRpm = (typeof d.rpm === 'number') ? d.rpm : 0.0;
                     targetSpeed = (typeof d.speed === 'number') ? d.speed : 0.0;
                     targetAfr = (typeof d.afr === 'number') ? d.afr : 0.0;
@@ -696,7 +739,7 @@
                         }
                     }
 
-                    // Audible danger alarm under load (max once every 1.8s)
+                    // Audible danger alarm under load
                     const now = Date.now();
                     if (isDanger && (now - lastDangerAlarmTime > 1800)) {
                         lastDangerAlarmTime = now;
@@ -716,7 +759,6 @@
                     const isLogging = (statusStr.indexOf('REC') !== -1) || (d.is_logging === true);
                     updateRecState(isLogging);
 
-                    // Audio & Haptic triggers on state transition
                     if (!prevIsLogging && isLogging) {
                         notifyPullStart();
                     } else if (prevIsLogging && !isLogging) {

@@ -25,8 +25,8 @@ class RPMInput:
             # WICHTIG: Kein setmode hier! Das macht die main.py zentral.
             # Pin per Pull-Down auf 0V ziehen, um Störungen abzusaugen
             GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            # Auf steigende Flanke der SIP Blackbox reagieren (inkl. 5ms Entprellung)
-            GPIO.add_event_detect(self.pin, GPIO.RISING, callback=self._callback, bouncetime=5)
+            # Auf steigende Flanke der SIP Blackbox reagieren (inkl. 1ms Entprellung)
+            GPIO.add_event_detect(self.pin, GPIO.RISING, callback=self._callback, bouncetime=1)
             print(f"[OK] [Hardware] RPM-Eingang an Pin {self.pin} aktiviert (Pull-Down / Rising).")
         else:
             print(f"[Mock] RPM Simulation aktiv.")
