@@ -68,6 +68,10 @@ class PullFilterConfig:
     min_duration_sec: float = 1.8          # Minimum duration for valid power run (s)
     min_rpm_gain: float = 1500.0           # Minimum RPM band swept during pull (RPM)
     drop_threshold_rpm: float = 350.0      # RPM drop to mark end of pull (RPM)
+    clutch_pull_drpm_threshold: float = 1400.0  # Unloaded dRPM/dt spike (RPM/s) signaling clutch-pull /
+                                                 # load-dump at end of pull. Requires rpm_gain > 1200 already
+                                                 # achieved (not a cold-start rev). Validated against
+                                                 # 2026-09-12 Vespa coast-down data: spike = 2000 RPM/s.
 
 
 DEFAULT_FILTER_CONFIG = PullFilterConfig()
@@ -550,6 +554,9 @@ def detect_dyno_pull(
             pass
     dt = max(0.05, min(0.30, dt))  # Sanity clamp: reject <50ms or >300ms
 
+    # Compute per-sample RPM derivative for clutch-pull spike detection
+    drpm_dt_arr = np.gradient(rpm_s, dt)
+
     best_start = None
     best_end = None
     best_rpm_gain = 0.0
@@ -589,6 +596,28 @@ def detect_dyno_pull(
                         break
                 else:
                     consecutive_lean_count = 0
+
+                # Hard abort 1b: Clutch-pull / load-dump detection.
+                # If the engine suddenly revs freely (dRPM/dt > clutch_pull_drpm_threshold AND
+                # already made meaningful RPM gain), the load was removed (clutch in / throttle snap-off).
+                # Back up peak_idx to the sample BEFORE the surge started.
+                current_rpm_gain = r_j - rpm_s[start_idx]
+                if (drpm_dt_arr[j] > cfg.clutch_pull_drpm_threshold
+                        and current_rpm_gain > 1200.0
+                        and j > start_idx + 5):
+                    # Find the last sample with a reasonable dRPM/dt as the true pull end
+                    trimback = j - 1
+                    while trimback > start_idx and drpm_dt_arr[trimback] > cfg.clutch_pull_drpm_threshold:
+                        trimback -= 1
+                    if trimback > start_idx and trimback < j:
+                        peak_idx = trimback
+                        peak_rpm = rpm_s[trimback]
+                        logger.debug(
+                            f"Kupplungsziehen erkannt bei Index {j} "
+                            f"(dRPM/dt={drpm_dt_arr[j]:.0f} RPM/s). "
+                            f"Pull-Ende auf Index {trimback} ({rpm_s[trimback]:.0f} RPM) zurückgesetzt."
+                        )
+                    break
 
                 # Hard abort 2: Major sustained deceleration (RPM drop > drop_threshold)
                 if (peak_rpm - r_j) > cfg.drop_threshold_rpm:
