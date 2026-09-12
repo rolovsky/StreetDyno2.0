@@ -598,28 +598,6 @@ def detect_dyno_pull(
                 else:
                     consecutive_lean_count = 0
 
-                # Hard abort 1b: Clutch-pull / load-dump detection.
-                # If the engine suddenly revs freely (dRPM/dt > clutch_pull_drpm_threshold AND
-                # already made meaningful RPM gain), the load was removed (clutch in / throttle snap-off).
-                # Back up peak_idx to the sample BEFORE the surge started.
-                current_rpm_gain = r_j - rpm_s[start_idx]
-                if (drpm_dt_arr[j] > cfg.clutch_pull_drpm_threshold
-                        and current_rpm_gain > 1200.0
-                        and j > start_idx + 5):
-                    # Find the last sample with a reasonable dRPM/dt as the true pull end
-                    trimback = j - 1
-                    while trimback > start_idx and drpm_dt_arr[trimback] > cfg.clutch_pull_drpm_threshold:
-                        trimback -= 1
-                    if trimback > start_idx and trimback < j:
-                        peak_idx = trimback
-                        peak_rpm = rpm_s[trimback]
-                        logger.debug(
-                            f"Kupplungsziehen erkannt bei Index {j} "
-                            f"(dRPM/dt={drpm_dt_arr[j]:.0f} RPM/s). "
-                            f"Pull-Ende auf Index {trimback} ({rpm_s[trimback]:.0f} RPM) zurückgesetzt."
-                        )
-                    break
-
                 # Hard abort 2: Major sustained deceleration (RPM drop > drop_threshold)
                 if (peak_rpm - r_j) > cfg.drop_threshold_rpm:
                     break
@@ -630,6 +608,41 @@ def detect_dyno_pull(
                     peak_idx = j
 
                 j += 1
+
+            # Post-loop: Clutch-pull trailing-spike trim.
+            # When the clutch is released at WOT, the engine revs freely for 2-4 samples
+            # BEFORE reaching the smoothed "peak". This means peak_idx itself has low dRPM/dt
+            # (it's at the tip of the spike), but the 2-3 preceding samples have very high
+            # dRPM/dt (the unloaded acceleration into that spike).
+            # Strategy: Scan backwards from peak_idx-1. If we find a contiguous block of
+            # high-dRPM samples (> clutch_pull_drpm_threshold), strip them: the true
+            # pull_end is just before that block.
+            if peak_idx > start_idx + 5:
+                # Find the start of the trailing spike: walk back from peak_idx-1
+                spike_end = peak_idx - 1
+                while (spike_end > start_idx
+                       and drpm_dt_arr[spike_end] > cfg.clutch_pull_drpm_threshold):
+                    spike_end -= 1
+                # spike_end is now the last sample BEFORE the trailing spike
+                # Only apply trim if:
+                # 1. We actually stripped something (spike_end < peak_idx - 1)
+                # 2. The sample at spike_end has low dRPM/dt (confirming it's a plateau, not mid-burst)
+                # 3. Sufficient RPM gain remains
+                trimmed_gain = rpm_s[spike_end] - rpm_s[start_idx]
+                if (spike_end < peak_idx - 1
+                        and drpm_dt_arr[spike_end] < 500.0
+                        and trimmed_gain > 1200.0):
+                    logger.debug(
+                        f"Kupplungsziehen-Trimming: peak_idx {peak_idx} ({rpm_s[peak_idx]:.0f} RPM) "
+                        f"→ {spike_end} ({rpm_s[spike_end]:.0f} RPM); "
+                        f"stripped {peak_idx - spike_end} spike samples"
+                    )
+                    peak_idx = spike_end
+                    peak_rpm = rpm_s[spike_end]
+
+
+
+
 
             pull_end = peak_idx
             pull_duration = (pull_end - start_idx) * dt
