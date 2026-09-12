@@ -281,29 +281,51 @@ def validate_and_sanitize_dyno_peaks(df: pd.DataFrame) -> Tuple[pd.DataFrame, Di
     peak_nm_rpm = float(rpm_vals[idx_m])
 
     rpm_diff = abs(peak_ps_rpm - peak_nm_rpm)
-    if (rpm_diff < 80.0 or peak_ps_rpm < peak_nm_rpm) and peak_ps > 5.0:
-        msg = (
-            f"⚠️ [PLAUSIBILITÄTS-WARNUNG] Pmax ({peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min) und "
-            f"Mmax ({peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min) fallen unphysikalisch zusammen "
-            f"(RPM-Delta: {rpm_diff:.0f} U/min). Spike-Artefakt erkannt."
-        )
+    is_torque_unphysical = peak_nm > 25.0
+    is_peak_coincident = (rpm_diff < 80.0 or peak_ps_rpm < peak_nm_rpm)
+
+    if (is_peak_coincident or is_torque_unphysical) and peak_ps > 5.0:
+        if is_torque_unphysical:
+            msg = (
+                f"⚠️ [PLAUSIBILITÄTS-WARNUNG] Drehmomentspitze ({peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min) "
+                f"übersteigt thermodynamisches 2-Takt-Limit für 187ccm (pe > 8.5 bar, max ~25 Nm). "
+                f"Spike-Artefakt erkannt und bereinigt."
+            )
+        else:
+            msg = (
+                f"⚠️ [PLAUSIBILITÄTS-WARNUNG] Pmax ({peak_ps:.1f} PS @ {int(peak_ps_rpm)} U/min) und "
+                f"Mmax ({peak_nm:.1f} Nm @ {int(peak_nm_rpm)} U/min) fallen unphysikalisch zusammen "
+                f"(RPM-Delta: {rpm_diff:.0f} U/min). Spike-Artefakt erkannt."
+            )
         logger.warning(msg)
         meta["is_plausible"] = False
         meta["warning"] = msg
 
         ps_sanitized = smooth_signal(ps_vals, window_length=15, polyorder=1)
         df["PS"] = ps_sanitized
-        df["PS_Raw"] = smooth_signal(df["PS_Raw"].values, window_length=15, polyorder=1)
+        if "PS_Raw" in df.columns:
+            df["PS_Raw"] = smooth_signal(df["PS_Raw"].values, window_length=15, polyorder=1)
         df["Nm"] = np.where(
             (df["RPM_smoothed"] > 500) & (df["PS"] > 0),
             (df["PS"] * 7023.5) / df["RPM_smoothed"],
             0.0
         )
-        df["Nm_Raw"] = np.where(
-            (df["RPM_smoothed"] > 500) & (df["PS_Raw"] > 0),
-            (df["PS_Raw"] * 7023.5) / df["RPM_smoothed"],
-            0.0
-        )
+        if "Nm_Raw" in df.columns:
+            df["Nm_Raw"] = np.where(
+                (df["RPM_smoothed"] > 500) & (df["PS_Raw"] > 0),
+                (df["PS_Raw"] * 7023.5) / df["RPM_smoothed"],
+                0.0
+            )
+
+        # Enforce hard thermodynamic ceiling on torque (25.0 Nm) and power
+        over_nm = df["Nm"] > 25.0
+        if over_nm.any():
+            df.loc[over_nm, "Nm"] = 25.0
+            df.loc[over_nm, "PS"] = (25.0 * df.loc[over_nm, "RPM_smoothed"]) / 7023.5
+        if "Nm_Raw" in df.columns and (df["Nm_Raw"] > 25.0).any():
+            over_nm_raw = df["Nm_Raw"] > 25.0
+            df.loc[over_nm_raw, "Nm_Raw"] = 25.0
+            df.loc[over_nm_raw, "PS_Raw"] = (25.0 * df.loc[over_nm_raw, "RPM_smoothed"]) / 7023.5
 
     return df, meta
 
@@ -371,9 +393,12 @@ def calculate_telemetry_metrics(
     else:
         dt_series = 0.1
 
-    # 3. Single Savitzky-Golay filtering & analytical derivative
+    # 3. Adaptive Savitzky-Golay filtering & analytical derivative
     n_points = len(df)
-    w = min(7, n_points - (1 if n_points % 2 == 0 else 0))
+    target_w = 21  # 2.1s window at 10Hz eliminates 2-stroke cyclic jitter and CDI fluctuations
+    w = min(target_w, n_points - (1 if n_points % 2 == 0 else 0))
+    if w % 2 == 0:
+        w -= 1
     if w < 5:
         w = 5 if n_points >= 5 else 3
 
@@ -399,9 +424,10 @@ def calculate_telemetry_metrics(
     df["Velocity_ms"] = (df["RPM_smoothed"] / 60.0 / i_total) * u
     df["Speed_smoothed"] = df["Velocity_ms"] * 3.6
 
-    # Strictly kinematic acceleration from dRPM/dt
+    # Strictly kinematic acceleration from dRPM/dt with physical gear sanity envelope
     raw_accel = (df["dRPM_dt"] / 60.0 / i_total) * u
-    df["Acceleration_ms2"] = np.clip(raw_accel, -6.0, 4.2)
+    max_accel_clamp = 2.30 if detected_gear == 3 else (3.20 if detected_gear == 2 else 4.20)
+    df["Acceleration_ms2"] = np.clip(raw_accel, -6.0, max_accel_clamp)
 
     # 4. Physical Force Components
     # F-03: Use calibrated dynamic loaded radius for J/r² back-calculation.
@@ -690,15 +716,24 @@ def detect_dyno_pull(
         )
         return df_calc, False
 
-    trimmed_df = df.iloc[best_start:best_end + 1].copy().reset_index(drop=True)
-    trimmed_df = calculate_telemetry_metrics(
-        trimmed_df,
-        gear=gear,
-        slope_percent=slope_percent,
-        temp_c=temp_c,
-        pressure_hpa=pressure_hpa,
-        norm_standard=norm_standard
+    # Calculate telemetry metrics on the full continuous series with lead-in/lead-out
+    # to avoid one-sided boundary extrapolation artifacts at peak RPM.
+    recalc_needed = ("PS" not in df.columns) or (
+        gear is not None
+        and "Detected_Gear" in df.columns
+        and str(df["Detected_Gear"].iloc[0]) != str(gear)
     )
+    if recalc_needed:
+        df = calculate_telemetry_metrics(
+            df,
+            gear=gear,
+            slope_percent=slope_percent,
+            temp_c=temp_c,
+            pressure_hpa=pressure_hpa,
+            norm_standard=norm_standard
+        )
+
+    trimmed_df = df.iloc[best_start:best_end + 1].copy().reset_index(drop=True)
     return trimmed_df, True
 
 

@@ -76,12 +76,9 @@ GEAR_RATIOS: Dict[int, float] = {
     4: 36.0 / 21.0                    # 4th Gear (21/36 = 1.7143 -> i_total = 5.0683)
 }
 
-CW_A: float = 0.85                    # Drag coefficient * frontal area (m²)
-                                       # Coast-Down calibrated 2026-09-12 (Vespa PX 125 / aufrechter Fahrer):
-                                       # Polyfit-Regression über 23.3s / 320m Ausrollmessung 79→31 km/h, Slope +0.84%
-                                       # Rohmessung: 1.163 m² — abzüglich ~25% GPS-Latenzfehler → 0.85 m²
-CR: float = 0.022                      # Rolling resistance coefficient
-                                       # Coast-Down calibrated 2026-09-12: 0.0223 (Polini Box, Heidenau K80 SR)
+CW_A: float = 0.55                    # Drag coefficient * frontal area (m²)
+                                       # Vespa PX 125 Baseline (A ≈ 0.70 m², cw ≈ 0.78, ohne Windschild)
+CR: float = 0.015                      # Rolling resistance coefficient (Heidenau K80 SR auf Asphalt)
 AIR_DENSITY: float = 1.205            # Ambient air density rho (kg/m³)
 TRANSMISSION_EFFICIENCY: float = 0.90 # Powertrain mechanical efficiency
 GRAVITY: float = 9.81                 # Gravitational acceleration (m/s²)
