@@ -306,8 +306,8 @@ class TestDynoPhysics(unittest.TestCase):
         """Verify gear override parameter ('auto', 3, 4, '4')."""
         n = 30
         rpm = np.linspace(3000, 7500, n)
-        # Speed corresponding to 4th gear (~58.1 RPM per km/h)
-        speed_g4 = rpm / 58.15
+        # Speed corresponding to 4th gear (~61.88 RPM per km/h)
+        speed_g4 = rpm / 61.88
         df = pd.DataFrame({
             'RPM': rpm,
             'Speed_kmh': speed_g4,

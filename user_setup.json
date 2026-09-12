@@ -4,7 +4,7 @@
     "slide_type": "lemarxon_low",
     "intake_type": "lemarxon_22mm",
     "airbox_type": "polini_airbox",
-    "main_jet_hd": 125,
+    "main_jet_hd": 132,
     "idle_jet_nd": "60/160",
     "air_corrector_hlkd": 160,
     "emulsion_tube": "Lemarxon x234",
@@ -12,5 +12,26 @@
     "ignition_deg": 18.0,
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
-    "notes": "VMC 177 / 22mm Lemarxon Hülse / ND 60/160 / HD 125 (Perfektes Setup: 13.1 Standgas / 13.6-13.9 Teillast / 11.5-12.0 WOT)"
+    "notes": "VMC 177 / 22mm Lemarxon Hülse / ND 60/160 / HD 125 (Perfektes Setup: 13.1 Standgas / 13.6-13.9 Teillast / 11.5-12.0 WOT)",
+    "vehicle": {
+        "name": "VMC177",
+        "description": "VMC Super G 187cc Langhub / Vespa PX 125 Lusso",
+        "mass_kg": 190.0,
+        "tire_name": "Heidenau K80 SR 100/90-10",
+        "tire_circumference_m": 1.365,
+        "primary_teeth": "23/68",
+        "primary_ratio": 2.9565,
+        "gear_teeth": {
+            "1": "12/57",
+            "2": "13/42",
+            "3": "17/38",
+            "4": "21/36"
+        },
+        "gear_ratios": {
+            "1": 4.75,
+            "2": 3.2308,
+            "3": 2.2353,
+            "4": 1.7143
+        }
+    }
 }

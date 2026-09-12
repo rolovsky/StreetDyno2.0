@@ -55,18 +55,25 @@ J_WHEELS_KG_M2: float = 0.12          # Massenträgheitsmoment beider Räder ink
 J_ENGINE_KG_M2: float = 0.0120        # Massenträgheitsmoment Kurbelwelle, Kupplung und Polrad
                                        # SIP Touren 2.0 (1800g, ø197mm): J_Polrad = ½·1.8·0.0985² ≈ 0.0087 kg·m²
                                        # + BGM 60mm Welle + Pleuel + Kupplungskorb ≈ 0.0033 kg·m²
-TIRE_CIRCUMFERENCE_M: float = 1.350   # 100/90-10 tire rolling circumference in meters
-TIRE_RADIUS_DYN_M: float = 0.2095    # F-03: Dynamic loaded radius for J/r² back-calculation (m).
-                                      # = U/(2π) × 0.975 ≈ 0.2149 × 0.975 — tyre deflects ~2.5% under load.
-                                      # ⚠ Nachmessen: Fahrzeug auf ebenem Boden, Reifendruck 2.0 bar,
-                                      #   Rider drauf → Radmitte–Boden × 2 = dynamischer Durchmesser.
+TIRE_NAME: str = "Heidenau K80 SR 100/90-10"
+TIRE_CIRCUMFERENCE_M: float = 1.365   # Heidenau K80 SR 100/90-10 rolling circumference in meters
+TIRE_RADIUS_DYN_M: float = 0.2118    # F-03: Dynamic loaded radius for J/r² back-calculation (m).
+                                      # = U/(2π) × 0.975 = 1.365/(2π) × 0.975 ≈ 0.2118 m.
 
-PRIMARY_RATIO: float = 68.0 / 23.0    # 23/68 teeth = 2.9565
+PRIMARY_TEETH: str = "23/68"
+PRIMARY_RATIO: float = 68.0 / 23.0    # 23/68 teeth = 2.9565217...
+
+GEAR_TEETH: Dict[int, str] = {
+    1: "12/57",
+    2: "13/42",
+    3: "17/38",
+    4: "21/36"
+}
 GEAR_RATIOS: Dict[int, float] = {
-    1: 58.0 / 12.0,                   # 1st Gear (12/58 = 4.8333 -> i_total = 14.29)
-    2: 42.0 / 13.0,                   # 2nd Gear (13/42 = 3.2308 -> i_total = 9.55)
-    3: 38.0 / 17.0,                   # 3rd Gear (17/38 = 2.2353 -> i_total = 6.61)
-    4: 35.0 / 21.0                    # 4th Gear (21/35 = 1.6667 -> i_total = 4.93)
+    1: 57.0 / 12.0,                   # 1st Gear (12/57 = 4.7500 -> i_total = 14.0435)
+    2: 42.0 / 13.0,                   # 2nd Gear (13/42 = 3.2308 -> i_total = 9.5518)
+    3: 38.0 / 17.0,                   # 3rd Gear (17/38 = 2.2353 -> i_total = 6.6087)
+    4: 36.0 / 21.0                    # 4th Gear (21/36 = 1.7143 -> i_total = 5.0683)
 }
 
 CW_A: float = 0.50                    # Drag coefficient * frontal area (m²)
@@ -149,6 +156,7 @@ def save_carb_setup(setup_dict: Dict[str, Any]) -> bool:
 def get_full_setup_metadata(custom_notes: str = "") -> Dict[str, Any]:
     """Builds a comprehensive standardized engine, carburetor, and vehicle metadata dictionary."""
     carb = load_carb_setup()
+    v_cfg = carb.get("vehicle", {}) if isinstance(carb.get("vehicle"), dict) else {}
     return {
         "displacement_cc": DISPLACEMENT_CC,
         "stroke_mm": STROKE_MM,
@@ -164,11 +172,14 @@ def get_full_setup_metadata(custom_notes: str = "") -> Dict[str, Any]:
         },
         "carb": carb,
         "vehicle": {
-            "name": VEHICLE_NAME,
-            "mass_kg": TOTAL_MASS_KG,
-            "tire_circumference_m": TIRE_CIRCUMFERENCE_M,
-            "primary_ratio": PRIMARY_RATIO,
-            "gear_ratios": GEAR_RATIOS,
+            "name": v_cfg.get("name", VEHICLE_NAME),
+            "mass_kg": float(v_cfg.get("mass_kg", TOTAL_MASS_KG)),
+            "tire_name": v_cfg.get("tire_name", TIRE_NAME),
+            "tire_circumference_m": float(v_cfg.get("tire_circumference_m", TIRE_CIRCUMFERENCE_M)),
+            "primary_ratio": float(v_cfg.get("primary_ratio", PRIMARY_RATIO)),
+            "primary_teeth": v_cfg.get("primary_teeth", PRIMARY_TEETH),
+            "gear_ratios": v_cfg.get("gear_ratios", GEAR_RATIOS),
+            "gear_teeth": v_cfg.get("gear_teeth", GEAR_TEETH),
         },
         "notes": custom_notes or carb.get("notes", "")
     }

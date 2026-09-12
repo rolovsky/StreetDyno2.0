@@ -111,13 +111,28 @@ def detect_gear_ratio(
     u = tire_circumference if tire_circumference is not None else TIRE_CIRCUMFERENCE_M
     prim = primary_ratio if primary_ratio is not None else PRIMARY_RATIO
 
-    valid_mask = (df["RPM"] > 2000) & (df["Speed_kmh"] > 10.0)
+    spd_col = "Speed_smoothed" if ("Speed_smoothed" in df.columns and (df["Speed_smoothed"] > 10.0).any()) else "Speed_kmh"
+    if spd_col not in df.columns:
+        i_3 = get_gear_total_ratio(3, prim, gears)
+        return 3, i_3, get_theoretical_rpm_per_kmh(3, u, prim, gears), 0.0
+
+    valid_mask = (df["RPM"] > 2000) & (df[spd_col] > 10.0)
     if not valid_mask.any():
         i_3 = get_gear_total_ratio(3, prim, gears)
         return 3, i_3, get_theoretical_rpm_per_kmh(3, u, prim, gears), 0.0
 
-    ratios = df.loc[valid_mask, "RPM"] / df.loc[valid_mask, "Speed_kmh"]
-    median_ratio = float(ratios.median())
+    ratios = df.loc[valid_mask, "RPM"] / df.loc[valid_mask, spd_col]
+
+    # Guard against GPS lag during rapid acceleration:
+    # Under high acceleration, GPS speed lags, making RPM / Speed artificially high.
+    # Check if there are initial cruise / low dRPM samples (diff < 25 RPM/sample = 250 RPM/s)
+    rpm_diff = df.loc[valid_mask, "RPM"].diff().abs().fillna(0.0)
+    steady_mask = rpm_diff < 25.0
+    if steady_mask.sum() >= 5:
+        r_steady = ratios[steady_mask]
+        median_ratio = float(r_steady.iloc[:15].median()) if len(r_steady) >= 15 else float(r_steady.median())
+    else:
+        median_ratio = float(ratios.median())
 
     best_gear = 3
     best_error = float("inf")
@@ -507,7 +522,12 @@ def detect_dyno_pull(
 
     n = len(df)
     rpm_raw = df["RPM"].values
-    speed_raw = df["Speed_kmh"].values if "Speed_kmh" in df.columns else np.zeros(n)
+    if "Speed_smoothed" in df.columns and (df["Speed_smoothed"] > 5.0).any():
+        speed_raw = df["Speed_smoothed"].values
+    elif "Speed_kmh" in df.columns:
+        speed_raw = df["Speed_kmh"].values
+    else:
+        speed_raw = np.zeros(n)
     afr_raw = df["AFR"].values if "AFR" in df.columns else np.full(n, 12.5)
 
     rpm_s = smooth_signal(rpm_raw, window_length=9, polyorder=2)

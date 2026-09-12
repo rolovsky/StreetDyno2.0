@@ -219,7 +219,7 @@ class HardwareService:
         _ema_rpm: float = 0.0
         _ema_afr: float = 0.0
 
-        # Expected 3rd gear RPM/Speed ratio: ~81.6 (tolerance 65.0 - 105.0)
+        # Expected 3rd gear RPM/Speed ratio: ~80.69 (tolerance 65.0 - 98.0)
         i_gear3 = PRIMARY_RATIO * GEAR_RATIOS.get(3, 38.0 / 17.0)
         gear3_ratio_nominal = (60.0 * i_gear3) / (TIRE_CIRCUMFERENCE_M * 3.6)
 
@@ -350,12 +350,12 @@ class HardwareService:
             # 5b. Intelligent WOT Dyno Pull Auto-Detection (3. Gang)
             if self.auto_trigger_enabled:
                 if not self.logger.is_logging:
-                    # Strict 3rd gear validation: must be moving > 15 km/h and ratio between 60 and 110 RPM/(km/h)
+                    # Strict 3rd gear validation: must be moving > 15 km/h and ratio between 65 and 98 RPM/(km/h)
                     speed_ok = (spd > 15.0)
                     in_gear3 = False
                     if speed_ok:
                         ratio = filtered_rpm / spd
-                        in_gear3 = (60.0 <= ratio <= 110.0)
+                        in_gear3 = (65.0 <= ratio <= 98.0)
 
                     # WOT Acceleration Trigger Condition
                     cooldown_ok = (loop_now - last_pull_stop_time) >= 2.5
@@ -368,8 +368,16 @@ class HardwareService:
                             pull_start_time = loop_now
                             accel_streak = 0
 
+                            dyno_pre_buffer = []
+                            for entry in self._pre_buffer:
+                                e = dict(entry)
+                                e_rpm = float(e.get("rpm", 0.0))
+                                if e_rpm > 1000.0:
+                                    e["speed"] = round((e_rpm / 60.0 / i_gear3) * TIRE_CIRCUMFERENCE_M * 3.6, 1)
+                                dyno_pre_buffer.append(e)
+
                             with self._lock:
-                                self.logger.start(trigger="AUTO", pre_buffer=list(self._pre_buffer))
+                                self.logger.start(trigger="AUTO", pre_buffer=dyno_pre_buffer)
                                 self.state.is_logging = True
                                 self.state.status = "REC (AUTO)"
                             print(f"\n⚡ [AUTO-DYNO] 🎯 WOT-Pull im 3. Gang erkannt ({pull_start_rpm:.0f} RPM, {spd:.1f} km/h, Ratio {filtered_rpm/spd:.1f})! Aufzeichnung aktiv.")
@@ -415,6 +423,13 @@ class HardwareService:
                             self.state.is_logging = False
                             self.state.status = "IDLE"
 
+            # Dyno Pull Kinematic Speed: during an active dyno pull (always 3rd gear),
+            # compute speed directly from RPM and transmission ratio to eliminate GPS latency/distortion
+            if self.logger.is_logging or auto_pull_active:
+                dyno_spd = round((filtered_rpm / 60.0 / i_gear3) * TIRE_CIRCUMFERENCE_M * 3.6, 1) if filtered_rpm > 1000.0 else spd
+            else:
+                dyno_spd = spd
+
             # 6. Thread-safe state update
             with self._lock:
                 self.state.arduino_micros = self.current_micros
@@ -423,7 +438,7 @@ class HardwareService:
                 self.state.afr = self.current_afr
                 self.state.afr_filtered = filtered_afr
                 self.state.egt = raw_egt
-                self.state.speed_kmh = spd
+                self.state.speed_kmh = dyno_spd if self.logger.is_logging else spd
                 self.state.lat = lat
                 self.state.lon = lon
                 self.state.alt = alt
@@ -440,7 +455,7 @@ class HardwareService:
                     rpm=round(filtered_rpm, 1),
                     afr=filtered_afr,
                     egt=raw_egt,
-                    speed=spd,
+                    speed=dyno_spd,
                     lat=lat,
                     lon=lon,
                     alt=alt,
