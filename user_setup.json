@@ -2,12 +2,15 @@
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
     "slide_type": "lemarxon_low",
-    "intake_type": "polini_venturi",
+    "intake_type": "lemarxon_22mm",
     "airbox_type": "polini_airbox",
-    "main_jet_hd": 132,
+    "main_jet_hd": 125,
     "idle_jet_nd": "60/160",
     "air_corrector_hlkd": 160,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",
-    "notes": "VMC 177 / 60mm Welle / HD 132 (Optimal & Klemmsicher)"
+    "ignition_deg": 18.0,
+    "displacement_cc": 187.0,
+    "stroke_mm": 60.0,
+    "notes": "VMC 177 / 22mm Lemarxon Hülse / ND 60/160 / HD 125 (Perfektes Setup: 13.1 Standgas / 13.6-13.9 Teillast / 11.5-12.0 WOT)"
 }

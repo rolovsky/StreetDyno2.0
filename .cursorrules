@@ -33,3 +33,14 @@ Follow these mandatory architecture, physics, and clean code rules for ALL code 
 - On NumPy arrays, always use `np.clip(arr, a_min, a_max)` or `np.maximum()`, never `.clip(lower=...)`.
 - Clean directory layout: No temporary files, test scripts, or `.csv` in `src/`.
 - All automated unit tests in `tests/test_dyno_core.py` must pass with 100% OK.
+
+## 6. Firmware Modification & Scope Constraints (STRICT)
+1. **Scope Lock für Core & Firmware (`main.cpp`, `analyzer_logic.py`, `hardware_service.py`):**
+   - Es dürfen KEINE architektonischen Umbauten, Algorithmen-Wechsel oder Refactorings der Interrupt-/Berechnungslogik autonom durchgeführt werden.
+   - Bei Signal- oder Messproblemen dürfen eigenständig AUSSCHLIESSLICH Schwellenwerte, Filter-Parameter (Debounce-Zeiten, Multiplikatoren) oder Konfigurationswerte in `user_setup.json` / `config.py` justiert werden.
+2. **Diff & Approval Gate:**
+   - Vor jeder Änderung an C++-Dateien in `firmware/` oder vor dem Ausführen von `arduino-cli upload` MUSS dem Nutzer ein präziser Plan samt Begründung vorgelegt und dessen explizite Freigabe eingeholt werden.
+   - Eigenmächtiges Flashen des Microcontrollers ohne vorangehende Bestätigung ist untersagt.
+3. **Rollback-Fähigkeit:**
+   - Vor Eingriffen in die Signalverarbeitung ist der aktuelle Git-Stand stets durch einen Branch oder Stash abzusichern.
+

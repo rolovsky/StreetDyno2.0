@@ -19,17 +19,17 @@ constexpr uint8_t PIN_EGT_SCK = 6;   // MAX6675 SPI Clock
 
 // --- Calibration Constants ---
 constexpr float PULSES_PER_REV = 3.0f;           // 3 pulses per revolution (Vespa Ducati CDI)
-constexpr uint32_t DEBOUNCE_MICROS = 1500;       // EMI lockout threshold (GSF filter)
+constexpr uint32_t DEBOUNCE_MICROS = 1000;       // EMI lockout threshold (up to 20,000 RPM)
 constexpr uint32_t RPM_TIMEOUT_MICROS = 500000;  // 0.5s stall detection
 constexpr float USB_VCC_VOLTAGE = 4.71f;         // Measured USB reference voltage
 
 MAX6675 thermocouple(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
 
 // --- Atomic Interrupt Variables ---
+volatile uint32_t v_firstPulseTime = 0;
 volatile uint32_t v_lastPulseTime = 0;
-volatile uint32_t v_lastValidInterval = 0;
-volatile uint32_t v_intervalSum = 0;
 volatile uint16_t v_pulseCount = 0;
+volatile uint32_t v_lastSingleInterval = 0;
 
 // --- Runtime State ---
 float lastValidRPM = 0.0f;
@@ -42,9 +42,11 @@ void rpmInterrupt() {
     const uint32_t interval = now - v_lastPulseTime;
 
     if (interval > DEBOUNCE_MICROS) {
-        v_intervalSum += interval;
+        if (v_pulseCount == 0) {
+            v_firstPulseTime = now;
+        }
         v_pulseCount++;
-        v_lastValidInterval = interval;
+        v_lastSingleInterval = interval;
         v_lastPulseTime = now;
     }
 }
@@ -93,32 +95,32 @@ void loop() {
     if (now - lastTelemetryOutputTime >= 100) {
         lastTelemetryOutputTime = now;
 
-        // Atomically snapshot and reset pulse accumulator
         noInterrupts();
-        const uint16_t pulseCount = v_pulseCount;
-        const uint32_t intervalSum = v_intervalSum;
-        const uint32_t lastPulse = v_lastPulseTime;
-        const uint32_t lastValidInterval = v_lastValidInterval;
+        const uint16_t count = v_pulseCount;
+        const uint32_t t_first = v_firstPulseTime;
+        const uint32_t t_last = v_lastPulseTime;
+        const uint32_t singleInterval = v_lastSingleInterval;
         v_pulseCount = 0;
-        v_intervalSum = 0;
-        const uint32_t timeSinceLast = micros() - lastPulse;
+        v_firstPulseTime = 0;
         interrupts();
 
         float calculatedRPM = 0.0f;
+        const uint32_t timeSinceLast = (t_last > 0) ? (micros() - t_last) : 999999;
 
-        if (timeSinceLast > RPM_TIMEOUT_MICROS || lastPulse == 0) {
+        if (timeSinceLast > RPM_TIMEOUT_MICROS || t_last == 0) {
             calculatedRPM = 0.0f;
-        } else if (pulseCount > 0 && intervalSum > 0) {
-            // High-precision average interval across all pulses in the 100ms window
-            const float avgInterval = static_cast<float>(intervalSum) / static_cast<float>(pulseCount);
-            calculatedRPM = (60000000.0f / avgInterval) / PULSES_PER_REV;
-        } else if (lastValidInterval > 0) {
-            // Low RPM (<600 RPM) fallback when no new pulse occurred in this exact 100ms frame
-            calculatedRPM = (60000000.0f / static_cast<float>(lastValidInterval)) / PULSES_PER_REV;
+        } else if (count >= 2 && t_last > t_first) {
+            // High-precision multi-pulse frequency over all pulses in the 100ms window
+            const float dt_sec = static_cast<float>(t_last - t_first) / 1000000.0f;
+            const float pulseFreq = static_cast<float>(count - 1) / dt_sec;
+            calculatedRPM = (pulseFreq / PULSES_PER_REV) * 60.0f;
+        } else if (singleInterval > 0 && singleInterval < RPM_TIMEOUT_MICROS) {
+            // Low RPM (<600 RPM) fallback when only 1 pulse arrived in this frame
+            calculatedRPM = (60000000.0f / static_cast<float>(singleInterval)) / PULSES_PER_REV;
         }
 
-        // Glitch rejection filter (>3000 RPM jump per 100ms indicates EMI noise)
-        if (lastValidRPM > 1000.0f && fabsf(calculatedRPM - lastValidRPM) > 3000.0f) {
+        // Glitch rejection filter (>3500 RPM jump per 100ms indicates EMI noise)
+        if (lastValidRPM > 1000.0f && fabsf(calculatedRPM - lastValidRPM) > 3500.0f) {
             calculatedRPM = lastValidRPM;
         } else {
             lastValidRPM = calculatedRPM;

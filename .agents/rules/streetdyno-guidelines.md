@@ -24,6 +24,16 @@ When flashing the Arduino Nano from the Raspberry Pi:
    `/usr/local/bin/arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano:cpu=atmega328 /tmp/sketch_build`
 4. Restart the service: `sudo systemctl start streetdyno.service`
 
+## Firmware Modification & Scope Constraints (STRICT)
+1. **Scope Lock für Core & Firmware (`main.cpp`, `analyzer_logic.py`, `hardware_service.py`):**
+   - Es dürfen KEINE architektonischen Umbauten, Algorithmen-Wechsel oder Refactorings der Interrupt-/Berechnungslogik autonom durchgeführt werden.
+   - Bei Signal- oder Messproblemen dürfen eigenständig AUSSCHLIESSLICH Schwellenwerte, Filter-Parameter (Debounce-Zeiten, Multiplikatoren) oder Konfigurationswerte in `user_setup.json` / `config.py` justiert werden.
+2. **Diff & Approval Gate:**
+   - Vor jeder Änderung an C++-Dateien in `firmware/` oder vor dem Ausführen von `arduino-cli upload` MUSS dem Nutzer ein präziser Plan samt Begründung vorgelegt und dessen explizite Freigabe eingeholt werden.
+   - Eigenmächtiges Flashen des Microcontrollers ohne vorangehende Bestätigung ist untersagt.
+3. **Rollback-Fähigkeit:**
+   - Vor Eingriffen in die Signalverarbeitung ist der aktuelle Git-Stand stets durch einen Branch oder Stash abzusichern.
+
 ## 4. Architecture & Single Source of Truth (DRY)
 - **Mathematical Logic**: All physics formulas, Savitzky-Golay filtering, slope compensation ($F_{\text{slope}} = m \cdot g \cdot \sin\theta$), DIN 70020 / SAE J1349 weather normalization, and 4-zone SI 24 carburetor jetting rules must reside exclusively in `src/data/analyzer_logic.py` and `src/data/jetting_advisor.py`.
 - **Desktop & Web Synchronization**: `desktop_analyzer.py` and Flask routes (`src/web/routes.py`) must import from `src.data` to guarantee 100% identical evaluation results.
