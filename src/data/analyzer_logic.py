@@ -1,5 +1,5 @@
 """
-StreetDyno 2.0 - Physics & Telemetry Analyzer Logic (V5.2 Refactored)
+StreetDyno 2.0 - Physics & Telemetry Analyzer Logic (V5.3 Numerical Hardening)
 High-precision WOT Dyno-Pull detection, multi-condition filtering,
 Savitzky-Golay noise suppression, Pmax/Mmax peak plausibility verification,
 road gradient slope compensation, and DIN 70020 / SAE J1349 weather normalization.
@@ -240,7 +240,9 @@ def smooth_signal(
         return arr
 
     if HAS_SCIPY and n >= 5:
-        w = min(window_length, n - (1 if n % 2 == 0 else 0))
+        w = min(window_length, n if n % 2 == 1 else n - 1)
+        if w % 2 == 0:
+            w -= 1
         if w >= 5 and w > polyorder:
             try:
                 return savgol_filter(arr, window_length=w, polyorder=polyorder)
@@ -301,10 +303,10 @@ def validate_and_sanitize_dyno_peaks(df: pd.DataFrame) -> Tuple[pd.DataFrame, Di
         meta["is_plausible"] = False
         meta["warning"] = msg
 
-        ps_sanitized = smooth_signal(ps_vals, window_length=15, polyorder=1)
+        ps_sanitized = smooth_signal(ps_vals, window_length=15, polyorder=2)
         df["PS"] = ps_sanitized
         if "PS_Raw" in df.columns:
-            df["PS_Raw"] = smooth_signal(df["PS_Raw"].values, window_length=15, polyorder=1)
+            df["PS_Raw"] = smooth_signal(df["PS_Raw"].values, window_length=15, polyorder=2)
         df["Nm"] = np.where(
             (df["RPM_smoothed"] > 500) & (df["PS"] > 0),
             (df["PS"] * 7023.5) / df["RPM_smoothed"],
@@ -378,23 +380,27 @@ def calculate_telemetry_metrics(
         i_total = get_gear_total_ratio(selected_gear, prim, gears)
         df["Detected_Gear"] = detected_gear
 
-    # 2. Time step dt calculation
+    # 2. Time step dt calculation — always produce a 1-D ndarray (F-02)
+    # Scalar or 0-dim fallback breaks dt_arr[dt_arr > 0] boolean indexing when
+    # np.where(scalar, ...) returns a 0-dim array that np.isscalar() mis-identifies.
+    n_points = len(df)
     if "Time" in df.columns:
         try:
             t_num = pd.to_numeric(df["Time"], errors="coerce")
             if not t_num.isna().all():
-                dt_series = t_num.diff().fillna(0.1)
+                dt_arr_raw = t_num.diff().fillna(0.1).values
             else:
                 time_series = pd.to_datetime(df["Time"], format="%H:%M:%S", errors="coerce")
-                dt_series = time_series.diff().dt.total_seconds().fillna(0.1)
-            dt_series = np.where((dt_series <= 0.0) | (dt_series > 1.0), 0.1, dt_series)
+                dt_arr_raw = time_series.diff().dt.total_seconds().fillna(0.1).values
+            dt_arr = np.where(
+                (dt_arr_raw <= 0.0) | (dt_arr_raw > 1.0), 0.1, dt_arr_raw
+            ).astype(float)
         except Exception:
-            dt_series = 0.1
+            dt_arr = np.full(n_points, 0.1, dtype=float)
     else:
-        dt_series = 0.1
+        dt_arr = np.full(n_points, 0.1, dtype=float)
 
     # 3. Adaptive Savitzky-Golay filtering & analytical derivative
-    n_points = len(df)
     target_w = 21  # 2.1s window at 10Hz eliminates 2-stroke cyclic jitter and CDI fluctuations
     w = min(target_w, n_points - (1 if n_points % 2 == 0 else 0))
     if w % 2 == 0:
@@ -402,11 +408,9 @@ def calculate_telemetry_metrics(
     if w < 5:
         w = 5 if n_points >= 5 else 3
 
-    # F-02: Derive real median sample interval from log timestamps instead of
-    # assuming a fixed delta=0.1s. Packet jitter and EMI burst batching can shift
-    # the effective dt by ±3×, which scales dRPM/dt — and thus power — proportionally.
-    dt_arr = dt_series if not np.isscalar(dt_series) else np.full(n_points, float(dt_series))
-    dt_arr = np.asarray(dt_arr, dtype=float)
+    # Derive real median sample interval from log timestamps (S-03 / F-02).
+    # Packet jitter and EMI burst batching can shift effective dt by ±3×,
+    # scaling dRPM/dt — and thus power — proportionally.
     t_diffs = dt_arr[dt_arr > 0]
     dt_median = float(np.median(t_diffs)) if len(t_diffs) > 0 else 0.1
     dt_safe = max(0.05, min(0.25, dt_median))
@@ -665,10 +669,6 @@ def detect_dyno_pull(
                     )
                     peak_idx = spike_end
                     peak_rpm = rpm_s[spike_end]
-
-
-
-
 
             pull_end = peak_idx
             pull_duration = (pull_end - start_idx) * dt
