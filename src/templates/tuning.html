@@ -116,7 +116,8 @@
                 <div class="form-group full">
                     <label>Gasschieber (Cutaway)</label>
                     <select name="slide_type">
-                        <option value="lemarxon_low" {% if carb.slide_type == 'lemarxon_low' or not carb.slide_type %}selected{% endif %}>Lemarxon Low Cutaway (aktuell aktiv / fett)</option>
+                        <option value="t5_dellorto" {% if carb.slide_type == 't5_dellorto' %}selected{% endif %}>Dell'Orto T5 Schieber (plan / ohne Cutaway / fett)</option>
+                        <option value="lemarxon_low" {% if carb.slide_type == 'lemarxon_low' or (not carb.slide_type and carb.slide_type != 't5_dellorto') %}selected{% endif %}>Lemarxon Low Cutaway (fett)</option>
                         <option value="lemarxon_mid" {% if carb.slide_type == 'lemarxon_mid' %}selected{% endif %}>Lemarxon Mid Cutaway (mittel)</option>
                         <option value="bgm_std_cutout" {% if carb.slide_type == 'bgm_std_cutout' %}selected{% endif %}>BGM FastFlow 24/24 Standard mit Cutaway (mager)</option>
                     </select>

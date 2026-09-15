@@ -44,7 +44,7 @@ def main() -> None:
 
     print(f"Lese Daten aus: {args.csv_file}...")
     try:
-        df = pd.read_csv(args.csv_file)
+        df = pd.read_csv(args.csv_file, comment="#")
     except Exception as e:
         print(f"[ERROR] Fehler beim Lesen der CSV: {e}")
         sys.exit(1)

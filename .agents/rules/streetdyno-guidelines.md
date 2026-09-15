@@ -42,3 +42,33 @@ When flashing the Arduino Nano from the Raspberry Pi:
 ## 5. Raspberry Pi Zero 2 W Operations
 - **Memory & ZRAM**: Maintain 416 MB ZRAM swap (`ALGO=lz4`, `PERCENT=50`) to prevent Out-Of-Memory errors during telemetry processing and chart rendering.
 - **Sandbox**: Remote SSH/SCP commands to the Pi require `BypassSandbox: true` due to local sandbox network isolation.
+
+## 6. NumPy / SciPy Array Safety Rules (analyzer_logic.py)
+Derived from V5.3 Numerical Hardening — these patterns must be enforced in all future changes to `analyzer_logic.py` and any new physics modules:
+
+1. **SciPy `savgol_filter` window must always be odd:**
+   - After any `min()` or arithmetic on `window_length`, enforce `if w % 2 == 0: w -= 1` before passing to `savgol_filter`. A caller passing an even `window_length` causes `ValueError: window_length must be odd` at runtime — not caught by static analysis.
+   - Identical `polyorder` must be used in all SG calls within the same computation chain. Mixing `polyorder=1` (linear) and `polyorder=2` (quadratic) in the sanitization path vs. the main filter path causes systematic peak damping after artifact correction.
+
+2. **`np.where()` on a Python scalar returns a 0-dim `ndarray`, not a scalar:**
+   - `np.isscalar(np.where(True, 0.1, 0.1))` evaluates to `False`. Boolean indexing on a 0-dim array (`arr[arr > 0]`) produces undefined results.
+   - **Rule**: Any time-step array (`dt_arr`) or similar signal array must be built directly as 1-D via `.values` on a Pandas Series, or `np.full(n, val, dtype=float)` for fallbacks — never via `np.where(scalar, ...)` followed by an `np.isscalar` guard.
+
+3. **`n_points = len(df)` must precede any block that passes `n_points` to `np.full()`:**
+   - Place `n_points` definition at the top of the function scope or before the first block that uses it as a shape argument. A definition after its use site is a latent `NameError` that only surfaces in exception paths.
+
+## 7. Timestamp & Sampling Rate Integrity (S-03)
+Derived from S-03 Subsecond Timestamps & Jitter-Resilient dt Refactoring:
+
+1. **Integer Second Truncation Trap (`%H:%M:%S`):**
+   - High-frequency (>1Hz) logs must never rely on string timestamps with 1-second resolution without subseconds. At 10Hz, truncated seconds produce 9x 0.0s and 1x 1.0s deltas.
+   - When parsing timestamps, any non-numeric time format must be tested with `(dt_raw <= 0.001).mean() > 0.3`. If detected, calculate the global mean `span / (n - 1)` rather than clamping individual zero-steps, which leaves the 1.0s spikes intact.
+
+2. **Microcontroller Hardware Timestamps ($MICROS):**
+   - To eliminate Linux userspace scheduling jitter (±15ms on Pi Zero 2 W), timestamping should synchronize against the ATmega328P 16MHz crystal (`micros()`) via 32-bit rollover masking `(current - sync) & 0xFFFFFFFF`.
+   - CSV `Time` column must be written with 4 decimal places (`f"{ts:.4f}"`), providing 0.1ms resolution while remaining standard numeric float.
+
+## 8. Telemetry Logging & Pre-Trigger Buffer Pipeline (S-03 / Dual-Layer)
+- **Subsecond Resolution**: Telemetry entries in both `dyno_log_*.csv` and `trip_*.csv` must write timestamps with 4 decimal places (`f"{ts:.4f}"`) anchored to the ATmega328P 16MHz crystal via `current_micros`.
+- **Pre-Trigger Buffer Continuity**: The 10-sample rolling pre-trigger buffer in `HardwareService` must preserve subsecond timestamps so that transitioning from pre-buffer to live logging produces no $\Delta t$ discontinuity or artificial acceleration spikes.
+- **Legacy Zero-Ratio Guard**: The analysis pipeline must automatically detect truncated-second logs via `(dt_raw <= 0.001).mean() > 0.3` and apply total-span mean $\Delta t$ to avoid 1.0s periodic power collapse.

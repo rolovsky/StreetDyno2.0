@@ -10,7 +10,7 @@ import time
 import json
 import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 import pandas as pd
 
 from config import get_full_setup_metadata, load_carb_setup
@@ -223,7 +223,7 @@ class CSVLogger:
 
             if pre_buffer:
                 for entry in pre_buffer:
-                    t_str = entry.get("time", f"{time.time():.3f}")
+                    t_str = entry.get("time", f"{time.time():.4f}")
                     rpm = entry.get("rpm", 0.0)
                     afr = entry.get("afr", 0.0)
                     egt = entry.get("egt", 0.0)
@@ -266,13 +266,17 @@ class CSVLogger:
         lat: float = 0.0,
         lon: float = 0.0,
         alt: float = 0.0,
-        fix: bool = False
+        fix: bool = False,
+        timestamp: Optional[Union[float, str]] = None
     ) -> None:
         """Writes a single 10Hz telemetry timestep to the CSV file."""
         if self.is_logging and self.filepath:
-            timestamp = f"{time.time():.3f}"
+            if timestamp is not None:
+                t_str = f"{timestamp:.4f}" if isinstance(timestamp, (int, float)) else str(timestamp)
+            else:
+                t_str = f"{time.time():.4f}"
             with open(self.filepath, "a", encoding="utf-8") as f:
-                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
+                f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
             self.samples_count += 1
 
 
@@ -355,13 +359,17 @@ class TripLogger:
         lat: float = 0.0,
         lon: float = 0.0,
         alt: float = 0.0,
-        fix: bool = False
+        fix: bool = False,
+        timestamp: Optional[Union[float, str]] = None
     ) -> None:
         """Appends a 10Hz telemetry sample to the trip file."""
         if self.is_logging and self.filepath:
-            timestamp = f"{time.time():.3f}"
+            if timestamp is not None:
+                t_str = f"{timestamp:.4f}" if isinstance(timestamp, (int, float)) else str(timestamp)
+            else:
+                t_str = f"{time.time():.4f}"
             with open(self.filepath, "a", encoding="utf-8") as f:
-                f.write(f"{timestamp},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
+                f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
             self.samples_count += 1
 
 

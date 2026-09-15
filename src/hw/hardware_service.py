@@ -99,6 +99,8 @@ class HardwareService:
         self.current_afr: float = 0.0
         self.current_egt: float = 0.0
         self.last_serial_time: float = time.time()
+        self._arduino_sync_time: float = 0.0
+        self._arduino_sync_micros: int = 0
 
     def _parse_telemetry_line(self, line: str) -> bool:
         """Parses $MICROS;RPM;AFR;EGT*CHECKSUM line with XOR checksum validation."""
@@ -314,9 +316,21 @@ class HardwareService:
             lon = gps_data.lon if (gps_data and gps_data.lon is not None) else 0.0
             alt = gps_data.alt if (gps_data and gps_data.alt is not None) else 0.0
 
+            # S-03: Microsecond-precise hardware timestamp derived from Arduino crystal
+            if self.current_micros > 0:
+                if self._arduino_sync_micros == 0 or (loop_now - self._arduino_sync_time) >= 60.0:
+                    self._arduino_sync_time = loop_now
+                    self._arduino_sync_micros = self.current_micros
+                    hw_timestamp = loop_now
+                else:
+                    delta_us = (self.current_micros - self._arduino_sync_micros) & 0xFFFFFFFF
+                    hw_timestamp = self._arduino_sync_time + (delta_us / 1_000_000.0)
+            else:
+                hw_timestamp = loop_now
+
             # Update rolling pre-trigger buffer
             sample_entry = {
-                "time": f"{time.time():.3f}",
+                "time": f"{hw_timestamp:.4f}",
                 "rpm": filtered_rpm,
                 "afr": filtered_afr,
                 "egt": raw_egt,
@@ -459,7 +473,8 @@ class HardwareService:
                     lat=lat,
                     lon=lon,
                     alt=alt,
-                    fix=fix
+                    fix=fix,
+                    timestamp=hw_timestamp
                 )
 
             # Continuous Background Trip Logging
@@ -472,7 +487,8 @@ class HardwareService:
                     lat=lat,
                     lon=lon,
                     alt=alt,
-                    fix=fix
+                    fix=fix,
+                    timestamp=hw_timestamp
                 )
 
             # 8. Update Hardware OLED (max 10Hz)

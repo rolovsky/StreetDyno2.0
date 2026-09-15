@@ -91,7 +91,8 @@ FUEL_STOICHIOMETRY: Dict[str, float] = {
 }
 
 SLIDE_TYPES: Dict[str, str] = {
-    "lemarxon_low": "Lemarxon Low Cutaway (aktuell aktiv / fett)",
+    "t5_dellorto": "Dell'Orto T5 Schieber (plan / ohne Cutaway / fett)",
+    "lemarxon_low": "Lemarxon Low Cutaway (fett)",
     "lemarxon_mid": "Lemarxon Mid Cutaway (mittel)",
     "bgm_std_cutout": "BGM FastFlow 24/24 Standard mit Cutaway (mager)"
 }
@@ -112,7 +113,7 @@ AIRBOX_TYPES: Dict[str, str] = {
 DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
-    "slide_type": "lemarxon_low",
+    "slide_type": "t5_dellorto",
     "intake_type": "lemarxon_22mm",
     "airbox_type": "polini_airbox",
     "main_jet_hd": 125,
@@ -123,7 +124,7 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "ignition_deg": 18.0,
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
-    "notes": "VMC Super G 187cc Langhub / HD 125 / ND 60/160 / 18° Zdg"
+    "notes": "VMC Super G 187cc Langhub / Dell'Orto T5 Schieber / HD 125 / ND 60/160 / 18° Zdg"
 }
 
 

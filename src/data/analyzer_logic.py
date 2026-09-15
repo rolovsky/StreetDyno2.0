@@ -380,7 +380,7 @@ def calculate_telemetry_metrics(
         i_total = get_gear_total_ratio(selected_gear, prim, gears)
         df["Detected_Gear"] = detected_gear
 
-    # 2. Time step dt calculation — always produce a 1-D ndarray (F-02)
+    # 2. Time step dt calculation — always produce a 1-D ndarray (F-02, S-03)
     # Scalar or 0-dim fallback breaks dt_arr[dt_arr > 0] boolean indexing when
     # np.where(scalar, ...) returns a 0-dim array that np.isscalar() mis-identifies.
     n_points = len(df)
@@ -388,13 +388,28 @@ def calculate_telemetry_metrics(
         try:
             t_num = pd.to_numeric(df["Time"], errors="coerce")
             if not t_num.isna().all():
-                dt_arr_raw = t_num.diff().fillna(0.1).values
+                dt_raw = t_num.diff().fillna(0.1).values
+                # Sanitize single jittered/missing packets to local median
+                valid_diffs = dt_raw[(dt_raw >= 0.02) & (dt_raw <= 0.50)]
+                dt_fallback = float(np.median(valid_diffs)) if len(valid_diffs) > 0 else 0.1
+                dt_arr = np.where((dt_raw <= 0.01) | (dt_raw > 1.0), dt_fallback, dt_raw).astype(float)
             else:
-                time_series = pd.to_datetime(df["Time"], format="%H:%M:%S", errors="coerce")
-                dt_arr_raw = time_series.diff().dt.total_seconds().fillna(0.1).values
-            dt_arr = np.where(
-                (dt_arr_raw <= 0.0) | (dt_arr_raw > 1.0), 0.1, dt_arr_raw
-            ).astype(float)
+                # Legacy string format (e.g. "%H:%M:%S")
+                time_series = pd.to_datetime(df["Time"], format="mixed", errors="coerce")
+                dt_raw = time_series.diff().dt.total_seconds().fillna(0.1).values
+                # S-03: Check for integer second truncation (zero-ratio > 30%)
+                if (dt_raw <= 0.001).mean() > 0.3:
+                    # Calculate average dt across whole span instead of jittering 0.0s / 1.0s
+                    valid_times = time_series.dropna()
+                    if len(valid_times) > 1:
+                        span = (valid_times.iloc[-1] - valid_times.iloc[0]).total_seconds()
+                        avg_dt = span / (n_points - 1) if (span > 0.5 and n_points > 5) else 0.1
+                        dt_eff = max(0.05, min(0.25, avg_dt))
+                    else:
+                        dt_eff = 0.1
+                    dt_arr = np.full(n_points, dt_eff, dtype=float)
+                else:
+                    dt_arr = np.where((dt_raw <= 0.01) | (dt_raw > 1.0), 0.1, dt_raw).astype(float)
         except Exception:
             dt_arr = np.full(n_points, 0.1, dtype=float)
     else:
@@ -570,17 +585,23 @@ def detect_dyno_pull(
     afr_rolling = pd.Series(afr_raw).rolling(5, min_periods=1, center=True).mean().values
 
     # S-03: Derive real median sample interval from log timestamps instead of
-    # assuming fixed dt=0.1s (10 Hz). UART jitter + Pi scheduling cause real
-    # packet spacing to vary; a wrong dt scales pull_duration and avg_accel directly.
+    # assuming fixed dt=0.1s (10 Hz). Supports subsecond numeric timestamps and legacy strings.
     dt = 0.1
     if "Time" in df.columns:
         try:
-            t_num = pd.to_numeric(df["Time"], errors="coerce").dropna()
-            if len(t_num) > 2:
-                _diffs = np.diff(t_num.values)
-                _diffs = _diffs[_diffs > 0]
+            t_num = pd.to_numeric(df["Time"], errors="coerce")
+            if not t_num.isna().all():
+                _diffs = np.diff(t_num.dropna().values)
+                _diffs = _diffs[(_diffs >= 0.02) & (_diffs <= 0.50)]
                 if len(_diffs) > 0:
                     dt = float(np.median(_diffs))
+            else:
+                time_series = pd.to_datetime(df["Time"], format="mixed", errors="coerce")
+                valid_times = time_series.dropna()
+                if len(valid_times) > 1:
+                    total_span = (valid_times.iloc[-1] - valid_times.iloc[0]).total_seconds()
+                    if total_span > 0.5 and len(df) > 5:
+                        dt = total_span / (len(df) - 1)
         except Exception:
             pass
     dt = max(0.05, min(0.30, dt))  # Sanity clamp: reject <50ms or >300ms

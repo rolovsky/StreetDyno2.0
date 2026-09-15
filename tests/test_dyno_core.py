@@ -770,6 +770,85 @@ class TestLogMetadata(unittest.TestCase):
         self.assertEqual(sorted_files, [f_new, f_mid, f_old])
 
 
+class TestSubsecondTimestampsAndJitter(unittest.TestCase):
+
+    def test_subsecond_timestamps_with_jitter(self):
+        """Verify calculate_telemetry_metrics handles 92ms-108ms sample jitter without PS drops."""
+        n = 40
+        rpm = np.linspace(3500, 7000, n)
+        spd = rpm / 80.69
+
+        # Synthetic jittered timestamps around 10Hz (92ms to 108ms)
+        np.random.seed(42)
+        jitter_intervals = np.random.uniform(0.092, 0.108, n)
+        time_arr = 1789494600.0 + np.cumsum(jitter_intervals)
+
+        df = pd.DataFrame({
+            'Time': time_arr,
+            'RPM': rpm,
+            'Speed_kmh': spd,
+            'AFR': np.full(n, 12.6),
+            'EGT': np.full(n, 550.0)
+        })
+
+        res = calculate_telemetry_metrics(df, gear=3)
+        self.assertIn("PS", res.columns)
+        self.assertIn("dRPM_dt", res.columns)
+
+        # Power must be smooth and positive without periodic drops
+        ps_vals = res["PS"].iloc[5:-5].values
+        self.assertTrue((ps_vals > 5.0).all())
+        # Check step-to-step smoothness: no single step change > 2.5 PS
+        ps_steps = np.abs(np.diff(ps_vals))
+        self.assertLess(ps_steps.max(), 2.5)
+
+    def test_legacy_second_timestamps_no_collapse(self):
+        """Verify legacy %H:%M:%S integer second timestamps do not produce 1.0s spike collapse."""
+        n = 40
+        rpm = np.linspace(3500, 7000, n)
+        spd = rpm / 80.69
+
+        legacy_times = []
+        for sec in range(1, 5):
+            legacy_times.extend([f"14:00:{sec:02d}"] * 10)
+
+        df_legacy = pd.DataFrame({
+            'Time': legacy_times,
+            'RPM': rpm,
+            'Speed_kmh': spd,
+            'AFR': np.full(n, 12.6),
+            'EGT': np.full(n, 550.0)
+        })
+
+        res = calculate_telemetry_metrics(df_legacy, gear=3)
+        # Power during pull must remain stable; no 90% collapse at second boundaries
+        ps_vals = res["PS"].iloc[5:-5].values
+        self.assertTrue((ps_vals > 5.0).all())
+        # Minimum PS during the middle of pull must not collapse below 5.0 PS
+        self.assertGreater(ps_vals.min(), 5.0)
+
+    def test_logger_subsecond_precision(self):
+        """Verify CSVLogger records 4 decimal places float timestamps."""
+        import tempfile
+        import shutil
+        from data.logger import CSVLogger, load_telemetry_csv
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = CSVLogger(log_dir=temp_dir)
+            fpath = logger.start()
+            test_ts = 1789494617.2275
+            logger.log(rpm=4500, afr=12.5, egt=500.0, speed=55.0, timestamp=test_ts)
+            logger.stop()
+
+            df, _ = load_telemetry_csv(fpath)
+            self.assertEqual(len(df), 1)
+            logged_time = float(df['Time'].iloc[0])
+            self.assertAlmostEqual(logged_time, test_ts, places=4)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 if __name__ == '__main__':
     unittest.main()
 

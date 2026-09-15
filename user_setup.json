@@ -1,7 +1,7 @@
 {
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
-    "slide_type": "lemarxon_low",
+    "slide_type": "t5_dellorto",
     "intake_type": "lemarxon_22mm",
     "airbox_type": "polini_airbox",
     "main_jet_hd": 132,
@@ -12,7 +12,7 @@
     "ignition_deg": 18.0,
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
-    "notes": "VMC 177 / 22mm Lemarxon Hülse / ND 60/160 / HD 125 (Perfektes Setup: 13.1 Standgas / 13.6-13.9 Teillast / 11.5-12.0 WOT)",
+    "notes": "VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 60/160 / HD 125 / Polini Box",
     "vehicle": {
         "name": "VMC177",
         "description": "VMC Super G 187cc Langhub / Vespa PX 125 Lusso",
