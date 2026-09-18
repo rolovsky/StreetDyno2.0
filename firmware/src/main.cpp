@@ -14,8 +14,9 @@
 constexpr uint8_t PIN_RPM = 2;       // Hardware Interrupt INT0 (SIP Tacho Box)
 constexpr uint8_t PIN_AFR = A0;      // 0-5V Wideband Lambda Controller
 constexpr uint8_t PIN_EGT_SO = 4;    // MAX6675 SPI Serial Data Out
-constexpr uint8_t PIN_EGT_CS = 5;    // MAX6675 SPI Chip Select
+constexpr uint8_t PIN_EGT_CS = 5;    // MAX6675 #1 SPI Chip Select (EGT Sensor)
 constexpr uint8_t PIN_EGT_SCK = 6;   // MAX6675 SPI Clock
+constexpr uint8_t PIN_CHT_CS = 7;    // MAX6675 #2 SPI Chip Select (CHT Sensor)
 
 // --- Calibration Constants ---
 constexpr float PULSES_PER_REV = 3.0f;           // 3 pulses per revolution (Vespa Ducati CDI)
@@ -23,7 +24,8 @@ constexpr uint32_t DEBOUNCE_MICROS = 1000;       // EMI lockout threshold (up to
 constexpr uint32_t RPM_TIMEOUT_MICROS = 500000;  // 0.5s stall detection
 constexpr float USB_VCC_VOLTAGE = 4.71f;         // Measured USB reference voltage
 
-MAX6675 thermocouple(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
+MAX6675 thermocoupleEGT(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
+MAX6675 thermocoupleCHT(PIN_EGT_SCK, PIN_CHT_CS, PIN_EGT_SO);
 
 // --- Atomic Interrupt Variables ---
 volatile uint32_t v_firstPulseTime = 0;
@@ -34,7 +36,8 @@ volatile uint32_t v_lastSingleInterval = 0;
 // --- Runtime State ---
 float lastValidRPM = 0.0f;
 float lastValidEgt = -1.0f;
-uint32_t lastEgtMeasurementTime = 0;
+float lastValidCht = -1.0f;
+uint32_t lastTempMeasurementTime = 0;
 uint32_t lastTelemetryOutputTime = 0;
 
 void rpmInterrupt() {
@@ -55,6 +58,11 @@ void setup() {
     Serial.begin(115200);
     pinMode(PIN_RPM, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_RPM), rpmInterrupt, FALLING);
+
+    pinMode(PIN_EGT_CS, OUTPUT);
+    digitalWrite(PIN_EGT_CS, HIGH);
+    pinMode(PIN_CHT_CS, OUTPUT);
+    digitalWrite(PIN_CHT_CS, HIGH);
 }
 
 long readVccMillivolts() {
@@ -77,16 +85,30 @@ long readVccMillivolts() {
 void loop() {
     const uint32_t now = millis();
 
-    // 1. EGT Measurement every 500ms
-    if (now - lastEgtMeasurementTime >= 500) {
-        lastEgtMeasurementTime = now;
-        const float rawEgt = thermocouple.readCelsius();
+    // 1. Temperature Measurement every 500ms (Sequential EGT -> CHT)
+    if (now - lastTempMeasurementTime >= 500) {
+        lastTempMeasurementTime = now;
 
+        // 1a. EGT Measurement (Exhaust Gas Temp, 50.0f delta filter)
+        const float rawEgt = thermocoupleEGT.readCelsius();
         if (!isnan(rawEgt) && rawEgt > 0.0f) {
             if (lastValidEgt < 0.0f) {
                 lastValidEgt = rawEgt;
             } else if (fabsf(rawEgt - lastValidEgt) < 50.0f) {
                 lastValidEgt = rawEgt;
+            }
+        }
+
+        // Minimal SPI bus settling guard between chip selects
+        delayMicroseconds(100);
+
+        // 1b. CHT Measurement (Cylinder Head Temp, 25.0f delta filter for thermal inertia)
+        const float rawCht = thermocoupleCHT.readCelsius();
+        if (!isnan(rawCht) && rawCht > 0.0f) {
+            if (lastValidCht < 0.0f) {
+                lastValidCht = rawCht;
+            } else if (fabsf(rawCht - lastValidCht) < 25.0f) {
+                lastValidCht = rawCht;
             }
         }
     }
@@ -150,26 +172,34 @@ void loop() {
         if (afrValue < 9.0f) afrValue = 9.0f;
         else if (afrValue > 19.5f) afrValue = 19.5f;
 
-        // 4. Send robust NMEA-style telemetry stream ($MICROS;RPM;AFR;EGT*CHECKSUM)
+        // 4. Send robust NMEA-style telemetry stream ($MICROS;RPM;AFR;EGT;CHT*CHECKSUM)
         char afrBuf[10];
         char egtBuf[10];
+        char chtBuf[10];
         dtostrf(afrValue, 1, 2, afrBuf);
-        // E-05: lastValidEgt is initialised to -1.0f (sentinel = no valid reading).
-        // dtostrf(-1.0f) would write "-1.0" into the CSV log, which is not
-        // caught until post-processing. Send "0.0" instead — clean_egt_data()
-        // filters val <= 0 either way, but the raw log stays non-negative.
+
+        // E-05: lastValidEgt/Cht are initialised to -1.0f (sentinel = no valid reading).
+        // Send "0.0" instead — clean_egt_data() filters val <= 0 either way,
+        // keeping the raw CSV log strictly non-negative.
         if (lastValidEgt >= 0.0f) {
             dtostrf(lastValidEgt, 1, 1, egtBuf);
         } else {
             strncpy(egtBuf, "0.0", sizeof(egtBuf));
         }
 
-        char payload[48];
-        snprintf(payload, sizeof(payload), "%lu;%lu;%s;%s",
+        if (lastValidCht >= 0.0f) {
+            dtostrf(lastValidCht, 1, 1, chtBuf);
+        } else {
+            strncpy(chtBuf, "0.0", sizeof(chtBuf));
+        }
+
+        char payload[64];
+        snprintf(payload, sizeof(payload), "%lu;%lu;%s;%s;%s",
                  static_cast<unsigned long>(micros()),
                  static_cast<unsigned long>(calculatedRPM + 0.5f),
                  afrBuf,
-                 egtBuf);
+                 egtBuf,
+                 chtBuf);
 
         uint8_t checksum = 0;
         for (const char* p = payload; *p != '\0'; ++p) {

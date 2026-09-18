@@ -686,7 +686,7 @@ class TestLogMetadata(unittest.TestCase):
             # Test load_telemetry_csv
             df, loaded_meta = load_telemetry_csv(fpath)
             self.assertEqual(len(df), 2)
-            self.assertEqual(list(df.columns), ['Time', 'RPM', 'AFR', 'EGT', 'Speed_kmh', 'Lat', 'Lon', 'Alt', 'GPS_Fix'])
+            self.assertEqual(list(df.columns), ['Time', 'RPM', 'AFR', 'EGT', 'CHT', 'Speed_kmh', 'Lat', 'Lon', 'Alt', 'GPS_Fix'])
             self.assertEqual(loaded_meta["carb"]["main_jet_hd"], 125)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -847,6 +847,139 @@ class TestSubsecondTimestampsAndJitter(unittest.TestCase):
             self.assertAlmostEqual(logged_time, test_ts, places=4)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class TestCHTIntegration(unittest.TestCase):
+    """Test suite for MAX6675 CHT sensor integration, telemetry streaming, logging, and legacy resilience."""
+
+    def test_nmea_cht_telemetry_parsing(self):
+        """Verify NMEA telemetry parser extracts 5th field CHT and handles 4-field legacy streams."""
+        from hw.hardware_service import HardwareService
+
+        # Instantiating HardwareService with dummy paths
+        service = HardwareService(log_dir="/tmp", trip_log_dir="/tmp")
+
+        # 1. 5-Field NMEA line with CHT ($MICROS;RPM;AFR;EGT;CHT*CS)
+        payload = "12345678;4500.0;12.8;550.0;135.0"
+        cs = 0
+        for ch in payload:
+            cs ^= ord(ch)
+        line = f"${payload}*{cs:02X}"
+
+        success = service._parse_telemetry_line(line)
+        self.assertTrue(success)
+        self.assertEqual(service.current_micros, 12345678)
+        self.assertAlmostEqual(service.current_rpm, 4500.0)
+        self.assertAlmostEqual(service.current_afr, 12.8)
+        self.assertAlmostEqual(service.current_egt, 550.0)
+        self.assertAlmostEqual(service.current_cht, 135.0)
+
+        # 2. 4-Field NMEA line (legacy stream without CHT) -> CHT must default to 0.0
+        payload_legacy = "12345688;4600.0;12.6;555.0"
+        cs_legacy = 0
+        for ch in payload_legacy:
+            cs_legacy ^= ord(ch)
+        line_legacy = f"${payload_legacy}*{cs_legacy:02X}"
+
+        success_legacy = service._parse_telemetry_line(line_legacy)
+        self.assertTrue(success_legacy)
+        self.assertAlmostEqual(service.current_rpm, 4600.0)
+        self.assertAlmostEqual(service.current_cht, 0.0)
+
+        # 3. Invalid Checksum -> parse rejected
+        line_bad = f"${payload}*99"
+        self.assertFalse(service._parse_telemetry_line(line_bad))
+
+    def test_csv_logger_and_load_cht(self):
+        """Verify CSVLogger writes CHT column and load_telemetry_csv reads it back."""
+        import tempfile
+        import shutil
+        from data.logger import CSVLogger, load_telemetry_csv
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = CSVLogger(log_dir=temp_dir)
+            fpath = logger.start()
+            logger.log(rpm=5200, afr=12.7, egt=580.0, cht=142.5, speed=65.0, timestamp=1789494620.1234)
+            logger.stop()
+
+            df, meta = load_telemetry_csv(fpath)
+            self.assertEqual(len(df), 1)
+            self.assertIn("CHT", df.columns)
+            self.assertAlmostEqual(float(df["CHT"].iloc[0]), 142.5, places=1)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_legacy_csv_loading_injects_cht_zero(self):
+        """Verify legacy CSV without CHT column automatically gains CHT=0.0 and passes dyno calculations."""
+        import tempfile
+        import shutil
+        from data.logger import load_telemetry_csv
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Create a legacy CSV file without CHT
+            csv_path = os.path.join(temp_dir, "dyno_log_legacy.csv")
+            with open(csv_path, "w") as f:
+                f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                f.write("1789494600.0000,3500,12.5,500.0,43.4,0.0,0.0,100.0,1\n")
+                f.write("1789494600.1000,4000,12.6,510.0,49.6,0.0,0.0,100.0,1\n")
+                f.write("1789494600.2000,4500,12.7,520.0,55.8,0.0,0.0,100.0,1\n")
+
+            df, meta = load_telemetry_csv(csv_path)
+            self.assertIn("CHT", df.columns)
+            self.assertTrue((df["CHT"] == 0.0).all())
+
+            # Verify dyno math runs without KeyError
+            res = calculate_telemetry_metrics(df, gear=3)
+            self.assertIn("PS", res.columns)
+            self.assertIn("CHT", res.columns)
+            self.assertIn("CHT_cleaned", res.columns)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_clean_cht_data_filter(self):
+        """Verify clean_cht_data handles disconnected sensor codes (701, 705) and jumps > 35°C."""
+        from data.analyzer_logic import clean_cht_data
+
+        raw_cht = [120.0, 122.0, 701.0, 123.0, 175.0, 125.0, 0.0, 126.0]
+        df = pd.DataFrame({"CHT": raw_cht})
+        df_cleaned = clean_cht_data(df)
+
+        self.assertIn("CHT_cleaned", df_cleaned.columns)
+        cleaned = df_cleaned["CHT_cleaned"].tolist()
+        # 701.0 (disconnected MAX6675) should be replaced with last valid (122.0)
+        self.assertEqual(cleaned[2], 122.0)
+        # 175.0 (jump > 35°C from 123.0) should be suppressed
+        self.assertEqual(cleaned[4], 123.0)
+        # 0.0 should be replaced with last valid (125.0)
+        self.assertEqual(cleaned[6], 125.0)
+        self.assertEqual(cleaned[7], 126.0)
+
+    def test_trip_analyzer_cht_metrics(self):
+        """Verify analyze_trip_session computes max_cht, avg_cht, and includes CHT in timeline."""
+        n = 30
+        times = [1789494600.0 + i * 0.1 for i in range(n)]
+        df = pd.DataFrame({
+            "Time": times,
+            "RPM": np.linspace(3000, 6000, n),
+            "Speed_kmh": np.linspace(35, 75, n),
+            "AFR": np.full(n, 12.8),
+            "EGT": np.full(n, 520.0),
+            "CHT": np.linspace(110.0, 140.0, n),
+            "Lat": np.full(n, 48.137),
+            "Lon": np.full(n, 11.575),
+            "Alt": np.full(n, 520.0),
+            "GPS_Fix": np.full(n, True)
+        })
+
+        report = analyze_trip_session(df)
+        self.assertIn("max_cht", report)
+        self.assertIn("avg_cht", report)
+        self.assertAlmostEqual(report["max_cht"], 140.0, places=1)
+        self.assertGreater(report["avg_cht"], 120.0)
+        self.assertIn("cht", report["chart_timeline"])
+        self.assertEqual(len(report["chart_timeline"]["cht"]), n)
 
 
 if __name__ == '__main__':

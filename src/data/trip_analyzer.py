@@ -188,6 +188,9 @@ def analyze_trip_session(
     max_egt = float(vdf['EGT'].max()) if 'EGT' in vdf.columns and not vdf['EGT'].isna().all() else 0.0
     avg_egt = float(vdf['EGT'].mean()) if 'EGT' in vdf.columns and not vdf['EGT'].isna().all() else 0.0
 
+    max_cht = float(vdf['CHT'].max()) if 'CHT' in vdf.columns and not vdf['CHT'].isna().all() else 0.0
+    avg_cht = float(vdf['CHT'].mean()) if 'CHT' in vdf.columns and not vdf['CHT'].isna().all() else 0.0
+
     # 2D Heatmap Matrix
     heatmap = generate_afr_heatmap_matrix(df, stoich_afr=stoich_afr)
 
@@ -203,7 +206,8 @@ def analyze_trip_session(
         "rpm": sub['RPM'].round(0).tolist(),
         "speed": sub['Speed_kmh'].round(1).tolist() if 'Speed_kmh' in sub.columns else [],
         "afr": sub['AFR'].round(2).tolist(),
-        "egt": sub['EGT'].round(1).tolist() if 'EGT' in sub.columns else []
+        "egt": sub['EGT'].round(1).tolist() if 'EGT' in sub.columns else [],
+        "cht": sub['CHT'].round(1).tolist() if 'CHT' in sub.columns else []
     }
 
     return {
@@ -221,6 +225,8 @@ def analyze_trip_session(
         "max_afr": round(max_afr, 2),
         "max_egt": round(max_egt, 1),
         "avg_egt": round(avg_egt, 1),
+        "max_cht": round(max_cht, 1),
+        "avg_cht": round(avg_cht, 1),
         "fuel_type": fuel_type,
         "stoich_afr": stoich_afr,
         "carb_setup": carb_setup,

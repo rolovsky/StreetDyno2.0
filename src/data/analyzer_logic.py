@@ -225,6 +225,35 @@ def clean_egt_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def clean_cht_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Cleans system-related CHT measurement errors and ensures column presence for legacy logs."""
+    if "CHT" not in df.columns:
+        df["CHT"] = 0.0
+        df["CHT_cleaned"] = 0.0
+        return df
+
+    cleaned_cht = []
+    last_valid_cht = None
+
+    for val in df["CHT"]:
+        is_invalid = (val in [701.0, 705.0] or val <= 0.0 or np.isnan(val))
+        if is_invalid:
+            cleaned_cht.append(last_valid_cht if last_valid_cht is not None else 0.0)
+        else:
+            if last_valid_cht is None:
+                last_valid_cht = val
+                cleaned_cht.append(val)
+            else:
+                if last_valid_cht > 30.0 and abs(val - last_valid_cht) > 35.0:
+                    cleaned_cht.append(last_valid_cht)
+                else:
+                    cleaned_cht.append(val)
+                    last_valid_cht = val
+
+    df["CHT_cleaned"] = cleaned_cht
+    return df
+
+
 def smooth_signal(
     series: Union[pd.Series, np.ndarray, List[float]],
     window_length: int = 11,
@@ -361,6 +390,11 @@ def calculate_telemetry_metrics(
     rho = AIR_DENSITY
     eta = transmission_efficiency if transmission_efficiency is not None else TRANSMISSION_EFFICIENCY
     g = GRAVITY
+
+    # Legacy Log Guard: Ensure CHT column exists and is sanitized
+    if "CHT" not in df.columns:
+        df["CHT"] = 0.0
+    df = clean_cht_data(df)
 
     # 1. Determine active gear & gear ratio
     selected_gear = None
@@ -536,6 +570,9 @@ def detect_dyno_pull(
     - Minimum duration (>= 1.8s) or RPM span (>= 1500 RPM)
     Returns: (trimmed_df, is_valid_pull)
     """
+    if "CHT" not in df.columns:
+        df["CHT"] = 0.0
+
     if len(df) < 10:
         logger.warning("Segment zu kurz (<10 Datenpunkte). Pull verworfen.")
         return df, False

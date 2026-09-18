@@ -42,6 +42,7 @@ class TelemetryState:
     afr: float = 0.0
     afr_filtered: float = 0.0
     egt: float = 0.0
+    cht: float = 0.0
     speed_kmh: float = 0.0
     lat: float = 0.0
     lon: float = 0.0
@@ -59,6 +60,7 @@ class TelemetryState:
             "speed": round(self.speed_kmh, 1),
             "afr": round(self.afr_filtered, 2),
             "egt": round(self.egt, 0),
+            "cht": round(self.cht, 0),
             "lat": self.lat,
             "lon": self.lon,
             "alt": self.alt,
@@ -98,12 +100,13 @@ class HardwareService:
         self.current_rpm: float = 0.0
         self.current_afr: float = 0.0
         self.current_egt: float = 0.0
+        self.current_cht: float = 0.0
         self.last_serial_time: float = time.time()
         self._arduino_sync_time: float = 0.0
         self._arduino_sync_micros: int = 0
 
     def _parse_telemetry_line(self, line: str) -> bool:
-        """Parses $MICROS;RPM;AFR;EGT*CHECKSUM line with XOR checksum validation."""
+        """Parses $MICROS;RPM;AFR;EGT;CHT*CHECKSUM line with XOR checksum validation."""
         if not (line.startswith('$') and '*' in line):
             return False
         payload, checksum_str = line[1:].split('*', 1)
@@ -128,6 +131,7 @@ class HardwareService:
                 self.current_rpm = float(parts[1])
                 self.current_afr = float(parts[2])
                 self.current_egt = float(parts[3])
+                self.current_cht = float(parts[4]) if len(parts) >= 5 else 0.0
                 self.last_serial_time = time.time()
                 return True
             except (ValueError, TypeError):
@@ -187,8 +191,8 @@ class HardwareService:
             )
 
     def toggle_display_mode(self) -> str:
-        """Cycles through OLED display modes (RPM -> SPEED -> AFR -> EGT)."""
-        modes = ["RPM", "SPEED", "AFR", "EGT"]
+        """Cycles through OLED display modes (RPM -> SPEED -> AFR -> EGT -> CHT)."""
+        modes = ["RPM", "SPEED", "AFR", "EGT", "CHT"]
         curr = self.display.mode
         next_idx = (modes.index(curr) + 1) % len(modes) if curr in modes else 0
         new_mode = modes[next_idx]
@@ -266,6 +270,7 @@ class HardwareService:
                 self.current_rpm = 0.0
                 self.current_afr = 0.0
                 self.current_egt = 0.0
+                self.current_cht = 0.0
 
             # S-02: Apply EMA smoothing — ALPHA_* from config.py now active (was dead code).
             # On stall (rpm=0): decay at ×0.8 per loop instead of hard zero to avoid
@@ -283,6 +288,7 @@ class HardwareService:
             filtered_rpm = _ema_rpm
             filtered_afr = _ema_afr if _ema_afr > 0.0 else _raw_afr
             raw_egt = self.current_egt
+            raw_cht = self.current_cht
 
             # 4. Robust 3-Point Rolling Central Derivative (dRPM/dt)
             rpm_history.append((loop_now, filtered_rpm))
@@ -334,6 +340,7 @@ class HardwareService:
                 "rpm": filtered_rpm,
                 "afr": filtered_afr,
                 "egt": raw_egt,
+                "cht": raw_cht,
                 "speed": spd,
                 "lat": lat,
                 "lon": lon,
@@ -452,6 +459,7 @@ class HardwareService:
                 self.state.afr = self.current_afr
                 self.state.afr_filtered = filtered_afr
                 self.state.egt = raw_egt
+                self.state.cht = raw_cht
                 self.state.speed_kmh = dyno_spd if self.logger.is_logging else spd
                 self.state.lat = lat
                 self.state.lon = lon
@@ -469,6 +477,7 @@ class HardwareService:
                     rpm=round(filtered_rpm, 1),
                     afr=filtered_afr,
                     egt=raw_egt,
+                    cht=raw_cht,
                     speed=dyno_spd,
                     lat=lat,
                     lon=lon,
@@ -483,6 +492,7 @@ class HardwareService:
                     rpm=round(filtered_rpm, 1),
                     afr=filtered_afr,
                     egt=raw_egt,
+                    cht=raw_cht,
                     speed=spd,
                     lat=lat,
                     lon=lon,
@@ -500,6 +510,7 @@ class HardwareService:
                         speed=spd,
                         afr=filtered_afr,
                         egt=raw_egt,
+                        cht=raw_cht,
                         info="VMC 177",
                         gps_fix=fix,
                         is_logging=self.logger.is_logging

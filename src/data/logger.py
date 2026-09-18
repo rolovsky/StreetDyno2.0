@@ -121,6 +121,8 @@ def load_telemetry_csv(filepath: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Loads telemetry CSV with comment header support and extracts embedded metadata."""
     meta = read_log_metadata(filepath)
     df = pd.read_csv(filepath, comment="#")
+    if "CHT" not in df.columns:
+        df["CHT"] = 0.0
     return df, meta
 
 
@@ -219,7 +221,7 @@ class CSVLogger:
             f.write("# STREETDYNO_LOG_VERSION: 2.0\n")
             f.write(f"# RECORDED_AT: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"# SETUP_META: {meta_json}\n")
-            f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+            f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
 
             if pre_buffer:
                 for entry in pre_buffer:
@@ -227,12 +229,13 @@ class CSVLogger:
                     rpm = entry.get("rpm", 0.0)
                     afr = entry.get("afr", 0.0)
                     egt = entry.get("egt", 0.0)
+                    cht = entry.get("cht", 0.0)
                     spd = entry.get("speed", 0.0)
                     lat = entry.get("lat", 0.0)
                     lon = entry.get("lon", 0.0)
                     alt = entry.get("alt", 0.0)
                     fix = entry.get("fix", False)
-                    f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{spd:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
+                    f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{cht:.1f},{spd:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
                     self.samples_count += 1
 
         self.is_logging = True
@@ -267,7 +270,8 @@ class CSVLogger:
         lon: float = 0.0,
         alt: float = 0.0,
         fix: bool = False,
-        timestamp: Optional[Union[float, str]] = None
+        timestamp: Optional[Union[float, str]] = None,
+        cht: float = 0.0
     ) -> None:
         """Writes a single 10Hz telemetry timestep to the CSV file."""
         if self.is_logging and self.filepath:
@@ -276,7 +280,7 @@ class CSVLogger:
             else:
                 t_str = f"{time.time():.4f}"
             with open(self.filepath, "a", encoding="utf-8") as f:
-                f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
+                f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{cht:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
             self.samples_count += 1
 
 
@@ -319,7 +323,7 @@ class TripLogger:
             f.write("# STREETDYNO_LOG_VERSION: 2.0\n")
             f.write(f"# RECORDED_AT: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"# SETUP_META: {meta_json}\n")
-            f.write("Time,RPM,AFR,EGT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+            f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
 
         self.is_logging = True
         print(f"\n🛵 [TRIP-LOGGER] Kontinuierliche Blackbox-Fahrt gestartet mit Setup-Header: {self.filepath}")
@@ -360,7 +364,8 @@ class TripLogger:
         lon: float = 0.0,
         alt: float = 0.0,
         fix: bool = False,
-        timestamp: Optional[Union[float, str]] = None
+        timestamp: Optional[Union[float, str]] = None,
+        cht: float = 0.0
     ) -> None:
         """Appends a 10Hz telemetry sample to the trip file."""
         if self.is_logging and self.filepath:
@@ -369,7 +374,7 @@ class TripLogger:
             else:
                 t_str = f"{time.time():.4f}"
             with open(self.filepath, "a", encoding="utf-8") as f:
-                f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
+                f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{cht:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
             self.samples_count += 1
 
 

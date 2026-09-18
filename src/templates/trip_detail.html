@@ -160,6 +160,12 @@
             <div class="stat-label">Max EGT</div>
             <div class="stat-val" style="color:#ff7043;">{{ report.max_egt }} <span style="font-size:0.8rem;">°C</span></div>
         </div>
+        {% if report.max_cht is defined and report.max_cht > 0 %}
+        <div class="stat-card">
+            <div class="stat-label">Max CHT</div>
+            <div class="stat-val" style="color:#ff8a65;">{{ report.max_cht }} <span style="font-size:0.8rem;">°C</span></div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- 2D AFR Heatmap Matrix -->

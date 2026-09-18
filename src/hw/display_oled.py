@@ -36,14 +36,14 @@ class OLEDDisplay:
                 print(f"[X] OLED Initialisierungs-Fehler: {e}")
 
     def set_mode(self, new_mode):
-        """Wechselt zwischen RPM, SPEED, AFR und EGT"""
+        """Wechselt zwischen RPM, SPEED, AFR, EGT und CHT"""
         self.mode = new_mode
 
     def clear(self):
         if self.device:
             self.device.clear()
 
-    def show_status(self, rpm, speed, afr, egt, info, gps_fix, is_logging=False):
+    def show_status(self, rpm, speed, afr, egt, info, gps_fix, is_logging=False, cht=0.0):
         """Hauptmethode zum Zeichnen des Displays"""
         if not self.device:
             return
@@ -56,8 +56,9 @@ class OLEDDisplay:
                 speed_val = float(speed)
                 afr_val = float(afr)
                 egt_val = int(float(egt))
+                cht_val = int(float(cht))
             except (ValueError, TypeError):
-                rpm_val, speed_val, afr_val, egt_val = 0, 0.0, 0.0, 0
+                rpm_val, speed_val, afr_val, egt_val, cht_val = 0, 0.0, 0.0, 0, 0
 
             # --- 2. MODUS-LOGIK ---
             if self.mode == "RPM":
@@ -69,6 +70,9 @@ class OLEDDisplay:
             elif self.mode == "EGT":
                 label = "EGT"
                 val_str = f"{egt_val}C"
+            elif self.mode == "CHT":
+                label = "CHT"
+                val_str = f"{cht_val}C"
             else: # AFR Modus
                 label = "AFR"
                 val_str = f"{afr_val:.2f}"

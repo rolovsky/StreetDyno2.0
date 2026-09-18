@@ -149,21 +149,29 @@
         }
         @keyframes flash-border { 50% { opacity: 0.15; } }
 
-        /* --- 4 Main HUD Gauges Grid --- */
+        /* --- 5 Main HUD Gauges Grid --- */
         .hud-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
+            grid-auto-rows: 1fr;
             gap: 8px;
             flex: 1;
             min-height: 0;
             margin-bottom: 6px;
         }
+        @media (orientation: portrait) {
+            .hud-card.card-afr {
+                grid-column: span 2;
+            }
+        }
         @media (orientation: landscape) {
             .hud-grid {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(5, 1fr);
                 grid-template-rows: 1fr;
                 gap: 8px;
+            }
+            .hud-card.card-afr {
+                grid-column: span 1;
             }
         }
         .hud-card {
@@ -192,7 +200,7 @@
         }
         .hud-card .card-value {
             font-family: 'JetBrains Mono', monospace;
-            font-size: clamp(2.4rem, 7.8vw, 3.8rem);
+            font-size: clamp(2.0rem, 6.5vw, 3.4rem);
             font-weight: 800;
             line-height: 0.95;
             margin: auto 0;
@@ -209,6 +217,7 @@
         .card-rpm .card-value { color: #ff9800; text-shadow: 0 0 30px rgba(255,152,0,0.35); }
         .card-afr .card-value { color: #00e676; text-shadow: 0 0 30px rgba(0,230,118,0.35); }
         .card-egt .card-value { color: #ffd600; text-shadow: 0 0 30px rgba(255,214,0,0.35); }
+        .card-cht .card-value { color: #ff5722; text-shadow: 0 0 30px rgba(255,87,34,0.35); }
         @keyframes danger-blink {
             0% { background: #131318; border-color: #ff1744; }
             50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 35px rgba(255,23,68,0.8); }
@@ -400,7 +409,7 @@
         <div id="revBar" class="rev-bar-fill"></div>
     </div>
 
-    <!-- 4 Main Telemetry Cards -->
+    <!-- 5 Main Telemetry Cards -->
     <div class="hud-grid">
         <div class="hud-card card-speed">
             <div class="card-header"><span>Speed</span><span>GPS</span></div>
@@ -421,6 +430,11 @@
             <div class="card-header"><span>Abgastemp</span><span>MAX 630°C</span></div>
             <div id="egt" class="card-value">0</div>
             <div class="card-unit">°C (EGT)</div>
+        </div>
+        <div class="hud-card card-cht" id="cardCht">
+            <div class="card-header"><span>Zylinderkopf</span><span>MAX 170°C</span></div>
+            <div id="cht" class="card-value">0</div>
+            <div class="card-unit">°C (CHT)</div>
         </div>
     </div>
 
@@ -621,16 +635,19 @@
         let targetSpeed = 0.0;
         let targetAfr = 0.0;
         let targetEgt = 0.0;
+        let targetCht = 0.0;
 
         let displayRpm = 0.0;
         let displaySpeed = 0.0;
         let displayAfr = 0.0;
         let displayEgt = 0.0;
+        let displayCht = 0.0;
 
         const speedEl = document.getElementById('speed');
         const rpmEl = document.getElementById('rpm');
         const afrEl = document.getElementById('afr');
         const egtEl = document.getElementById('egt');
+        const chtEl = document.getElementById('cht');
         const revBar = document.getElementById('revBar');
         const shiftLight = document.getElementById('shiftLight');
 
@@ -649,9 +666,10 @@
                 displayAfr += (targetAfr - displayAfr) * 0.14;
             }
 
-            // 3. Smooth Speed & EGT
+            // 3. Smooth Speed, EGT & CHT
             displaySpeed += (targetSpeed - displaySpeed) * 0.25;
             displayEgt += (targetEgt - displayEgt) * 0.18;
+            displayCht += (targetCht - displayCht) * 0.18;
 
             // --- Render Numbers ---
             if (rpmEl) {
@@ -666,6 +684,9 @@
             }
             if (egtEl) {
                 egtEl.innerText = (displayEgt > 0) ? Math.round(displayEgt) : '0';
+            }
+            if (chtEl) {
+                chtEl.innerText = (displayCht > 0) ? Math.round(displayCht) : '0';
             }
 
             // Graphical Rev-Bar: continuous sweep
@@ -700,6 +721,7 @@
                     targetSpeed = (typeof d.speed === 'number') ? d.speed : 0.0;
                     targetAfr = (typeof d.afr === 'number') ? d.afr : 0.0;
                     targetEgt = (typeof d.egt === 'number') ? d.egt : 0.0;
+                    targetCht = (typeof d.cht === 'number') ? d.cht : 0.0;
 
                     let isDanger = false;
                     const cardAfr = document.getElementById('cardAfr');
@@ -736,6 +758,16 @@
                             isDanger = true;
                         } else {
                             cardEgt.classList.remove('card-danger');
+                        }
+                    }
+
+                    const cardCht = document.getElementById('cardCht');
+                    if (cardCht) {
+                        if (targetCht >= 170.0) {
+                            cardCht.classList.add('card-danger');
+                            isDanger = true;
+                        } else {
+                            cardCht.classList.remove('card-danger');
                         }
                     }
 
