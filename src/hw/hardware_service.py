@@ -179,6 +179,7 @@ class HardwareService:
                 afr=self.state.afr,
                 afr_filtered=self.state.afr_filtered,
                 egt=self.state.egt,
+                cht=self.state.cht,
                 speed_kmh=self.state.speed_kmh,
                 lat=self.state.lat,
                 lon=self.state.lon,

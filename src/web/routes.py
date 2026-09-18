@@ -583,7 +583,7 @@ def api_data():
         data = state.to_dict()
     else:
         data = {
-            "rpm": 0, "speed": 0.0, "afr": 0.0, "egt": 0,
+            "rpm": 0, "speed": 0.0, "afr": 0.0, "egt": 0, "cht": 0,
             "lat": 0.0, "lon": 0.0, "alt": 0.0, "fix": False,
             "is_logging": False, "status": "OFFLINE"
         }
