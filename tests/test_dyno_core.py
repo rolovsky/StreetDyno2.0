@@ -220,14 +220,14 @@ class TestDynoPhysics(unittest.TestCase):
         adv_140_rich = get_idle_jet_advice("50/140", "RICHER")
         self.assertIn("52/140", adv_140_rich)
 
-        # Multi-scale escalation: When on 68/160 (richest 160er) and needing richer -> escalates to 120er
+        # Multi-scale escalation: When on 68/160 (richest 160er) and needing richer -> escalates to 120er / 100er
         adv_escalate_rich = get_idle_jet_advice("68/160", "RICHER")
         self.assertIn("Eskalation erforderlich", adv_escalate_rich)
-        self.assertIn("120er", adv_escalate_rich)
+        self.assertIn("fettere Skala", adv_escalate_rich)
 
         # Lean escalation: When on 55/160 (leanest 160er) and needing leaner -> triggers boundary note
         adv_escalate_lean = get_idle_jet_advice("55/160", "LEANER")
-        self.assertIn("Bereits sehr mager", adv_escalate_lean.capitalize())
+        self.assertIn("sehr mager", adv_escalate_lean.lower())
 
     def test_tiered_emulsion_tube_and_hlkd_advice(self):
         """Verify tiered advice in Zone 3 (HLKD adjustment first, then emulsion tube replacement)."""

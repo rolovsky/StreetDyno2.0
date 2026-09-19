@@ -41,7 +41,11 @@ DELLORTO_SI_IDLE_JETS = [
     {"name": "42/120", "fuel": 42, "air": 120, "scale": 120, "ratio": 120.0 / 42.0},  # 2.86
     {"name": "45/120", "fuel": 45, "air": 120, "scale": 120, "ratio": 120.0 / 45.0},  # 2.67
     {"name": "48/120", "fuel": 48, "air": 120, "scale": 120, "ratio": 120.0 / 48.0},  # 2.50
-    {"name": "50/120", "fuel": 50, "air": 120, "scale": 120, "ratio": 120.0 / 50.0},  # 2.40 (Sehr fett)
+    {"name": "50/120", "fuel": 50, "air": 120, "scale": 120, "ratio": 120.0 / 50.0},  # 2.40
+    {"name": "55/120", "fuel": 55, "air": 120, "scale": 120, "ratio": 120.0 / 55.0},  # 2.18 (Sehr fett)
+
+    # 100er Skala (T5 / Rally / Extrem fett)
+    {"name": "50/100", "fuel": 50, "air": 100, "scale": 100, "ratio": 100.0 / 50.0},  # 2.00 (Extrem fett)
 ]
 
 
