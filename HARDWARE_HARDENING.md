@@ -4,6 +4,22 @@
 
 ---
 
+## 0. Aktueller Hardware- & Entstörungs-Status (Vespa-Prüfstand)
+
+Stand: **September 2026**
+
+| Baugruppe / Maßnahme | Status | Bauteile & Technische Wirkung |
+| :--- | :---: | :--- |
+| **MAX6675 EGT-Filterung** | ✅ **ERLEDIGT** | **100 nF X7R Keramikkondensator** direkt parallel an den Schraubklemmen T+ und T- installiert. Beseitigt hochfrequente Zündspikes und unterdrückt 701°C/705°C-Spikes des Konverters wirksam an der Hardware-Wurzel. |
+| **KOSO Lambda ADC-Pufferung** | ✅ **ERLEDIGT** | **100 nF Keramikkondensator** an Arduino Pin A0 gegen GND verbaut. Glättet den Analogeingang gegen PWM-Heizertakt-Rippel und Schaltspitzen. |
+| **Zündungs-EMI-Dämpfung (Kabel)** | ✅ **ERLEDIGT** | **Entstörtes Zündkabel mit integriertem Widerstandskern** verbaut. Dämpft steile Flanken ($dU/dt$) und HF-Abstrahlung der Zündspule direkt an der Quelle vor der Karosserieausbreitung. |
+| **Zündkerzen-Entstörwiderstand** | ⏳ *Backlog* | Kontrolle der montierten Zündkerze auf "R"-Kennzeichnung (z. B. NGK BR8ES / BR9ES mit integriertem 5 kΩ Entstörwiderstand als sekundäres HF-Dämpfungsglied). |
+| **Breitbandlambda Sternmasse-Audit** | ⏳ *Backlog* | Messtechnische Prüfung der strikten Sternmasse: Heizer-GND (1,5 A Laststrom) zwingend separat von Sensor-Signal-GND führen, um Nullpunktverschiebungen auf A0 auszuschließen. |
+| **12V-Bordnetz-Schutzschaltung** | ⏳ *Backlog* | Einbau der Schutzstufe: TVS-Diode SMBJ24A + 1000 µF Low-ESR Pufferelko vor dem 5,15V DC-DC Step-Down Wandler zur Verhinderung von Brownout-Reboots an der Ampel. |
+| **Mechanische Entkopplung** | ⏳ *Backlog* | Montage des IP65-Gehäuses auf M4/M5 Silentblöcken (45–55 ShA) und Zugentlastung des Kabelbaums mit KFZ-Gewebeband. |
+
+---
+
 ## 1. Einleitung & physikalische Herausforderungen auf der Vespa
 
 Der Einsatz von Mikroelektronik (Raspberry Pi Zero 2 W, Arduino Nano ATmega328P, empfindliche Sensoren) an einem klassischen Vespa-Zweitakter stellt höchste Anforderungen an die Hardware-Architektur:
@@ -113,6 +129,14 @@ Bei extremen Zündstörungen (z. B. Rennzündungen mit variabler Frühzündung) 
   $$f_{\max} = \frac{1}{0.0015\,\text{s}} = 666.6\,\text{Hz} \implies \text{RPM}_{\max} = 40.000\,\text{U/min}$$
   Prellimpulse und Nachschwingungen der Zündspule (< 1500 µs nach dem Hauptfunken) werden im ISR hardwarenah ignoriert.
 
+### 3.4 Zündungs-Entstörung an der Quelle (Kabel & Zündkerze)
+* **Status: ✅ ERLEDIGT — Entstörtes Zündkabel mit Widerstandskern montiert:**
+  - Herkömmliche reine Kupfer-Zündkabel übertragen steile Stromflanken ($dU/dt$) der Entladung völlig ungedämpft und wirken als Breitband-Sendeantenne für HF-Störungen (10 MHz bis über 300 MHz).
+  - Das verbaute Zündkabel mit integriertem Widerstandskern dämpft diese Stromspitzen bereits an der Austrittsstelle der Hochspannung und senkt die Störfeldstärke im Motorraum drastisch.
+* **Status: ⏳ BACKLOG — Kontrolle Zündkerze (R-Kennzeichnung):**
+  - Prüfen / Umrüsten auf Zündkerze mit integriertem 5 kΩ Entstörwiderstand (z. B. **NGK BR8ES** oder **BR9ES**).
+  - Die Kombination aus entstörtem Zündkabel und R-Zündkerze bildet ein zweistufiges Dämpfungsglied, das Rückwirkungen auf die CDI-Pickup-Leitung und Sensorik um > 20 dB minimiert.
+
 ---
 
 ## 4. EGT (Abgastemperatur) & CHT (Zylinderkopftemperatur) mit MAX6675
@@ -124,12 +148,16 @@ Das Standard-K-Typ-Thermoelement besteht aus zwei Drähten (Chromel / Alumel).
 
 ### 4.2 MAX6675 Entstörung & Filterung
 
+> [!NOTE]
+> **Status: ✅ ERLEDIGT — 100 nF X7R Keramikkondensator montiert**
+> Der 100 nF Keramikkondensator ist direkt parallel an den Eingangsklemmen T+ und T- installiert. In Verbindung mit dem Software-Filter in `clean_egt_data()` (`analyzer_logic.py`) werden HF-Störungen wirksam unterdrückt und Abrisswerte (701°C / 705°C) verhindert.
+
 ```
 Thermoelement K-Typ (Ungrounded)
   T+ ────────┬────────────────────────> MAX6675 T+
              │
            ┌─┴───────────────────┐
-           │ 100 nF Keramik (X7R)│
+           │ 100 nF Keramik (X7R)│  <── [INSTALLIERT]
            └─┬───────────────────┘
              │
   T- ────────┴────────────────────────> MAX6675 T-
@@ -137,7 +165,7 @@ Thermoelement K-Typ (Ungrounded)
                                      MAX6675 GND
 ```
 
-1. **100 nF Filterkondensator:** Löten Sie einen **100 nF SMD- oder Vielschicht-Keramikkondensator (X7R)** direkt über die Eingangsklemmen T+ und T- des MAX6675-Breakouts. Dies schließt hochfrequente Gleichtaktstörungen kurz.
+1. **100 nF Filterkondensator:** Löten oder klemmen Sie einen **100 nF SMD- oder Vielschicht-Keramikkondensator (X7R)** direkt über die Eingangsklemmen T+ und T- des MAX6675-Breakouts. Dies schließt hochfrequente Gleichtaktstörungen kurz.
 2. **Kompensationsleitung:** Kürzen Sie das Thermoelementkabel niemals mit normalen Kupferkabeln! Jede Übergangsstelle zwischen Thermodraht und Kupfer erzeugt eine ungewollte Vergleichsstelle (Seebeck-Effekt), die die Temperatur um zig Grad verfälscht.
 3. **SPI-Leitungen (SCK, CS, SO):** Halten Sie die Leitungen zwischen Arduino und MAX6675 kürzer als 15 cm. Bei längeren Strecken setzen Sie 4,7 kΩ Pull-Up-Widerstände an CS und SCK.
 
@@ -152,7 +180,14 @@ Fließt dieser Heizstrom über ein gemeinsames Massekabel mit dem Arduino zurüc
 $$\Delta U = R \cdot I = 0.1\,\Omega \cdot 1.5\,\text{A} = 0.15\,\text{V}$$
 Bei einer analogen 0–5 V Kennlinie (wobei 0 V = AFR 10 und 5 V = AFR 20 bedeutet) entspricht eine Verschiebung von 0,15 V einem massiven Messfehler von **0,3 AFR Punkten**! Der Motor scheint scheinbar abzumagern, sobald die Heizung taktet.
 
-### 5.2 Sternmasse-Schaltplan (*Star Grounding*)
+#### 5.2 Sternmasse-Schaltplan (*Star Grounding*)
+
+> [!NOTE]
+> **Status: ✅ ERLEDIGT — 100 nF ADC-Pufferkondensator an A0 montiert**
+> Der 100 nF Glättungskondensator ist an Pin A0 gegen GND installiert und filtert PWM-Heizertakt-Spitzen aus dem KOSO 0–5 V Signal.
+>
+> **Status: ⏳ BACKLOG — Sternmasse-Audit**
+> Das messtechnische Audit (Verifikation, dass Heizer-GND und Sensor-GND separat zum Sternpunkt geführt sind und kein Massestromversatz auftritt) steht vor dem finalen Fahrbetrieb noch an.
 
 ```
                          [Batterie / 12V Masse]
@@ -170,7 +205,7 @@ Bei einer analogen 0–5 V Kennlinie (wobei 0 V = AFR 10 und 5 V = AFR 20 bedeut
                                       [Arduino GND]       [Lambda Sensor-GND]
                                             │             (Signal Ground)
                                             │                   │
-                                            └───[100 nF]────────┤
+                                            └───[100 nF]────────┤  <── [INSTALLIERT]
                                                   │             │
                                                 Pin A0 <────────┘ (Analog 0-5V)
 ```
@@ -210,7 +245,7 @@ Bei einer analogen 0–5 V Kennlinie (wobei 0 V = AFR 10 und 5 V = AFR 20 bedeut
              [Gummipuffer / Silentblock]
           ═══════════╤═══════════
                      │
-       [StreetDyno IP65-Gehäuse]
+        [StreetDyno IP65-Gehäuse]
 ```
 
 ### 7.2 Kabelbäume & Steckverbinder
@@ -221,13 +256,18 @@ Bei einer analogen 0–5 V Kennlinie (wobei 0 V = AFR 10 und 5 V = AFR 20 bedeut
 
 ---
 
-## 8. Checkliste zur Inbetriebnahme
+## 8. Checkliste & Umsetzungs-Tracking
 
-Vor der ersten Testfahrt am Fahrzeug folgende Prüfpunkte abarbeiten:
+### 8.1 Bereits montiert & erledigt (Hardware-Entstörung)
+- [x] **MAX6675 EGT-Filterung:** 100 nF X7R Keramikkondensator direkt parallel an den Klemmen T+ und T- installiert (beseitigt HF-Einstreuungen und 701°C/705°C-Spikes).
+- [x] **KOSO Lambda ADC-Pufferung:** 100 nF Keramikkondensator an Pin A0 gegen GND verbaut (stabilisiert den ADC-Eingang gegen Spannungsrippel und Cross-Talk).
+- [x] **Zündungs-EMI-Dämpfung:** Entstörtes Zündkabel mit integriertem Widerstandskern verbaut (dämpft steile Flanken und HF-Abstrahlung der Zündspule direkt an der Quelle).
 
-- [ ] **Bordnetz:** Mit Multimeter prüfen, ob am Eingang des Step-Down-Reglers im Leerlauf mindestens 9 V und bei Vollgas maximal 16 V anliegen.
-- [ ] **Ausgangsspannung:** Am 5V-Ausgang des Step-Downs exakt 5,10 V bis 5,15 V unter Last gemessen.
-- [ ] **EGT-Sensor:** Durchgangsprüfung mit Multimeter: Zwischen den beiden Sensorleitungen (T+/T-) und dem Auspuffrohr darf **kein Durchgang (Widerstand = $\infty$)** messbar sein.
-- [ ] **Drehzahlsignal:** Signal an Pin D2 prüfen; im Standgas saubere, jitterfreie Anzeige im Cockpit (ca. 1.200–1.400 U/min ohne Spitzen auf 10.000 U/min).
-- [ ] **Lambda-Masse:** Spannungsabfall zwischen Arduino GND und Controller Sensor-GND bei laufendem Motor und aktiver Sondenheizung messen ($\Delta U < 5\,\text{mV}$).
-- [ ] **Mechanik:** Alle Schrauben mit Loctite 243 (mittelfest) gesichert; u.FL-Stecker am GPS elastisch fixiert.
+### 8.2 Noch offen im Backlog (Spätere Schritte & Vor-Fahrt-Prüfung)
+- [ ] **Kontrolle Zündkerze:** Prüfen auf "R"-Kennzeichnung (z. B. NGK BR8ES / BR9ES mit integriertem 5 kΩ Entstörwiderstand als zweites Entstörglied).
+- [ ] **Breitband-Lambda Masse-Audit:** Verifikation der strikten Sternmasse (Heizer-GND 1,5 A separat von Signal-GND; Spannungsabfall zwischen Arduino GND und Sensor-GND bei aktiver Heizung $\Delta U < 5\,\text{mV}$).
+- [ ] **12V-Bordnetz-Schutz:** TVS-Diode SMBJ24A + 1000 µF Low-ESR Pufferelko vor dem 5,15V DC-DC Wandler gegen Brownouts im Standgas.
+- [ ] **Mechanische Entkopplung:** Schwingungsentkopplung des IP65-Gehäuses über M4/M5 Silentblöcke (45–55 ShA) und Zugentlastung des Kabelbaums mit KFZ-Gewebeband.
+- [ ] **Bordnetz-Spannungsprüfung:** Mit Multimeter prüfen: Am Eingang des Step-Downs im Leerlauf $\ge 9\,\text{V}$, bei Vollgas $\le 16\,\text{V}$; am 5V-Ausgang exakt 5,10 V bis 5,15 V unter Last.
+- [ ] **EGT-Potenzialfreiheit:** Durchgangsprüfung mit Multimeter: Zwischen den Sensorleitungen (T+/T-) und Auspuffrohr darf kein Durchgang ($R = \infty$) messbar sein.
+- [ ] **GPS-HF-Sicherung:** u.FL-Stecker am GPS-Modul mit elastischem Kleber/Silikon vibrationssicher fixieren.
