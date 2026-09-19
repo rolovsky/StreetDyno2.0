@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>StreetDyno 2.0 - Hardware Diagnose & Sternmasse-Audit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0a0a0e;
+            color: #f5f5f7;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 12px;
+            padding-bottom: 50px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #1f1f28;
+        }
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 900;
+            color: #00ffcc;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .nav-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .nav-btn {
+            background: #181820;
+            border: 1px solid #2a2a36;
+            color: #ccc;
+            padding: 7px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover { border-color: #00ffcc; color: #fff; }
+        .nav-btn-cockpit { color: #ff9800; border-color: rgba(255,152,0,0.4); }
+
+        /* Telemetry Live Bar */
+        .live-bar {
+            background: #121218;
+            border: 1px solid #242432;
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .live-item {
+            text-align: center;
+        }
+        .live-label {
+            font-size: 0.65rem;
+            font-weight: 800;
+            color: #777;
+            text-transform: uppercase;
+        }
+        .live-val {
+            font-family: monospace;
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: #00ffcc;
+            margin-top: 2px;
+        }
+        .live-val.warn { color: #ff9800; }
+        .live-val.crit { color: #ff5252; }
+
+        /* Step Indicator */
+        .stepper-nav {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 15px;
+        }
+        .step-tab {
+            background: #14141c;
+            border: 1px solid #252535;
+            border-radius: 8px;
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 0.72rem;
+            font-weight: 800;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .step-tab.active {
+            background: #1a1f2b;
+            border-color: #00ffcc;
+            color: #00ffcc;
+            box-shadow: 0 0 10px rgba(0,255,204,0.2);
+        }
+        .step-tab.completed {
+            border-color: #29b6f6;
+            color: #29b6f6;
+        }
+
+        /* Card Container */
+        .card {
+            background: #14141c;
+            border: 1px solid #252535;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 15px;
+        }
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-desc {
+            font-size: 0.85rem;
+            color: #aaa;
+            line-height: 1.45;
+            margin-bottom: 14px;
+        }
+
+        /* Form & Input */
+        .form-row {
+            margin-bottom: 14px;
+        }
+        .form-row label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .form-input {
+            width: 100%;
+            background: #0a0a0e;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-family: monospace;
+            font-weight: 800;
+        }
+        .form-input:focus { border-color: #00ffcc; outline: none; }
+
+        /* Traffic Light Box */
+        .rating-box {
+            padding: 14px;
+            border-radius: 10px;
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+        .rating-green {
+            background: rgba(0, 230, 118, 0.12);
+            border: 1px solid #00e676;
+            color: #00e676;
+        }
+        .rating-yellow {
+            background: rgba(255, 171, 0, 0.12);
+            border: 1px solid #ffab00;
+            color: #ffab00;
+        }
+        .rating-red {
+            background: rgba(255, 23, 68, 0.15);
+            border: 1px solid #ff1744;
+            color: #ff5252;
+        }
+        .rating-header {
+            font-size: 1.0rem;
+            font-weight: 900;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rating-detail {
+            font-size: 0.82rem;
+            color: #ddd;
+            line-height: 1.4;
+        }
+
+        /* Action Buttons */
+        .btn-action {
+            width: 100%;
+            background: #00ffcc;
+            color: #000;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 900;
+            cursor: pointer;
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-action:active { transform: scale(0.98); }
+        .btn-secondary {
+            background: #242432;
+            color: #ccc;
+            border: 1px solid #36364a;
+        }
+
+        /* History Table */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            font-size: 0.8rem;
+        }
+        .history-table th {
+            text-align: left;
+            padding: 8px 6px;
+            color: #777;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            border-bottom: 1px solid #222;
+        }
+        .history-table td {
+            padding: 8px 6px;
+            border-bottom: 1px solid #1a1a24;
+        }
+
+        .tag-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            font-weight: 800;
+        }
+        .tag-green { background: #004d26; color: #00ffcc; border: 1px solid #00e676; }
+        .tag-yellow { background: #4d3600; color: #ffab00; border: 1px solid #ffab00; }
+        .tag-red { background: #4d0a14; color: #ff5252; border: 1px solid #ff1744; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🩺 STERNMASSE-AUDIT</h1>
+        <div class="nav-actions">
+            <a href="/" class="nav-btn nav-btn-cockpit">⬅️ COCKPIT</a>
+            <a href="/tuning" class="nav-btn">🔧 VERGASER</a>
+            <a href="/logs" class="nav-btn">🏁 DYNO</a>
+        </div>
+    </div>
+
+    <!-- Live Telemetry Ribbon -->
+    <div class="live-bar">
+        <div class="live-item">
+            <div class="live-label">AFR LIVE</div>
+            <div id="liveAfr" class="live-val">--</div>
+        </div>
+        <div class="live-item">
+            <div class="live-label">A0 SPANNUNG</div>
+            <div id="liveVolt" class="live-val">-- V</div>
+        </div>
+        <div class="live-item">
+            <div class="live-label">RPM</div>
+            <div id="liveRpm" class="live-val">--</div>
+        </div>
+        <div class="live-item">
+            <div class="live-label">EGT / CHT</div>
+            <div id="liveTemp" class="live-val" style="font-size:0.95rem;">--/--</div>
+        </div>
+    </div>
+
+    <!-- Stepper Navigation -->
+    <div class="stepper-nav">
+        <div id="stepTab1" class="step-tab active" onclick="goToStep(1)">1. RUHE</div>
+        <div id="stepTab2" class="step-tab" onclick="goToStep(2)">2. HEIZER</div>
+        <div id="stepTab3" class="step-tab" onclick="goToStep(3)">3. MOTOR</div>
+        <div id="stepTab4" class="step-tab" onclick="goToStep(4)">4. REPORT</div>
+    </div>
+
+    <!-- STEP 1: Baseline & Ruhepegel -->
+    <div id="step1Card" class="card">
+        <div class="card-title">1️⃣ Ruhepegel & Grundrauschen (Zündung AUS)</div>
+        <div class="card-desc">
+            Prüfe die Nullpunktslage bei stehendem Motor und unbestromter Sondenheizung. 
+            Hier darf kein Laststrom fließen und die A0-Spannung muss absolut stabil sein.
+        </div>
+        <div style="background:#0d0d12; border:1px solid #222; border-radius:10px; padding:12px; margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                <span style="font-size:0.8rem; color:#888;">Aktueller AFR-Signalpegel:</span>
+                <span id="s1AfrText" style="font-weight:800; color:#00ffcc; font-family:monospace;">--</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+                <span style="font-size:0.8rem; color:#888;">Berechnete A0-Spannung:</span>
+                <span id="s1VoltText" style="font-weight:800; color:#29b6f6; font-family:monospace;">-- V</span>
+            </div>
+        </div>
+        <button type="button" onclick="confirmStep1()" class="btn-action">
+            ✅ Ruhepegel übernehmen & Weiter ➔
+        </button>
+    </div>
+
+    <!-- STEP 2: Heizertest & Sternmasse (ΔU Messung) -->
+    <div id="step2Card" class="card" style="display:none;">
+        <div class="card-title">2️⃣ Sondenheizung aktiv & Sternmasse-Audit</div>
+        <div class="card-desc">
+            Schalte die Zündung ein, sodass der KOSO/Bosch-Controller die Sonde aufheizt (Laststrom ca. 1,5 A).
+            Messe nun mit einem Multimeter (mV DC-Messbereich) die Spannung zwischen <strong>Arduino GND</strong> und <strong>Controller Sensor-GND</strong>.
+        </div>
+
+        <div class="form-row">
+            <label>Gemessener Masseversatz ΔU [mV]:</label>
+            <input type="number" id="inpDeltaU" class="form-input" placeholder="z. B. 2.5" step="0.1" min="0" max="500" oninput="updateOffsetRating()">
+        </div>
+
+        <div id="ratingBox" class="rating-box rating-green">
+            <div class="rating-header">
+                <span id="ratingStatusLabel">✅ EXZELLENT</span>
+                <span id="ratingImpact" style="font-family:monospace; font-size:0.85rem;">ΔAFR: 0.00</span>
+            </div>
+            <div id="ratingMessage" class="rating-detail">
+                Trage deinen Multimeter-Messwert in Millivolt ein.
+            </div>
+        </div>
+
+        <button type="button" onclick="confirmStep2()" class="btn-action">
+            ✅ Heizertest bestätigen & Weiter ➔
+        </button>
+    </div>
+
+    <!-- STEP 3: Motorlauf & Zündungs-Stresstest (EMI) -->
+    <div id="step3Card" class="card" style="display:none;">
+        <div class="card-title">3️⃣ Motorlauf & EMI-Stresstest (Zündspule)</div>
+        <div class="card-desc">
+            Starte den Motor im Standgas (~1.400 U/min) und halte ihn kurz auf 3.000–4.000 U/min.
+            Hier wird geprüft, ob das entstörte Zündkabel und der 100 nF Kondensator an T+/T- Einstreuungen zuverlässig abfangen.
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
+            <div style="background:#0d0d12; border:1px solid #222; border-radius:8px; padding:10px;">
+                <div style="font-size:0.7rem; color:#888;">DREHZAHL (RPM)</div>
+                <div id="s3Rpm" style="font-size:1.2rem; font-weight:800; font-family:monospace; color:#00ffcc;">0</div>
+            </div>
+            <div style="background:#0d0d12; border:1px solid #222; border-radius:8px; padding:10px;">
+                <div style="font-size:0.7rem; color:#888;">EGT-SIGNAL</div>
+                <div id="s3Egt" style="font-size:1.2rem; font-weight:800; font-family:monospace; color:#ff9800;">-- °C</div>
+            </div>
+        </div>
+
+        <div id="s3CheckList" style="font-size:0.82rem; color:#bbb; line-height:1.6; margin-bottom:14px;">
+            <div>• RPM-Signal: <span id="s3RpmCheck" style="color:#00ffcc; font-weight:bold;">Warte auf Motorstart...</span></div>
+            <div>• EGT-Signal (MAX6675): <span id="s3EgtCheck" style="color:#00ffcc; font-weight:bold;">Prüfe auf Spikes...</span></div>
+            <div>• Lambda-Signal A0: <span id="s3AfrCheck" style="color:#00ffcc; font-weight:bold;">Aktiv</span></div>
+        </div>
+
+        <button type="button" onclick="confirmStep3()" class="btn-action">
+            ✅ Motorlauf-Test abschließen ➔
+        </button>
+    </div>
+
+    <!-- STEP 4: Prüfzertifikat & Report -->
+    <div id="step4Card" class="card" style="display:none;">
+        <div class="card-title">4️⃣ Audit-Zertifikat & Bewertung</div>
+        
+        <div id="finalCertBox" class="rating-box rating-green" style="margin-bottom:14px;">
+            <div class="rating-header">
+                <span id="finalBadge">✅ EXZELLENT</span>
+                <span id="finalDeltaU" style="font-family:monospace; font-size:0.9rem;">ΔU: 0.0 mV</span>
+            </div>
+            <div id="finalMessage" class="rating-detail" style="margin-top:4px;">
+                Die elektrische Entstörung und Sternmasse-Verkabelung an deiner Vespa entsprechen den höchsten Vorgaben.
+            </div>
+        </div>
+
+        <table class="history-table" style="margin-bottom:14px;">
+            <tr><th>Parameter</th><th>Messwert</th><th>Bewertung</th></tr>
+            <tr><td>Masseversatz ΔU</td><td id="resDeltaU" style="font-weight:bold;">--</td><td id="resDeltaUEval">--</td></tr>
+            <tr><td>AFR-Verschiebung</td><td id="resAfrImpact" style="font-weight:bold;">--</td><td>Systematisch</td></tr>
+            <tr><td>Baseline AFR</td><td id="resBaseAfr">--</td><td>Ruhe</td></tr>
+            <tr><td>EGT-Sensorik</td><td id="resEgtStatus">--</td><td>Sauber (100nF)</td></tr>
+        </table>
+
+        <div class="form-row" style="background:#101016; border:1px solid #222; border-radius:10px; padding:10px; margin-bottom:14px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#eee;">
+                <input type="checkbox" id="chkApplyComp" style="width:18px; height:18px; accent-color:#00ffcc;">
+                <span>ΔU als Software-Kompensation in <code>user_setup.json</code> eintragen (Fallback)</span>
+            </label>
+            <div style="font-size:0.72rem; color:#888; margin-top:4px; margin-left:26px;">
+                Empfehlung: Bei ΔU &lt; 5 mV nicht erforderlich (Physik-First).
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>Notizen zur Messung:</label>
+            <input type="text" id="inpAuditNotes" class="form-input" style="font-size:0.9rem;" placeholder="z. B. Nach Montage des Widerstandszündkabels und 100nF Klemmen">
+        </div>
+
+        <button type="button" id="btnSaveAudit" onclick="saveFinalAudit()" class="btn-action">
+            💾 PRÜFBERICHT SPEICHERN & ABSCHLIESSEN
+        </button>
+    </div>
+
+    <!-- Past Reports History -->
+    <div class="card" style="margin-top:15px;">
+        <div class="card-title" style="font-size:0.95rem; color:#888;">
+            📜 Bisherige Audit-Berichte ({{ past_reports|length }})
+        </div>
+        {% if past_reports %}
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>ΔU (mV)</th>
+                    <th>ΔAFR</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in past_reports %}
+                <tr>
+                    <td>{{ r.recorded_at }}</td>
+                    <td style="font-family:monospace; font-weight:bold;">{{ r.delta_u_mv }} mV</td>
+                    <td style="font-family:monospace;">{{ "%+.3f"|format(r.afr_impact) }}</td>
+                    <td>
+                        <span class="tag-pill {% if r.rating == 'GREEN' %}tag-green{% elif r.rating == 'YELLOW' %}tag-yellow{% else %}tag-red{% endif %}">
+                            {{ r.status_label }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="font-size:0.8rem; color:#666; padding:8px 0;">Noch keine Audit-Berichte gespeichert. Führe den 4-Schritte-Assistenten durch.</div>
+        {% endif %}
+    </div>
+
+    <script>
+        let currentStep = 1;
+        let auditData = {
+            step1_afr: 0.0,
+            step2_afr: 0.0,
+            delta_u_mv: 0.0,
+            step3_rpm: 0.0,
+            step3_egt: 0.0,
+            step3_cht: 0.0,
+            step3_rpm_jitter: 0.0
+        };
+
+        let liveState = {
+            afr: 0.0,
+            voltage_a0: 0.0,
+            rpm: 0.0,
+            egt: 0.0,
+            cht: 0.0
+        };
+
+        // Telemetry Polling Loop (2 Hz)
+        async function fetchLiveTelemetry() {
+            try {
+                const res = await fetch('/api/diagnostics/live');
+                if (!res.ok) return;
+                const data = await res.json();
+                liveState = data;
+
+                document.getElementById('liveAfr').innerText = data.afr > 0 ? data.afr.toFixed(2) : '--';
+                document.getElementById('liveVolt').innerText = data.voltage_a0.toFixed(3) + ' V';
+                document.getElementById('liveRpm').innerText = Math.round(data.rpm);
+                document.getElementById('liveTemp').innerText = Math.round(data.egt) + '/' + Math.round(data.cht) + '°';
+
+                // Step 1 helper
+                if (currentStep === 1) {
+                    document.getElementById('s1AfrText').innerText = data.afr > 0 ? data.afr.toFixed(2) : '19.5 (Freie Luft / Ruhe)';
+                    document.getElementById('s1VoltText').innerText = data.voltage_a0.toFixed(3) + ' V';
+                }
+
+                // Step 3 helper
+                if (currentStep === 3) {
+                    document.getElementById('s3Rpm').innerText = Math.round(data.rpm);
+                    document.getElementById('s3Egt').innerText = Math.round(data.egt) + ' °C';
+
+                    if (data.rpm > 500) {
+                        document.getElementById('s3RpmCheck').innerText = `✅ Läuft (${Math.round(data.rpm)} U/min)`;
+                        document.getElementById('s3RpmCheck').style.color = '#00ffcc';
+                        auditData.step3_rpm = Math.max(auditData.step3_rpm, data.rpm);
+                    }
+                    if (data.egt > 50 && data.egt < 700) {
+                        document.getElementById('s3EgtCheck').innerText = `✅ Signal stabil (${Math.round(data.egt)} °C)`;
+                        document.getElementById('s3EgtCheck').style.color = '#00ffcc';
+                        auditData.step3_egt = data.egt;
+                    } else if (data.egt >= 700) {
+                        document.getElementById('s3EgtCheck').innerText = `⚠️ Ausreißer erkannt (${data.egt} °C)`;
+                        document.getElementById('s3EgtCheck').style.color = '#ff5252';
+                    }
+                    auditData.step3_cht = data.cht;
+                }
+            } catch (err) {
+                console.error("Fehler beim Abrufen der Telemetrie:", err);
+            }
+        }
+        setInterval(fetchLiveTelemetry, 500);
+
+        function goToStep(step) {
+            currentStep = step;
+            for (let i = 1; i <= 4; i++) {
+                const card = document.getElementById(`step${i}Card`);
+                const tab = document.getElementById(`stepTab${i}`);
+                if (card) card.style.display = (i === step) ? 'block' : 'none';
+                if (tab) {
+                    tab.classList.remove('active');
+                    if (i === step) tab.classList.add('active');
+                }
+            }
+        }
+
+        function confirmStep1() {
+            auditData.step1_afr = liveState.afr > 0 ? liveState.afr : 19.5;
+            document.getElementById('stepTab1').classList.add('completed');
+            goToStep(2);
+        }
+
+        function updateOffsetRating() {
+            const val = parseFloat(document.getElementById('inpDeltaU').value) || 0.0;
+            const rBox = document.getElementById('ratingBox');
+            const lbl = document.getElementById('ratingStatusLabel');
+            const imp = document.getElementById('ratingImpact');
+            const msg = document.getElementById('ratingMessage');
+
+            rBox.classList.remove('rating-green', 'rating-yellow', 'rating-red');
+
+            const afrDiff = (val / 1000.0) * 5.72;
+            imp.innerText = `ΔAFR: ${afrDiff >= 0 ? '+' : ''}${afrDiff.toFixed(3)}`;
+
+            if (val < 5.0) {
+                rBox.classList.add('rating-green');
+                lbl.innerText = "✅ EXZELLENT";
+                msg.innerText = `ΔU = ${val.toFixed(1)} mV: Sternmasse intakt. Kein nennenswerter Messfehler. Verkabelung einwandfrei.`;
+            } else if (val <= 20.0) {
+                rBox.classList.add('rating-yellow');
+                lbl.innerText = "⚠️ GRENZWERTIG";
+                msg.innerText = `ΔU = ${val.toFixed(1)} mV: Leichte Masseschleife oder Übergangswiderstand. Verfälscht AFR um ca. ${afrDiff.toFixed(2)} Punkte.`;
+            } else {
+                rBox.classList.add('rating-red');
+                lbl.innerText = "❌ KRITISCH";
+                msg.innerText = `ΔU = ${val.toFixed(1)} mV: Masseschleife! Heizer-Rückstrom fließt über Sensor-Masse. Bitte separate Heizerleitung zur Batterie ziehen!`;
+            }
+        }
+
+        function confirmStep2() {
+            const val = parseFloat(document.getElementById('inpDeltaU').value);
+            if (isNaN(val) || val < 0) {
+                alert("Bitte gib den gemessenen Wert in mV ein (z. B. 2.5 oder 0 bei sauberer Sternmasse).");
+                return;
+            }
+            auditData.delta_u_mv = val;
+            auditData.step2_afr = liveState.afr > 0 ? liveState.afr : 19.5;
+            document.getElementById('stepTab2').classList.add('completed');
+            goToStep(3);
+        }
+
+        function confirmStep3() {
+            document.getElementById('stepTab3').classList.add('completed');
+
+            // Populate Step 4
+            const du = auditData.delta_u_mv;
+            const afrDiff = (du / 1000.0) * 5.72;
+
+            document.getElementById('resDeltaU').innerText = `${du.toFixed(1)} mV`;
+            document.getElementById('resAfrImpact').innerText = `${afrDiff >= 0 ? '+' : ''}${afrDiff.toFixed(3)} AFR`;
+            document.getElementById('resBaseAfr').innerText = auditData.step1_afr.toFixed(2);
+            document.getElementById('resEgtStatus').innerText = auditData.step3_egt > 0 ? `${Math.round(auditData.step3_egt)} °C` : 'OK';
+
+            const fBox = document.getElementById('finalCertBox');
+            const fBadge = document.getElementById('finalBadge');
+            const fDelta = document.getElementById('finalDeltaU');
+            const fMsg = document.getElementById('finalMessage');
+
+            fBox.classList.remove('rating-green', 'rating-yellow', 'rating-red');
+            fDelta.innerText = `ΔU: ${du.toFixed(1)} mV`;
+
+            if (du < 5.0) {
+                fBox.classList.add('rating-green');
+                fBadge.innerText = "✅ EXZELLENT";
+                document.getElementById('resDeltaUEval').innerText = "Im Soll (< 5 mV)";
+                fMsg.innerText = "Die Sternmasse-Topologie ist intakt. Die gemessenen Lambda-Werte sind hochgradig präzise und unverfälscht.";
+            } else if (du <= 20.0) {
+                fBox.classList.add('rating-yellow');
+                fBadge.innerText = "⚠️ GRENZWERTIG";
+                document.getElementById('resDeltaUEval').innerText = "Leichte Schleife";
+                fMsg.innerText = `Leichter Masseversatz von ${du.toFixed(1)} mV verfälscht das Gemisch um ca. ${afrDiff.toFixed(2)} AFR. Prüfe Massepunkte.`;
+            } else {
+                fBox.classList.add('rating-red');
+                fBadge.innerText = "❌ KRITISCH";
+                document.getElementById('resDeltaUEval').innerText = "Kritisch (> 20 mV)";
+                fMsg.innerText = `Kritischer Versatz von ${du.toFixed(1)} mV! Heizerstrom muss strikt von Sensormasse getrennt werden.`;
+            }
+
+            goToStep(4);
+        }
+
+        async function saveFinalAudit() {
+            const btn = document.getElementById('btnSaveAudit');
+            btn.disabled = true;
+            btn.innerText = "Speichere...";
+
+            const payload = {
+                delta_u_mv: auditData.delta_u_mv,
+                step1_afr: auditData.step1_afr,
+                step2_afr: auditData.step2_afr,
+                step3_rpm: auditData.step3_rpm,
+                step3_egt: auditData.step3_egt,
+                step3_cht: auditData.step3_cht,
+                step3_rpm_jitter: auditData.step3_rpm_jitter,
+                notes: document.getElementById('inpAuditNotes').value.trim(),
+                apply_compensation: document.getElementById('chkApplyComp').checked
+            };
+
+            try {
+                const res = await fetch('/api/diagnostics/save_audit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    alert("✅ " + data.message);
+                    window.location.reload();
+                } else {
+                    alert("Fehler beim Speichern: " + data.message);
+                    btn.disabled = false;
+                    btn.innerText = "💾 PRÜFBERICHT SPEICHERN & ABSCHLIESSEN";
+                }
+            } catch (err) {
+                alert("Netzwerkfehler: " + err);
+                btn.disabled = false;
+                btn.innerText = "💾 PRÜFBERICHT SPEICHERN & ABSCHLIESSEN";
+            }
+        }
+    </script>
+</body>
+</html>

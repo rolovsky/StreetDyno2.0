@@ -15,11 +15,13 @@ BASE_DIR = os.path.abspath(os.path.join(SRC_DIR, ".."))
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 TRIP_LOG_DIR = os.path.join(LOG_DIR, "trips")
+AUDIT_DIR = os.path.join(LOG_DIR, "audits")
 PLOT_DIR = os.path.join(BASE_DIR, "plots")
 USER_SETUP_FILE = os.path.join(BASE_DIR, "user_setup.json")
 
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(TRIP_LOG_DIR, exist_ok=True)
+os.makedirs(AUDIT_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 # --- Hardware & Serial Configuration ---
@@ -135,6 +137,7 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "ignition_deg": 18.0,
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
+    "lambda_ground_offset_mv": 0.0,
     "notes": "VMC Super G 187cc Langhub / Dell'Orto T5 Schieber / HD 125 / ND 60/160 / 18° Zdg"
 }
 

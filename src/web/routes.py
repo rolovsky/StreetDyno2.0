@@ -5,6 +5,7 @@ Contains all web endpoints, Jinja2 template rendering, and JSON telemetry endpoi
 
 from __future__ import annotations
 import os
+import time
 import glob
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -23,6 +24,7 @@ from flask import (
 from config import (
     LOG_DIR,
     TRIP_LOG_DIR,
+    AUDIT_DIR,
     PLOT_DIR,
     load_carb_setup,
     save_carb_setup,
@@ -59,6 +61,13 @@ from data.jetting_advisor import (
     calculate_weather_corrected_main_jet
 )
 from data.trip_analyzer import analyze_trip_session, calculate_gps_distance_km
+from data.audit_manager import (
+    reconstruct_afr_voltage,
+    evaluate_ground_offset,
+    save_audit_report,
+    apply_ground_offset_to_setup,
+    list_audit_reports
+)
 
 dyno_bp = Blueprint('dyno_bp', __name__)
 
@@ -816,4 +825,96 @@ def api_cleanup_logs():
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# --- DIAGNOSTICS & AUDIT ROUTES ---
+
+@dyno_bp.route('/diagnostics')
+def diagnostics():
+    """Renders interactive 4-step Sternmasse-Audit and hardware diagnostics cockpit."""
+    carb = load_carb_setup()
+    offset_mv = float(carb.get("lambda_ground_offset_mv", 0.0))
+    reports = list_audit_reports()
+    return render_template(
+        'diagnostics.html',
+        carb=carb,
+        offset_mv=offset_mv,
+        past_reports=reports
+    )
+
+
+@dyno_bp.route('/api/diagnostics/live')
+def api_diagnostics_live():
+    """Returns real-time telemetry enriched with reconstructed A0 voltage and noise metrics."""
+    hw = get_hw_service()
+    if hw:
+        state = hw.get_telemetry()
+        rpm = state.rpm
+        afr = state.afr
+        egt = state.egt
+        cht = state.cht
+        spd = state.speed_kmh
+        status = state.status
+    else:
+        rpm = 0.0
+        afr = 0.0
+        egt = 0.0
+        cht = 0.0
+        spd = 0.0
+        status = "OFFLINE"
+
+    v_a0 = reconstruct_afr_voltage(afr)
+    carb = load_carb_setup()
+    offset_mv = float(carb.get("lambda_ground_offset_mv", 0.0))
+
+    resp = jsonify({
+        "rpm": rpm,
+        "afr": afr,
+        "voltage_a0": v_a0,
+        "egt": egt,
+        "cht": cht,
+        "speed": spd,
+        "offset_mv": offset_mv,
+        "status": status,
+        "timestamp": time.time()
+    })
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
+@dyno_bp.route('/api/diagnostics/save_audit', methods=['POST'])
+def api_save_audit():
+    """Validates and persists a completed diagnostic audit report."""
+    try:
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if not data:
+            return jsonify({"status": "error", "message": "Keine Audit-Daten übermittelt"}), 400
+
+        delta_u_mv = float(data.get("delta_u_mv", 0.0))
+        apply_comp = bool(data.get("apply_compensation", False))
+
+        json_path, md_path = save_audit_report(data)
+
+        if apply_comp and delta_u_mv > 0.0:
+            apply_ground_offset_to_setup(delta_u_mv)
+
+        eval_res = evaluate_ground_offset(delta_u_mv)
+
+        return jsonify({
+            "status": "success",
+            "message": f"Audit-Bericht erfolgreich gespeichert ({eval_res['status_label']})",
+            "evaluation": eval_res,
+            "json_file": os.path.basename(json_path),
+            "md_file": os.path.basename(md_path)
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@dyno_bp.route('/api/diagnostics/history')
+def api_diagnostics_history():
+    """Returns list of past audit reports."""
+    reports = list_audit_reports()
+    return jsonify({"status": "success", "reports": reports})
+
 

@@ -26,7 +26,8 @@ from config import (
     ALPHA_AFR,
     TIRE_CIRCUMFERENCE_M,
     GEAR_RATIOS,
-    PRIMARY_RATIO
+    PRIMARY_RATIO,
+    load_carb_setup
 )
 from hw.gps_l76k import GPS_L76K, GPSData
 from hw.display_oled import OLEDDisplay
@@ -104,6 +105,8 @@ class HardwareService:
         self.last_serial_time: float = time.time()
         self._arduino_sync_time: float = 0.0
         self._arduino_sync_micros: int = 0
+        self.lambda_ground_offset_mv: float = 0.0
+        self._last_offset_check: float = 0.0
 
     def _parse_telemetry_line(self, line: str) -> bool:
         """Parses $MICROS;RPM;AFR;EGT;CHT*CHECKSUM line with XOR checksum validation."""
@@ -129,7 +132,10 @@ class HardwareService:
             try:
                 self.current_micros = int(parts[0])
                 self.current_rpm = float(parts[1])
-                self.current_afr = float(parts[2])
+                raw_afr = float(parts[2])
+                if self.lambda_ground_offset_mv != 0.0 and raw_afr > 0.0:
+                    raw_afr = max(9.0, min(19.5, raw_afr + (self.lambda_ground_offset_mv / 1000.0) * 5.72))
+                self.current_afr = raw_afr
                 self.current_egt = float(parts[3])
                 self.current_cht = float(parts[4]) if len(parts) >= 5 else 0.0
                 self.last_serial_time = time.time()
@@ -234,6 +240,14 @@ class HardwareService:
             loop_now = time.time()
             dt = max(0.01, loop_now - last_loop_time)
             last_loop_time = loop_now
+
+            # Periodic check for ground offset compensation update (every 2.0s)
+            if loop_now - self._last_offset_check > 2.0:
+                self._last_offset_check = loop_now
+                try:
+                    self.lambda_ground_offset_mv = float(load_carb_setup().get("lambda_ground_offset_mv", 0.0))
+                except Exception:
+                    self.lambda_ground_offset_mv = 0.0
 
             # 1. Connect to Arduino Serial if not connected
             if ser is None and serial is not None:

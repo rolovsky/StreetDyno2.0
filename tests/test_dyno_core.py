@@ -53,6 +53,12 @@ from data.trip_analyzer import (
     generate_afr_heatmap_matrix,
     analyze_trip_session
 )
+from data.audit_manager import (
+    reconstruct_afr_voltage,
+    evaluate_ground_offset,
+    save_audit_report,
+    list_audit_reports
+)
 from main import create_app
 
 
@@ -1272,6 +1278,153 @@ class TestCHTIntegration(unittest.TestCase):
         data = res.get_json()
         self.assertEqual(data.get("status"), "success")
         self.assertIn("result", data)
+
+    def test_reconstruct_afr_voltage(self):
+        """Verify non-invasive A0 voltage reconstruction from AFR."""
+        # Baseline AFR 13.5 (Idle/Cruise) -> V_A0 ≈ (22.62 - 13.5) / 5.72 = 1.594 V
+        v_135 = reconstruct_afr_voltage(13.5)
+        self.assertAlmostEqual(v_135, 1.594, places=2)
+
+        # Free Air 19.5 -> V_A0 ≈ (22.62 - 19.5) / 5.72 = 0.545 V
+        v_195 = reconstruct_afr_voltage(19.5)
+        self.assertAlmostEqual(v_195, 0.545, places=2)
+
+        # Clamping and non-negative guards
+        self.assertEqual(reconstruct_afr_voltage(0.0), 0.0)
+        self.assertEqual(reconstruct_afr_voltage(-5.0), 0.0)
+        # Deep rich AFR 5.0 -> clamped to 5.0V ADC rail
+        self.assertLessEqual(reconstruct_afr_voltage(5.0), 5.0)
+
+    def test_evaluate_ground_offset(self):
+        """Verify traffic-light evaluation for Sternmasse offset delta U."""
+        # 1. Excellent (delta U < 5 mV)
+        res_green = evaluate_ground_offset(2.5)
+        self.assertEqual(res_green["rating"], "GREEN")
+        self.assertFalse(res_green["action_needed"])
+        self.assertAlmostEqual(res_green["afr_impact"], 0.014, places=3)
+
+        # 2. Borderline (5 <= delta U <= 20 mV)
+        res_yellow = evaluate_ground_offset(12.0)
+        self.assertEqual(res_yellow["rating"], "YELLOW")
+        self.assertTrue(res_yellow["action_needed"])
+        self.assertAlmostEqual(res_yellow["afr_impact"], 0.069, places=3)
+
+        # 3. Critical (delta U > 20 mV)
+        res_red = evaluate_ground_offset(35.0)
+        self.assertEqual(res_red["rating"], "RED")
+        self.assertTrue(res_red["action_needed"])
+        self.assertAlmostEqual(res_red["afr_impact"], 0.200, places=3)
+
+    def test_save_and_list_audit_reports(self):
+        """Verify persistent saving and listing of JSON and Markdown audit reports."""
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            test_data = {
+                "delta_u_mv": 3.2,
+                "step1_afr": 19.5,
+                "step2_afr": 13.5,
+                "step3_rpm": 1420.0,
+                "step3_egt": 480.0,
+                "step3_cht": 125.0,
+                "notes": "Prüfstand-Messung nach Zündkabel-Tausch",
+                "apply_compensation": False
+            }
+
+            json_p, md_p = save_audit_report(test_data, audit_dir=temp_dir)
+            self.assertTrue(os.path.exists(json_p))
+            self.assertTrue(os.path.exists(md_p))
+
+            # Verify JSON content
+            with open(json_p, "r", encoding="utf-8") as f:
+                saved_json = json.load(f)
+            self.assertEqual(saved_json["rating"], "GREEN")
+            self.assertEqual(saved_json["delta_u_mv"], 3.2)
+            self.assertIn("step1_baseline", saved_json["steps"])
+
+            # Verify listing
+            reports = list_audit_reports(audit_dir=temp_dir)
+            self.assertEqual(len(reports), 1)
+            self.assertEqual(reports[0]["rating"], "GREEN")
+            self.assertEqual(reports[0]["delta_u_mv"], 3.2)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_diagnostics_web_routes(self):
+        """Verify Web endpoints: /diagnostics, /api/diagnostics/live, /api/diagnostics/save_audit, /api/diagnostics/history."""
+        app = create_app()
+        app.config['TESTING'] = True
+        client = app.test_client()
+
+        # 1. Page render
+        res_page = client.get('/diagnostics')
+        self.assertEqual(res_page.status_code, 200)
+        self.assertIn(b"STERNMASSE-AUDIT", res_page.data)
+
+        # 2. Live telemetry API
+        res_live = client.get('/api/diagnostics/live')
+        self.assertEqual(res_live.status_code, 200)
+        data_live = res_live.get_json()
+        self.assertIn("voltage_a0", data_live)
+        self.assertIn("afr", data_live)
+        self.assertIn("rpm", data_live)
+        self.assertIn("offset_mv", data_live)
+
+        # 3. Save audit API (empty guard)
+        res_empty = client.post('/api/diagnostics/save_audit', json={})
+        self.assertEqual(res_empty.status_code, 400)
+
+        # 4. Save audit API (valid)
+        res_save = client.post('/api/diagnostics/save_audit', json={
+            "delta_u_mv": 1.5,
+            "step1_afr": 19.5,
+            "step2_afr": 13.5,
+            "step3_rpm": 1400.0,
+            "step3_egt": 450.0,
+            "step3_cht": 110.0,
+            "notes": "Testlauf",
+            "apply_compensation": False
+        })
+        self.assertEqual(res_save.status_code, 200)
+        save_data = res_save.get_json()
+        self.assertEqual(save_data["status"], "success")
+        self.assertEqual(save_data["evaluation"]["rating"], "GREEN")
+
+        # 5. History API
+        res_hist = client.get('/api/diagnostics/history')
+        self.assertEqual(res_hist.status_code, 200)
+        self.assertIn("reports", res_hist.get_json())
+
+    def test_hardware_service_ground_offset_compensation(self):
+        """Verify HardwareService applies lambda_ground_offset_mv compensation to raw telemetry."""
+        from hw.hardware_service import HardwareService
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            hw = HardwareService(log_dir=temp_dir)
+            # Test payload: $1000;1400;12.50;500.0;120.0*CHECKSUM
+            payload = "1000;1400;12.50;500.0;120.0"
+            cs = 0
+            for ch in payload:
+                cs ^= ord(ch)
+            cs_str = f"{cs:02X}"
+            line = f"${payload}*{cs_str}"
+
+            # 1. Baseline without offset
+            hw.lambda_ground_offset_mv = 0.0
+            self.assertTrue(hw._parse_telemetry_line(line))
+            self.assertAlmostEqual(hw.current_afr, 12.50, places=2)
+
+            # 2. With 10 mV offset: delta AFR = (10 / 1000) * 5.72 = +0.0572 AFR
+            hw.lambda_ground_offset_mv = 10.0
+            self.assertTrue(hw._parse_telemetry_line(line))
+            self.assertAlmostEqual(hw.current_afr, 12.50 + 0.0572, places=2)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == '__main__':
