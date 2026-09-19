@@ -186,7 +186,8 @@
 <body>
     <div class="header">
         <h1>🏁 DYNO PULLS ({{ logs|length }})</h1>
-        <div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <button onclick="cleanupShortLogs()" class="tuning-btn" style="color:#ff5252; border-color:rgba(255,82,82,0.4); cursor:pointer;">🧹 BEREINIGEN</button>
             <a href="/trips" class="tuning-btn" style="color:#29b6f6; border-color:rgba(41,182,246,0.4);">🗺️ FAHRTEN</a>
             <a href="/tuning" class="tuning-btn">🔧 VERGASER</a>
             <a href="/" class="back-btn">⬅️ COCKPIT</a>
@@ -213,12 +214,18 @@
         <div class="log-actions">
             <a href="/analyze?file={{ l.filename }}" class="btn-action btn-analyze">ANALYSE</a>
             <a href="/download/{{ l.filename }}" class="btn-action">CSV</a>
+            <button type="button" onclick="deleteSingleLog('{{ l.filename }}', 'item-{{ loop.index }}')" class="btn-action" style="background:#261215; color:#ff5252; border-color:#5c1d24; cursor:pointer;" title="Log löschen">🗑️</button>
         </div>
     </div>
     {% endfor %}
 
-    <div id="compareBar" class="compare-bar" onclick="startComparison()">
-        📊 2 RUNS VERGLEICHEN
+    <div id="bulkActionBar" style="position:fixed; bottom:15px; left:15px; right:15px; display:none; gap:10px; z-index:999;">
+        <button id="compareBtn" onclick="startComparison()" style="flex:1; display:none; background:#00ffcc; color:#000; border:none; padding:12px; border-radius:12px; font-weight:900; font-size:0.95rem; cursor:pointer; box-shadow: 0 4px 20px rgba(0,255,204,0.4);">
+            📊 2 RUNS VERGLEICHEN
+        </button>
+        <button id="bulkDeleteBtn" onclick="bulkDeleteSelected()" style="background:#ff1744; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:900; font-size:0.95rem; cursor:pointer; box-shadow: 0 4px 20px rgba(255,23,68,0.4);">
+            🗑️ AUSGEWÄHLTE LÖSCHEN (<span id="selectedCount">0</span>)
+        </button>
     </div>
 
     <!-- Modal for Editing Setup Metadata -->
@@ -405,16 +412,22 @@
 
         function handleCheckboxChange() {
             const checked = document.querySelectorAll('.log-cb:checked');
-            const bar = document.getElementById('compareBar');
-            if (checked.length === 2) {
-                bar.style.display = 'block';
-                bar.innerText = `📊 RUNS VERGLEICHEN (${checked[0].value.slice(-10)} vs ${checked[1].value.slice(-10)})`;
-            } else {
-                bar.style.display = 'none';
-                if (checked.length > 2) {
-                    alert('Bitte wähle maximal 2 Logs zum Vergleichen aus.');
-                    this.checked = false;
+            const bulkBar = document.getElementById('bulkActionBar');
+            const compareBtn = document.getElementById('compareBtn');
+            const selectedCount = document.getElementById('selectedCount');
+
+            if (checked.length > 0) {
+                bulkBar.style.display = 'flex';
+                selectedCount.innerText = checked.length;
+
+                if (checked.length === 2) {
+                    compareBtn.style.display = 'block';
+                    compareBtn.innerText = `📊 RUNS VERGLEICHEN (${checked[0].value.slice(-10)} vs ${checked[1].value.slice(-10)})`;
+                } else {
+                    compareBtn.style.display = 'none';
                 }
+            } else {
+                bulkBar.style.display = 'none';
             }
         }
 
@@ -422,6 +435,81 @@
             const checked = document.querySelectorAll('.log-cb:checked');
             if (checked.length === 2) {
                 window.location.href = `/compare?file1=${checked[0].value}&file2=${checked[1].value}`;
+            }
+        }
+
+        async function deleteSingleLog(filename, itemId) {
+            if (!confirm(`Möchtest du den Dyno-Log "${filename}" und das zugehörige Diagramm wirklich unwiderruflich löschen?`)) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/delete_log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: filename })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const row = document.getElementById(itemId);
+                    if (row) {
+                        row.style.transition = 'opacity 0.3s, transform 0.3s';
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(20px)';
+                        setTimeout(() => row.remove(), 300);
+                    }
+                } else {
+                    alert('Fehler beim Löschen: ' + data.message);
+                }
+            } catch (err) {
+                alert('Netzwerkfehler beim Löschen: ' + err);
+            }
+        }
+
+        async function bulkDeleteSelected() {
+            const checked = document.querySelectorAll('.log-cb:checked');
+            if (checked.length === 0) return;
+
+            const filenames = Array.from(checked).map(cb => cb.value);
+            if (!confirm(`Möchtest du ${filenames.length} ausgewählte(n) Dyno-Log(s) wirklich löschen?`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/bulk_delete_logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filenames: filenames, type: 'dyno' })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    window.location.reload();
+                } else {
+                    alert('Fehler beim Löschen: ' + data.message);
+                }
+            } catch (err) {
+                alert('Netzwerkfehler: ' + err);
+            }
+        }
+
+        async function cleanupShortLogs() {
+            if (!confirm("Möchtest du alle unvollständigen Dyno-Pulls (< 20 Datenzeilen) und leere Trips (< 100 Datenzeilen) automatisch bereinigen?")) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/cleanup_logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    alert(data.message);
+                    window.location.reload();
+                } else {
+                    alert('Fehler bei der Bereinigung: ' + data.message);
+                }
+            } catch (err) {
+                alert('Netzwerkfehler: ' + err);
             }
         }
     </script>

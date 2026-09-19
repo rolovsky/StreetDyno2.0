@@ -41,7 +41,13 @@ from data.jetting_advisor import (
     calculate_relative_air_density,
     calculate_weather_corrected_main_jet
 )
-from data.logger import CSVLogger, TripLogger
+from data.logger import (
+    CSVLogger,
+    TripLogger,
+    delete_log_file,
+    delete_trip_file,
+    cleanup_short_logs
+)
 from data.trip_analyzer import (
     calculate_gps_distance_km,
     generate_afr_heatmap_matrix,
@@ -1072,6 +1078,200 @@ class TestCHTIntegration(unittest.TestCase):
         self.assertGreater(report["avg_cht"], 120.0)
         self.assertIn("cht", report["chart_timeline"])
         self.assertEqual(len(report["chart_timeline"]["cht"]), n)
+
+    def test_csv_logger_min_samples_guard(self):
+        """Verify CSVLogger.stop discards pulls with < 20 samples and keeps pulls with >= 20 samples."""
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = CSVLogger(log_dir=temp_dir)
+
+            # 1. Under-threshold run (10 samples < 20)
+            fpath_short = logger.start()
+            self.assertTrue(os.path.exists(fpath_short))
+            for i in range(10):
+                logger.log(rpm=4000, afr=12.5, egt=500.0, speed=50.0)
+            res = logger.stop(min_samples=20)
+            self.assertIsNone(res)
+            self.assertFalse(os.path.exists(fpath_short))
+
+            # 2. Valid run (25 samples >= 20)
+            fpath_valid = logger.start()
+            self.assertTrue(os.path.exists(fpath_valid))
+            for i in range(25):
+                logger.log(rpm=4000, afr=12.5, egt=500.0, speed=50.0)
+            res = logger.stop(min_samples=20)
+            self.assertEqual(res, fpath_valid)
+            self.assertTrue(os.path.exists(fpath_valid))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_trip_logger_min_samples_guard(self):
+        """Verify TripLogger.stop discards trips with < 100 samples and keeps trips with >= 100 samples."""
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            logger = TripLogger(log_dir=temp_dir)
+
+            # 1. Short trip (30 samples < 100)
+            fpath_short = logger.start()
+            self.assertTrue(os.path.exists(fpath_short))
+            for i in range(30):
+                logger.log(rpm=3500, afr=13.0, egt=450.0, speed=40.0)
+            res = logger.stop(min_samples=100)
+            self.assertIsNone(res)
+            self.assertFalse(os.path.exists(fpath_short))
+
+            # 2. Valid trip (105 samples >= 100)
+            fpath_valid = logger.start()
+            self.assertTrue(os.path.exists(fpath_valid))
+            for i in range(105):
+                logger.log(rpm=3500, afr=13.0, egt=450.0, speed=40.0)
+            res = logger.stop(min_samples=100)
+            self.assertEqual(res, fpath_valid)
+            self.assertTrue(os.path.exists(fpath_valid))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_delete_log_and_trip_files(self):
+        """Verify delete_log_file deletes CSV and associated plot, and delete_trip_file deletes trip CSV."""
+        import tempfile
+        import shutil
+
+        temp_log = tempfile.mkdtemp()
+        temp_trip = tempfile.mkdtemp()
+        temp_plot = tempfile.mkdtemp()
+        try:
+            # 1. Dyno log + plot deletion
+            csv_name = "dyno_log_20260919-120000.csv"
+            csv_path = os.path.join(temp_log, csv_name)
+            plot_path = os.path.join(temp_plot, "p_dyno_log_20260919-120000.png")
+            with open(csv_path, "w") as f:
+                f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n1,4000,12.5,500,130,50,0,0,0,1\n")
+            with open(plot_path, "wb") as f:
+                f.write(b"PNG_FAKE_DATA")
+
+            self.assertTrue(os.path.exists(csv_path))
+            self.assertTrue(os.path.exists(plot_path))
+
+            ok = delete_log_file(csv_name, log_dir=temp_log, plot_dir=temp_plot)
+            self.assertTrue(ok)
+            self.assertFalse(os.path.exists(csv_path))
+            self.assertFalse(os.path.exists(plot_path))
+
+            # Path traversal attempt
+            bad_traversal = delete_log_file("../../secret.csv", log_dir=temp_log, plot_dir=temp_plot)
+            self.assertFalse(bad_traversal)
+
+            # 2. Trip log deletion
+            trip_name = "trip_20260919-120000.csv"
+            trip_path = os.path.join(temp_trip, trip_name)
+            with open(trip_path, "w") as f:
+                f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n1,3000,13,400,110,30,0,0,0,1\n")
+            self.assertTrue(os.path.exists(trip_path))
+
+            ok_trip = delete_trip_file(trip_name, trip_dir=temp_trip)
+            self.assertTrue(ok_trip)
+            self.assertFalse(os.path.exists(trip_path))
+        finally:
+            shutil.rmtree(temp_log, ignore_errors=True)
+            shutil.rmtree(temp_trip, ignore_errors=True)
+            shutil.rmtree(temp_plot, ignore_errors=True)
+
+    def test_cleanup_short_logs(self):
+        """Verify cleanup_short_logs removes sub-threshold files and keeps valid files."""
+        import tempfile
+        import shutil
+
+        temp_log = tempfile.mkdtemp()
+        temp_trip = tempfile.mkdtemp()
+        temp_plot = tempfile.mkdtemp()
+        try:
+            # Short dyno log (5 rows < 20) + plot
+            short_dyno = os.path.join(temp_log, "dyno_log_short.csv")
+            with open(short_dyno, "w") as f:
+                f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                for i in range(5):
+                    f.write(f"{i},4000,12.5,500,130,50,0,0,0,1\n")
+            with open(os.path.join(temp_plot, "p_dyno_log_short.png"), "wb") as f:
+                f.write(b"PNG_DATA")
+
+            # Valid dyno log (25 rows >= 20)
+            valid_dyno = os.path.join(temp_log, "dyno_log_valid.csv")
+            with open(valid_dyno, "w") as f:
+                f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                for i in range(25):
+                    f.write(f"{i},4000,12.5,500,130,50,0,0,0,1\n")
+
+            # Short trip (10 rows < 100)
+            short_trip = os.path.join(temp_trip, "trip_short.csv")
+            with open(short_trip, "w") as f:
+                f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                for i in range(10):
+                    f.write(f"{i},3000,13,400,110,30,0,0,0,1\n")
+
+            # Valid trip (105 rows >= 100)
+            valid_trip = os.path.join(temp_trip, "trip_valid.csv")
+            with open(valid_trip, "w") as f:
+                f.write("Time,RPM,AFR,EGT,CHT,Speed_kmh,Lat,Lon,Alt,GPS_Fix\n")
+                for i in range(105):
+                    f.write(f"{i},3000,13,400,110,30,0,0,0,1\n")
+
+            res = cleanup_short_logs(
+                min_dyno_samples=20,
+                min_trip_samples=100,
+                log_dir=temp_log,
+                trip_dir=temp_trip,
+                plot_dir=temp_plot
+            )
+            self.assertEqual(res["deleted_dyno_count"], 1)
+            self.assertEqual(res["deleted_trip_count"], 1)
+            self.assertIn("dyno_log_short.csv", res["deleted_dyno_files"])
+            self.assertIn("trip_short.csv", res["deleted_trip_files"])
+
+            self.assertFalse(os.path.exists(short_dyno))
+            self.assertFalse(os.path.exists(os.path.join(temp_plot, "p_dyno_log_short.png")))
+            self.assertTrue(os.path.exists(valid_dyno))
+            self.assertFalse(os.path.exists(short_trip))
+            self.assertTrue(os.path.exists(valid_trip))
+        finally:
+            shutil.rmtree(temp_log, ignore_errors=True)
+            shutil.rmtree(temp_trip, ignore_errors=True)
+            shutil.rmtree(temp_plot, ignore_errors=True)
+
+    def test_housekeeping_api_endpoints(self):
+        """Verify web API routes for housekeeping: delete_log, delete_trip, bulk_delete_logs, cleanup_logs."""
+        app = create_app()
+        app.config['TESTING'] = True
+        client = app.test_client()
+
+        # 1. Invalid payload guards
+        res = client.post('/api/delete_log', json={})
+        self.assertEqual(res.status_code, 400)
+
+        res = client.post('/api/delete_trip', json={})
+        self.assertEqual(res.status_code, 400)
+
+        res = client.post('/api/bulk_delete_logs', json={})
+        self.assertEqual(res.status_code, 400)
+
+        # 2. Non-existent file deletion
+        res = client.post('/api/delete_log', json={'filename': 'non_existent_12345.csv'})
+        self.assertEqual(res.status_code, 404)
+
+        res = client.post('/api/delete_trip', json={'filename': 'non_existent_trip_12345.csv'})
+        self.assertEqual(res.status_code, 404)
+
+        # 3. Cleanup endpoint returns 200 and json structure
+        res = client.post('/api/cleanup_logs')
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data.get("status"), "success")
+        self.assertIn("result", data)
 
 
 if __name__ == '__main__':

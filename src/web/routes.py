@@ -49,7 +49,10 @@ from data.logger import (
     get_setup_badge_string,
     load_telemetry_csv,
     write_log_metadata,
-    get_log_creation_datetime
+    get_log_creation_datetime,
+    delete_log_file,
+    delete_trip_file,
+    cleanup_short_logs
 )
 from data.jetting_advisor import (
     analyze_carb_jetting,
@@ -719,6 +722,98 @@ def api_update_log_metadata():
             })
         else:
             return jsonify({"status": "error", "message": "Fehler beim Schreiben der Metadaten in Datei"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@dyno_bp.route('/api/delete_log', methods=['POST'])
+def api_delete_log():
+    """Deletes a single dyno log file and its associated plot."""
+    try:
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if not data or "filename" not in data:
+            return jsonify({"status": "error", "message": "Dateiname fehlt"}), 400
+
+        filename = os.path.basename(str(data["filename"]).strip())
+        success = delete_log_file(filename)
+        if success:
+            return jsonify({"status": "success", "message": f"Log {filename} erfolgreich gelöscht"})
+        else:
+            return jsonify({"status": "error", "message": f"Datei {filename} konnte nicht gelöscht werden"}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@dyno_bp.route('/api/delete_trip', methods=['POST'])
+def api_delete_trip():
+    """Deletes a single continuous trip file."""
+    try:
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if not data or "filename" not in data:
+            return jsonify({"status": "error", "message": "Dateiname fehlt"}), 400
+
+        filename = os.path.basename(str(data["filename"]).strip())
+        success = delete_trip_file(filename)
+        if success:
+            return jsonify({"status": "success", "message": f"Fahrt {filename} erfolgreich gelöscht"})
+        else:
+            return jsonify({"status": "error", "message": f"Datei {filename} konnte nicht gelöscht werden"}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@dyno_bp.route('/api/bulk_delete_logs', methods=['POST'])
+def api_bulk_delete_logs():
+    """Deletes multiple dyno logs or trip files at once."""
+    try:
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if not data:
+            return jsonify({"status": "error", "message": "Keine Daten empfangen"}), 400
+
+        filenames = data.get("filenames", [])
+        log_type = data.get("type", "dyno")  # 'dyno' or 'trip'
+
+        if not filenames or not isinstance(filenames, list):
+            return jsonify({"status": "error", "message": "Dateiliste fehlt oder ungültig"}), 400
+
+        deleted_count = 0
+        failed = []
+
+        for fname in filenames:
+            safe_name = os.path.basename(str(fname).strip())
+            if log_type == "trip":
+                ok = delete_trip_file(safe_name)
+            else:
+                ok = delete_log_file(safe_name)
+
+            if ok:
+                deleted_count += 1
+            else:
+                failed.append(safe_name)
+
+        return jsonify({
+            "status": "success",
+            "message": f"{deleted_count} Datei(en) erfolgreich gelöscht",
+            "deleted_count": deleted_count,
+            "failed": failed
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@dyno_bp.route('/api/cleanup_logs', methods=['POST'])
+def api_cleanup_logs():
+    """Cleans up incomplete / spurious dyno pulls (<20 samples) and trip logs (<100 samples)."""
+    try:
+        result = cleanup_short_logs(min_dyno_samples=20, min_trip_samples=100)
+        total_deleted = result["deleted_dyno_count"] + result["deleted_trip_count"]
+        freed_kb = round(result["freed_bytes"] / 1024.0, 1)
+
+        return jsonify({
+            "status": "success",
+            "message": f"{total_deleted} unvollständige Datei(en) bereinigt ({freed_kb} KB freigegeben)",
+            "result": result
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

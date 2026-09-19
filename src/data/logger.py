@@ -13,7 +13,13 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Union
 import pandas as pd
 
-from config import get_full_setup_metadata, load_carb_setup
+from config import (
+    get_full_setup_metadata,
+    load_carb_setup,
+    LOG_DIR,
+    TRIP_LOG_DIR,
+    PLOT_DIR
+)
 
 
 def get_log_creation_datetime(filepath: str) -> datetime:
@@ -242,12 +248,26 @@ class CSVLogger:
         print(f"\n[LOGGER] Aufzeichnung ({self.trigger_mode}) gestartet mit Setup-Header: {self.filepath}")
         return self.filepath
 
-    def stop(self) -> Optional[str]:
-        """Stops active CSV logging and returns file path."""
+    def stop(self, min_samples: int = 20) -> Optional[str]:
+        """
+        Stops active CSV logging.
+        Discards spurious recordings shorter than min_samples (default 20 = 2.0s @ 10Hz).
+        """
+        if not self.is_logging:
+            return None
+
         self.is_logging = False
         duration = time.time() - self.start_time if self.start_time > 0 else 0.0
-        print(f"\n[LOGGER] Aufzeichnung gestoppt ({self.samples_count} Samples, {duration:.1f}s): {self.filepath}")
-        return self.filepath
+        target_path = self.filepath
+
+        if self.samples_count < min_samples:
+            if target_path and os.path.exists(target_path):
+                self.discard_current()
+                print(f"🧹 [LOGGER] Unvollständiger Dyno-Pull verworfen (<{min_samples} Samples, {duration:.1f}s): {target_path}")
+            return None
+
+        print(f"\n[LOGGER] Aufzeichnung gestoppt ({self.samples_count} Samples, {duration:.1f}s): {target_path}")
+        return target_path
 
     def discard_current(self) -> None:
         """Stops logging and removes the incomplete/spurious log file."""
@@ -376,5 +396,126 @@ class TripLogger:
             with open(self.filepath, "a", encoding="utf-8") as f:
                 f.write(f"{t_str},{rpm:.0f},{afr:.2f},{egt:.1f},{cht:.1f},{speed:.1f},{lat:.6f},{lon:.6f},{alt:.1f},{fix}\n")
             self.samples_count += 1
+
+
+def delete_log_file(filename: str, log_dir: str = LOG_DIR, plot_dir: str = PLOT_DIR) -> bool:
+    """
+    Safely deletes a dyno pull CSV file and its associated plot image from disk.
+    Guards against path traversal attacks using os.path.basename.
+    """
+    safe_name = os.path.basename(filename.strip())
+    if not safe_name or not safe_name.lower().endswith(".csv"):
+        return False
+
+    csv_path = os.path.join(log_dir, safe_name)
+    deleted = False
+
+    if os.path.isfile(csv_path):
+        try:
+            os.remove(csv_path)
+            deleted = True
+            print(f"[LOGGER] Dyno-Log gelöscht: {csv_path}")
+        except Exception as e:
+            print(f"[LOGGER ERROR] Fehler beim Löschen von {csv_path}: {e}")
+
+    # Remove associated plot if present
+    stem = os.path.splitext(safe_name)[0]
+    plot_candidates = [
+        os.path.join(plot_dir, f"p_{stem}.png"),
+        os.path.join(plot_dir, f"{stem}.png")
+    ]
+    for p in plot_candidates:
+        if os.path.isfile(p):
+            try:
+                os.remove(p)
+                print(f"[LOGGER] Zugehöriger Plot gelöscht: {p}")
+            except Exception as pe:
+                print(f"[LOGGER ERROR] Fehler beim Löschen von Plot {p}: {pe}")
+
+    return deleted
+
+
+def delete_trip_file(filename: str, trip_dir: str = TRIP_LOG_DIR) -> bool:
+    """
+    Safely deletes a continuous trip CSV file from disk.
+    Guards against path traversal attacks using os.path.basename.
+    """
+    safe_name = os.path.basename(filename.strip())
+    if not safe_name or not safe_name.lower().endswith(".csv"):
+        return False
+
+    csv_path = os.path.join(trip_dir, safe_name)
+    if os.path.isfile(csv_path):
+        try:
+            os.remove(csv_path)
+            print(f"[TRIP-LOGGER] Fahrt-Log gelöscht: {csv_path}")
+            return True
+        except Exception as e:
+            print(f"[TRIP-LOGGER ERROR] Fehler beim Löschen von {csv_path}: {e}")
+    return False
+
+
+def cleanup_short_logs(
+    min_dyno_samples: int = 20,
+    min_trip_samples: int = 100,
+    log_dir: str = LOG_DIR,
+    trip_dir: str = TRIP_LOG_DIR,
+    plot_dir: str = PLOT_DIR
+) -> Dict[str, Any]:
+    """
+    Scans dyno logs and trip logs, identifies incomplete recordings with fewer
+    than the required data points, and removes them along with orphaned plots.
+    """
+    deleted_dyno = []
+    deleted_trips = []
+    freed_bytes = 0
+
+    # 1. Clean Dyno Logs in log_dir (excluding subdirectories)
+    if os.path.exists(log_dir):
+        for fname in os.listdir(log_dir):
+            fpath = os.path.join(log_dir, fname)
+            if os.path.isfile(fpath) and fname.lower().endswith(".csv") and fname.startswith("dyno_log_"):
+                data_count = 0
+                sz = os.path.getsize(fpath)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
+                        for line in fp:
+                            if line.strip() and not line.startswith("#") and not line.startswith("Time"):
+                                data_count += 1
+                except Exception:
+                    continue
+
+                if data_count < min_dyno_samples:
+                    if delete_log_file(fname, log_dir, plot_dir):
+                        deleted_dyno.append(fname)
+                        freed_bytes += sz
+
+    # 2. Clean Trips in trip_dir
+    if os.path.exists(trip_dir):
+        for fname in os.listdir(trip_dir):
+            fpath = os.path.join(trip_dir, fname)
+            if os.path.isfile(fpath) and fname.lower().endswith(".csv"):
+                data_count = 0
+                sz = os.path.getsize(fpath)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
+                        for line in fp:
+                            if line.strip() and not line.startswith("#") and not line.startswith("Time"):
+                                data_count += 1
+                except Exception:
+                    continue
+
+                if data_count < min_trip_samples:
+                    if delete_trip_file(fname, trip_dir):
+                        deleted_trips.append(fname)
+                        freed_bytes += sz
+
+    return {
+        "deleted_dyno_count": len(deleted_dyno),
+        "deleted_trip_count": len(deleted_trips),
+        "deleted_dyno_files": deleted_dyno,
+        "deleted_trip_files": deleted_trips,
+        "freed_bytes": freed_bytes
+    }
 
 

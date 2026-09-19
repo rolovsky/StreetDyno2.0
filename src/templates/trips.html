@@ -174,7 +174,8 @@
     <div class="header">
         <h1>🗺️ BLACKBOX FAHRTEN ({{ trips|length }})</h1>
         <div class="nav-actions">
-            <a href="/logs" class="nav-btn nav-btn-dyno">🏁 DYNO PULLS</a>
+            <button type="button" onclick="cleanupShortTrips()" class="nav-btn" style="color:#ff5252; border-color:rgba(255,82,82,0.4); cursor:pointer;">🧹 BEREINIGEN</button>
+            <a href="/logs" class="nav-btn nav-btn-dyno">🏁 DYNO</a>
             <a href="/tuning" class="nav-btn nav-btn-tuning">🔧 VERGASER</a>
             <a href="/" class="nav-btn nav-btn-back">⬅️ COCKPIT</a>
         </div>
@@ -183,29 +184,39 @@
     {% if trips %}
         {% for t in trips %}
         <div class="trip-card" id="trip-{{ loop.index }}">
-            <div class="trip-left">
-                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <span class="trip-title">{{ t.filename }}</span>
-                    <button class="btn-edit-badge" id="trip-badge-{{ loop.index0 }}" 
-                            onclick="openTripModalByIndex({{ loop.index0 }})" 
-                            title="Setup nachträglich anpassen">
-                        <span id="trip-badge-text-{{ loop.index0 }}">{{ t.setup_badge }}</span>
-                        <span style="font-size:0.65rem; opacity:0.8;">✏️</span>
-                    </button>
-                </div>
-                <div class="trip-meta">
-                    {{ t.mtime }} &nbsp;|&nbsp; 
-                    Dauer: <span>{{ t.duration_min }} Min</span> &nbsp;|&nbsp; 
-                    Distanz: <span>{{ t.distance_km }} km</span> &nbsp;|&nbsp; 
-                    {{ t.size_kb }} KB
+            <div style="display:flex; align-items:center; gap:10px; flex-grow:1;">
+                <input type="checkbox" class="trip-cb" value="{{ t.filename }}" onchange="handleTripCheckboxChange()" style="width:18px; height:18px; accent-color:#29b6f6;">
+                <div class="trip-left">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <span class="trip-title">{{ t.filename }}</span>
+                        <button class="btn-edit-badge" id="trip-badge-{{ loop.index0 }}" 
+                                onclick="openTripModalByIndex({{ loop.index0 }})" 
+                                title="Setup nachträglich anpassen">
+                            <span id="trip-badge-text-{{ loop.index0 }}">{{ t.setup_badge }}</span>
+                            <span style="font-size:0.65rem; opacity:0.8;">✏️</span>
+                        </button>
+                    </div>
+                    <div class="trip-meta">
+                        {{ t.mtime }} &nbsp;|&nbsp; 
+                        Dauer: <span>{{ t.duration_min }} Min</span> &nbsp;|&nbsp; 
+                        Distanz: <span>{{ t.distance_km }} km</span> &nbsp;|&nbsp; 
+                        {{ t.size_kb }} KB
+                    </div>
                 </div>
             </div>
             <div class="trip-actions">
                 <a href="/trip_detail?file={{ t.filename }}" class="btn-action btn-heatmap">🔥 HEATMAP</a>
                 <a href="/download_trip/{{ t.filename }}" class="btn-action">CSV</a>
+                <button type="button" onclick="deleteSingleTrip('{{ t.filename }}', 'trip-{{ loop.index }}')" class="btn-action" style="background:#261215; color:#ff5252; border-color:#5c1d24; cursor:pointer;" title="Fahrt löschen">🗑️</button>
             </div>
         </div>
         {% endfor %}
+
+        <div id="bulkTripActionBar" style="position:fixed; bottom:15px; left:15px; right:15px; display:none; gap:10px; z-index:999;">
+            <button id="bulkDeleteTripBtn" onclick="bulkDeleteSelectedTrips()" style="flex:1; background:#ff1744; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:900; font-size:0.95rem; cursor:pointer; box-shadow: 0 4px 20px rgba(255,23,68,0.4);">
+                🗑️ AUSGEWÄHLTE FAHRTEN LÖSCHEN (<span id="selectedTripCount">0</span>)
+            </button>
+        </div>
     {% else %}
         <div class="empty-state">
             <h3 style="color:#aaa; margin-bottom:8px;">Noch keine Hintergrundfahrten aufgezeichnet</h3>
@@ -392,6 +403,94 @@
                 }
             } catch (err) {
                 alert('Verbindungsfehler: ' + err);
+            }
+        }
+
+        function handleTripCheckboxChange() {
+            const checked = document.querySelectorAll('.trip-cb:checked');
+            const bulkBar = document.getElementById('bulkTripActionBar');
+            const selectedCount = document.getElementById('selectedTripCount');
+
+            if (checked.length > 0) {
+                bulkBar.style.display = 'flex';
+                selectedCount.innerText = checked.length;
+            } else {
+                bulkBar.style.display = 'none';
+            }
+        }
+
+        async function deleteSingleTrip(filename, itemId) {
+            if (!confirm(`Möchtest du die Fahrt "${filename}" wirklich unwiderruflich löschen?`)) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/delete_trip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: filename })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const row = document.getElementById(itemId);
+                    if (row) {
+                        row.style.transition = 'opacity 0.3s, transform 0.3s';
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(20px)';
+                        setTimeout(() => row.remove(), 300);
+                    }
+                } else {
+                    alert('Fehler beim Löschen: ' + data.message);
+                }
+            } catch (err) {
+                alert('Netzwerkfehler beim Löschen: ' + err);
+            }
+        }
+
+        async function bulkDeleteSelectedTrips() {
+            const checked = document.querySelectorAll('.trip-cb:checked');
+            if (checked.length === 0) return;
+
+            const filenames = Array.from(checked).map(cb => cb.value);
+            if (!confirm(`Möchtest du ${filenames.length} ausgewählte Fahrt(en) wirklich löschen?`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/bulk_delete_logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filenames: filenames, type: 'trip' })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    window.location.reload();
+                } else {
+                    alert('Fehler beim Löschen: ' + data.message);
+                }
+            } catch (err) {
+                alert('Netzwerkfehler: ' + err);
+            }
+        }
+
+        async function cleanupShortTrips() {
+            if (!confirm("Möchtest du alle unvollständigen Dyno-Pulls (< 20 Datenzeilen) und leere Trips (< 100 Datenzeilen) automatisch bereinigen?")) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/cleanup_logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    alert(data.message);
+                    window.location.reload();
+                } else {
+                    alert('Fehler bei der Bereinigung: ' + data.message);
+                }
+            } catch (err) {
+                alert('Netzwerkfehler: ' + err);
             }
         }
     </script>
