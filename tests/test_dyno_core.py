@@ -6,6 +6,7 @@ DIN 70020 weather normalization, Carburetor Jetting Advisor, and Flask routes.
 
 import os
 import sys
+import json
 import unittest
 import pandas as pd
 import numpy as np
