@@ -6,26 +6,42 @@ fuel stoichiometry (E5, E10, E0) and specific component configurations.
 """
 
 from __future__ import annotations
-from typing import Dict, Any, Optional, List
+import math
+from typing import Dict, Any, Optional, List, Union
 import pandas as pd
 from config import (
     load_carb_setup,
     FUEL_STOICHIOMETRY,
     SLIDE_TYPES,
     INTAKE_TYPES,
-    AIRBOX_TYPES
+    AIRBOX_TYPES,
+    EMULSION_TUBES,
+    STANDARD_HLKD_VALUES
 )
 
 
-# Dell'Orto SI Idle Jet Database (Fuel / Air, 160er Luftkorrektur-Skala)
-# Quotient Q = Air / Fuel (Höherer Q = mehr Luft pro Benzin = MAGERER; Kleinerer Q = weniger Luft / mehr Benzin = FETTER)
+# Dell'Orto SI Idle Jet Database (Fuel / Air across 160er, 140er, and 120er scales)
+# Quotient Q = Air / Fuel (Higher Q = more air per fuel = LEANER; Smaller Q = less air / more fuel = RICHER)
 DELLORTO_SI_IDLE_JETS = [
-    {"name": "55/160", "fuel": 55, "air": 160, "ratio": 160.0 / 55.0},  # 2.91 (Mager)
-    {"name": "58/160", "fuel": 58, "air": 160, "ratio": 160.0 / 58.0},  # 2.76 (Leicht magerer als 60/160)
-    {"name": "60/160", "fuel": 60, "air": 160, "ratio": 160.0 / 60.0},  # 2.67 (Standard / Referenz)
-    {"name": "62/160", "fuel": 62, "air": 160, "ratio": 160.0 / 62.0},  # 2.58 (+6.8% Benzin - Zwischenschritt)
-    {"name": "65/160", "fuel": 65, "air": 160, "ratio": 160.0 / 65.0},  # 2.46 (+17.4% Benzin - Primärempfehlung)
-    {"name": "68/160", "fuel": 68, "air": 160, "ratio": 160.0 / 68.0},  # 2.35 (+28.4% Benzin - Fetter Fallback)
+    # 160er Skala (Standard Largeframe SI 24/24)
+    {"name": "55/160", "fuel": 55, "air": 160, "scale": 160, "ratio": 160.0 / 55.0},  # 2.91 (Mager)
+    {"name": "58/160", "fuel": 58, "air": 160, "scale": 160, "ratio": 160.0 / 58.0},  # 2.76
+    {"name": "60/160", "fuel": 60, "air": 160, "scale": 160, "ratio": 160.0 / 60.0},  # 2.67 (Standard Referenz)
+    {"name": "62/160", "fuel": 62, "air": 160, "scale": 160, "ratio": 160.0 / 62.0},  # 2.58 (+6.8% Benzin)
+    {"name": "65/160", "fuel": 65, "air": 160, "scale": 160, "ratio": 160.0 / 65.0},  # 2.46 (+17.4% Benzin)
+    {"name": "68/160", "fuel": 68, "air": 160, "scale": 160, "ratio": 160.0 / 68.0},  # 2.35 (+28.4% Benzin)
+
+    # 140er Skala (Klassisch / Übergang)
+    {"name": "48/140", "fuel": 48, "air": 140, "scale": 140, "ratio": 140.0 / 48.0},  # 2.92 (Mager)
+    {"name": "50/140", "fuel": 50, "air": 140, "scale": 140, "ratio": 140.0 / 50.0},  # 2.80
+    {"name": "52/140", "fuel": 52, "air": 140, "scale": 140, "ratio": 140.0 / 52.0},  # 2.69
+    {"name": "55/140", "fuel": 55, "air": 140, "scale": 140, "ratio": 140.0 / 55.0},  # 2.55 (+10.5% Benzin vs 50/140)
+
+    # 120er Skala (Alter SI-Standard / Fetter Grundaufbau)
+    {"name": "42/120", "fuel": 42, "air": 120, "scale": 120, "ratio": 120.0 / 42.0},  # 2.86
+    {"name": "45/120", "fuel": 45, "air": 120, "scale": 120, "ratio": 120.0 / 45.0},  # 2.67
+    {"name": "48/120", "fuel": 48, "air": 120, "scale": 120, "ratio": 120.0 / 48.0},  # 2.50
+    {"name": "50/120", "fuel": 50, "air": 120, "scale": 120, "ratio": 120.0 / 50.0},  # 2.40 (Sehr fett)
 ]
 
 
@@ -47,6 +63,17 @@ def parse_nd_ratio(nd_str: str) -> float:
     return 2.67
 
 
+def parse_nd_scale(nd_str: str) -> int:
+    """Extracts air corrector scale from idle jet (e.g. '60/160' -> 160, '55/140' -> 140)."""
+    try:
+        parts = str(nd_str).strip().split('/')
+        if len(parts) == 2:
+            return int(float(parts[1]))
+    except Exception:
+        pass
+    return 160
+
+
 def is_richer_idle_jet(new_jet: str, current_jet: str) -> bool:
     """Returns True if new_jet provides a richer mixture (smaller Air/Fuel quotient) than current_jet."""
     return parse_nd_ratio(new_jet) < parse_nd_ratio(current_jet)
@@ -60,34 +87,178 @@ def is_leaner_idle_jet(new_jet: str, current_jet: str) -> bool:
 def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
     """
     Generates physically correct mechanical recommendations for Dell'Orto SI idle jets
-    based on the available 160-series idle jet scale (55/160 bis 68/160).
+    with series preservation (160er) and multi-scale escalation (140er/120er).
     target_direction: 'RICHER' (anfetten) or 'LEANER' (abmagern).
     """
     current_q = parse_nd_ratio(current_nd)
+    current_scale = parse_nd_scale(current_nd)
 
     if target_direction == "RICHER":
-        richer_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] < current_q - 0.04]
-        richer_candidates.sort(key=lambda j: j["ratio"], reverse=True)
-        if richer_candidates:
+        # 1. Look for richer candidates in the SAME scale first
+        same_scale_richer = [
+            j for j in DELLORTO_SI_IDLE_JETS
+            if j["scale"] == current_scale and j["ratio"] < current_q - 0.04
+        ]
+        same_scale_richer.sort(key=lambda j: j["ratio"], reverse=True)
+
+        if same_scale_richer:
             if "60/160" in current_nd:
                 return (
                     f"ND von 60/160 (Q={current_q:.2f}) auf ND 65/160 (Q=2.46, +17.4% Benzin) anfetten "
                     f"und LLG-Schraube von 3.5 auf ca. 1.75-2.0 Umdrehungen zurückstellen "
                     f"(ND 62/160 als Zwischenschritt oder ND 68/160 als fetter Fallback)."
                 )
-            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in richer_candidates[:2]])
-            return f"ND von {current_nd} (Q={current_q:.2f}) auf fettere ND mit kleinerem Quotienten wie {examples} wechseln (LLG-Schraube auf ~1.75-2.0 Umdrehungen Grundstellung)."
-        return f"ND {current_nd} ist bereits die fetteste 160er Düse (Q={current_q:.2f})."
+            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in same_scale_richer[:2]])
+            return (
+                f"ND von {current_nd} (Q={current_q:.2f}) auf fettere ND mit kleinerem Quotienten wie {examples} "
+                f"wechseln (LLG-Schraube auf ~1.75-2.0 Umdrehungen Grundstellung)."
+            )
+
+        # 2. Escalation if no richer jet in the same scale exists
+        other_scale_richer = [
+            j for j in DELLORTO_SI_IDLE_JETS
+            if j["ratio"] < current_q - 0.04
+        ]
+        other_scale_richer.sort(key=lambda j: j["ratio"], reverse=True)
+        if other_scale_richer:
+            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in other_scale_richer[:2]])
+            return (
+                f"ND {current_nd} (Q={current_q:.2f}) ist bereits die fetteste Düse der {current_scale}er Skala! "
+                f"Eskalation erforderlich: Wechsel auf fettere Skala wie {examples} oder LLG-Schraube weiter herausdrehen."
+            )
+        return f"ND {current_nd} ist bereits die absolut fetteste verfügbare Nebendüse (Q={current_q:.2f})."
 
     elif target_direction == "LEANER":
-        leaner_candidates = [j for j in DELLORTO_SI_IDLE_JETS if j["ratio"] > current_q + 0.04]
-        leaner_candidates.sort(key=lambda j: j["ratio"])
-        if leaner_candidates:
-            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in leaner_candidates[:2]])
+        # 1. Look for leaner candidates in the SAME scale first
+        same_scale_leaner = [
+            j for j in DELLORTO_SI_IDLE_JETS
+            if j["scale"] == current_scale and j["ratio"] > current_q + 0.04
+        ]
+        same_scale_leaner.sort(key=lambda j: j["ratio"])
+
+        if same_scale_leaner:
+            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in same_scale_leaner[:2]])
             return f"ND von {current_nd} (Q={current_q:.2f}) auf magerere ND mit größerem Quotienten wie {examples} wechseln."
+
+        # 2. Escalation if no leaner jet in the same scale exists
+        other_scale_leaner = [
+            j for j in DELLORTO_SI_IDLE_JETS
+            if j["ratio"] > current_q + 0.04
+        ]
+        other_scale_leaner.sort(key=lambda j: j["ratio"])
+        if other_scale_leaner:
+            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in other_scale_leaner[:2]])
+            return (
+                f"ND {current_nd} (Q={current_q:.2f}) ist bereits die magerste Düse der {current_scale}er Skala! "
+                f"Eskalation: Wechsel auf magerere Skala wie {examples}."
+            )
         return f"ND {current_nd} ist bereits sehr mager (Q={current_q:.2f})."
 
     return f"Nebendüse {current_nd} (Q={current_q:.2f}) ist optimal abgestimmt."
+
+
+def get_zone3_tube_hlkd_advice(
+    mean_afr: float,
+    t_min: float,
+    t_max: float,
+    status: str,
+    lambda_measured: float,
+    tube: str,
+    hlkd: int,
+    hd: int
+) -> str:
+    """
+    Tiered advice for Zone 3 (Pre-Resonance & Emulsion Tube):
+    1st Tier: Adjust Air Corrector (HLKD 160 -> 150 -> 140 or vice-versa).
+    2nd Tier: Change Emulsion Tube (BE4/BE5 -> BE3 -> BE2 / Lemarxon).
+    """
+    tube_clean = str(tube).strip().lower()
+
+    if "LEAN" in status:
+        if hlkd > 150:
+            return (
+                f"Magerlauf beim Eintritt in die Resonanz (AFR {mean_afr:.1f} > {t_max:.1f})! "
+                f"Schritt 1 (Bremsluft drosseln): HLKD von {hlkd} auf 150 oder 140 reduzieren, "
+                f"um das Gemisch vor dem Resonanzeinstieg anzufetten."
+            )
+        elif hlkd > 140:
+            return (
+                f"Magerlauf beim Eintritt in die Resonanz (AFR {mean_afr:.1f} > {t_max:.1f})! "
+                f"Schritt 1: HLKD von {hlkd} auf 140 reduzieren. Falls weiterhin mager, "
+                f"Schritt 2: Fetteres Mischrohr (BE2 oder Lemarxon x234) verbauen."
+            )
+        else:
+            if any(k in tube_clean for k in ["be4", "be5", "be6"]):
+                tube_rec = "BE3 oder das deutlich fettere BE2"
+            elif "be3" in tube_clean:
+                tube_rec = "BE2 (späte Vormischung) oder Lemarxon x234 (High-Flow)"
+            else:
+                tube_rec = "BE2 oder Lemarxon x234 (ggf. auch Hauptdüse HD vergrößern)"
+            return (
+                f"Magerlauf vor Resonanz (AFR {mean_afr:.1f} > {t_max:.1f})! "
+                f"HLKD ist mit {hlkd} bereits klein. Schritt 2: Wechsel von {tube} auf fetteres Mischrohr "
+                f"wie {tube_rec} erforderlich."
+            )
+    elif status == "RICH":
+        if hlkd < 160:
+            return (
+                f"Viertaktet vor Resonanzeintritt (AFR {mean_afr:.1f} < {t_min:.1f}). "
+                f"Schritt 1 (Mehr Bremsluft): HLKD von {hlkd} auf 160 (oder 190) vergrößern."
+            )
+        else:
+            if "be2" in tube_clean or "lemarxon" in tube_clean:
+                tube_rec = "BE3 (linear) oder BE4/BE5"
+            else:
+                tube_rec = "BE4 oder BE5 (frühere Vormischung / magerer)"
+            return (
+                f"Viertaktet vor Resonanzeintritt (AFR {mean_afr:.1f} < {t_min:.1f}). "
+                f"HLKD ist bereits {hlkd}. Schritt 2: Wechsel von {tube} auf magereres Mischrohr ({tube_rec}) testen."
+            )
+    else:
+        return f"Mischrohr {tube} & HLKD {hlkd} versorgen den Motor im Resonanzeinstieg perfekt (λ={lambda_measured:.2f})."
+
+
+def calculate_relative_air_density(
+    temp_c: float = 20.0,
+    pressure_hpa: float = 1013.25
+) -> float:
+    """
+    Calculates Relative Air Density (RAD) normalized to DIN 70020 standard (20°C, 1013.25 hPa).
+    RAD = rho_actual / rho_ref = (p / p_0) * (T_0 / T)
+    """
+    t_kelvin = max(233.15, float(temp_c) + 273.15)
+    t_ref = 293.15  # 20°C
+    p_ref = 1013.25
+    p_actual = max(700.0, min(1100.0, float(pressure_hpa)))
+    return (p_actual / p_ref) * (t_ref / t_kelvin)
+
+
+def calculate_weather_corrected_main_jet(
+    base_hd: Union[int, float],
+    temp_c: float = 20.0,
+    pressure_hpa: float = 1013.25
+) -> Dict[str, Any]:
+    """
+    Calculates weather-corrected Dell'Orto SI main jet (HD) based on Relative Air Density (RAD).
+    Physics: Fuel flow area scales with air density:
+    HD_corr = round(HD_base * sqrt(RAD))
+    """
+    base = float(base_hd)
+    rad = calculate_relative_air_density(temp_c, pressure_hpa)
+    sqrt_rad = math.sqrt(rad)
+    recommended_hd = int(round(base * sqrt_rad))
+    delta_hd = recommended_hd - int(round(base))
+
+    return {
+        "base_hd": int(round(base)),
+        "recommended_hd": recommended_hd,
+        "delta_hd": delta_hd,
+        "rad": round(rad, 4),
+        "rad_pct": round(rad * 100.0, 1),
+        "temp_c": round(float(temp_c), 1),
+        "pressure_hpa": round(float(pressure_hpa), 1),
+        "sqrt_rad": round(sqrt_rad, 4)
+    }
 
 
 def get_stoichiometric_afr(fuel_type: str = "Super_E5") -> float:
@@ -97,11 +268,14 @@ def get_stoichiometric_afr(fuel_type: str = "Super_E5") -> float:
 
 def analyze_carb_jetting(
     df: pd.DataFrame,
-    carb_setup: Optional[Dict[str, Any]] = None
+    carb_setup: Optional[Dict[str, Any]] = None,
+    temp_c: float = 20.0,
+    pressure_hpa: float = 1013.25
 ) -> Dict[str, Any]:
     """
     Analyzes telemetry AFR across 4 carburetor operating regimes and
-    outputs component-specific recommendations for Dell'Orto SI 24/24.
+    outputs component-specific recommendations for Dell'Orto SI 24/24,
+    including Relative Air Density (RAD) main jet weather compensation.
     """
     if carb_setup is None:
         carb_setup = load_carb_setup()
@@ -123,6 +297,8 @@ def analyze_carb_jetting(
     airbox_key = carb_setup.get("airbox_type", "polini_airbox")
     airbox_label = AIRBOX_TYPES.get(airbox_key, "Polini Airbox")
 
+    weather_info = calculate_weather_corrected_main_jet(hd, temp_c, pressure_hpa)
+
     rpm_col = "RPM_smoothed" if "RPM_smoothed" in df.columns else ("RPM" if "RPM" in df.columns else None)
     afr_col = "AFR" if "AFR" in df.columns else None
     egt_col = "EGT_cleaned" if "EGT_cleaned" in df.columns else ("EGT" if "EGT" in df.columns else None)
@@ -131,7 +307,8 @@ def analyze_carb_jetting(
         return {
             "valid": False,
             "error": "Unzureichende Telemetriedaten für Vergaseranalyse.",
-            "carb_setup": carb_setup
+            "carb_setup": carb_setup,
+            "weather_compensation": weather_info
         }
 
     valid_mask = (df[afr_col] >= 9.0) & (df[afr_col] <= 18.5) & (df[rpm_col] >= 1200)
@@ -141,7 +318,8 @@ def analyze_carb_jetting(
         return {
             "valid": False,
             "error": "Zu wenige verwertbare AFR-Punkte im Pull.",
-            "carb_setup": carb_setup
+            "carb_setup": carb_setup,
+            "weather_compensation": weather_info
         }
 
     # Dynamic Lambda-Based Zone Boundaries for 2-Stroke Vespa Largeframe
@@ -298,12 +476,16 @@ def analyze_carb_jetting(
                 advice = f"Gasschieber ({slide_label}) sorgt für einen sauberen, stempelfreien Teillastübergang (λ={lambda_measured:.2f})."
 
         elif zid == "zone3":
-            if "LEAN" in status:
-                advice = f"Magerlauf beim Eintritt in die Resonanz (AFR {mean_afr:.1f} > {t_max:.1f})! HLKD von {hlkd} auf kleiner (140/150) reduzieren oder fetteres Mischrohr ({tube}) verbauen."
-            elif status == "RICH":
-                advice = f"Viertaktet vor Resonanzeintritt (AFR {mean_afr:.1f} < {t_min:.1f}). HLKD vergrößern oder magereres Mischrohr wählen."
-            else:
-                advice = f"Mischrohr {tube} & HLKD {hlkd} versorgen den Motor im Resonanzeinstieg perfekt (λ={lambda_measured:.2f})."
+            advice = get_zone3_tube_hlkd_advice(
+                mean_afr=mean_afr,
+                t_min=t_min,
+                t_max=t_max,
+                status=status,
+                lambda_measured=lambda_measured,
+                tube=tube,
+                hlkd=hlkd,
+                hd=hd
+            )
 
         elif zid == "zone4":
             intake_note = ""
@@ -312,14 +494,23 @@ def analyze_carb_jetting(
             elif intake_key == "lemarxon_22mm":
                 intake_note = f" (22mm Lemarxon Hülse optimiert die Strömungsgeschwindigkeit)."
 
+            weather_note = ""
+            if abs(weather_info["delta_hd"]) >= 1:
+                sign = "+" if weather_info["delta_hd"] > 0 else ""
+                weather_note = (
+                    f" [Wetterkorrektur bei {weather_info['temp_c']}°C / {weather_info['pressure_hpa']} hPa: "
+                    f"RAD {weather_info['rad_pct']}% -> Empfohlene HD {weather_info['recommended_hd']} "
+                    f"({sign}{weather_info['delta_hd']} zur 20°C Basis)]"
+                )
+
             if status == "CRITICAL_LEAN":
-                advice = f"🚨 AKUTE KLEMMGEFAHR BEI VOLLGAS (AFR {mean_afr:.1f} > 13.5)! Hauptdüse HD {hd} sofort um mind. +4 bis +6 Nummern vergrößern (z.B. HD {hd+4}/{hd+6})!{intake_note}"
+                advice = f"🚨 AKUTE KLEMMGEFAHR BEI VOLLGAS (AFR {mean_afr:.1f} > 13.5)! Hauptdüse HD {hd} sofort um mind. +4 bis +6 Nummern vergrößern (z.B. HD {hd+4}/{hd+6})!{intake_note}{weather_note}"
             elif status == "LEAN":
-                advice = f"Hauptdüse HD {hd} etwas zu mager (AFR {mean_afr:.1f} > 12.8). Empfehlung: HD um +2 bis +3 Nummern vergrößern (z.B. HD {hd+2}).{intake_note}"
+                advice = f"Hauptdüse HD {hd} etwas zu mager (AFR {mean_afr:.1f} > 12.8). Empfehlung: HD um +2 bis +3 Nummern vergrößern (z.B. HD {hd+2}).{intake_note}{weather_note}"
             elif status == "RICH":
-                advice = f"Motor drosselt obenraus / überfettet (AFR {mean_afr:.1f} < 11.2). HD {hd} um 2 Nummern verkleinern (z.B. HD {hd-2})."
+                advice = f"Motor drosselt obenraus / überfettet (AFR {mean_afr:.1f} < 11.2). HD {hd} um 2 Nummern verkleinern (z.B. HD {hd-2}).{weather_note}"
             else:
-                advice = f"Hauptdüse HD {hd} mit {intake_label} liefert optimale Leistung bei maximaler Innenkühlung (AFR {mean_afr:.1f}, λ={lambda_measured:.2f} - FETT & SICHER)."
+                advice = f"Hauptdüse HD {hd} mit {intake_label} liefert optimale Leistung bei maximaler Innenkühlung (AFR {mean_afr:.1f}, λ={lambda_measured:.2f} - FETT & SICHER).{weather_note}"
 
         gauge_pct = int(max(0, min(100, ((mean_afr - (stoich_afr * 0.70)) / (stoich_afr * 0.45)) * 100)))
 
@@ -367,6 +558,7 @@ def analyze_carb_jetting(
         "stoich_afr": stoich_afr,
         "max_egt": round(max_egt, 0) if max_egt else None,
         "carb_setup": carb_setup,
+        "weather_compensation": weather_info,
         "zones": evaluated_zones
     }
 

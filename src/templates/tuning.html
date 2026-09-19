@@ -141,7 +141,7 @@
                 </div>
                 <div class="form-group">
                     <label>Hauptdüse (HD)</label>
-                    <input type="number" name="main_jet_hd" value="{{ carb.main_jet_hd }}" required>
+                    <input type="number" name="main_jet_hd" value="{{ carb.main_jet_hd }}" oninput="recalcWeather()" required>
                 </div>
                 <div class="form-group">
                     <label>Nebendüse (ND)</label>
@@ -153,7 +153,15 @@
                 </div>
                 <div class="form-group">
                     <label>Mischrohr</label>
-                    <input type="text" name="emulsion_tube" value="{{ carb.emulsion_tube }}" required>
+                    <select id="tubeSelect" onchange="onTubeSelectChange()">
+                        <option value="BE3" {% if carb.emulsion_tube == 'BE3' %}selected{% endif %}>BE3 (Standard / Linear)</option>
+                        <option value="BE2" {% if carb.emulsion_tube == 'BE2' %}selected{% endif %}>BE2 (Fett / Späte Vormischung)</option>
+                        <option value="BE4" {% if carb.emulsion_tube == 'BE4' %}selected{% endif %}>BE4 (Mager / Frühe Vormischung)</option>
+                        <option value="BE5" {% if carb.emulsion_tube == 'BE5' %}selected{% endif %}>BE5 (Mittel / Früher Übergang)</option>
+                        <option value="Lemarxon x234" {% if 'lemarxon' in carb.emulsion_tube|lower %}selected{% endif %}>Lemarxon x234 (Tuning High-Flow)</option>
+                        <option value="custom" {% if carb.emulsion_tube not in ['BE3', 'BE2', 'BE4', 'BE5'] and 'lemarxon' not in carb.emulsion_tube|lower %}selected{% endif %}>Benutzerdefiniert...</option>
+                    </select>
+                    <input type="text" id="tubeCustomInput" name="emulsion_tube" value="{{ carb.emulsion_tube }}" placeholder="Mischrohr Bezeichnung" style="margin-top:6px; display:none;" required>
                 </div>
                 <div class="form-group">
                     <label>Vergaser-Typ</label>
@@ -172,6 +180,69 @@
         </form>
     </div>
 
+    <!-- Weather & Relative Air Density (RAD) Compensation Card -->
+    <div class="section-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h2 style="font-size:1.1rem; color:#00ffcc; font-weight:800;">🛰️ Wetter- & Luftdichte-Kompensation (RAD)</h2>
+            <span style="font-size:0.75rem; color:#888; font-family:monospace;">DIN 70020 (20°C / 1013 hPa)</span>
+        </div>
+        <div style="font-size:0.8rem; color:#aaa; margin-bottom:12px;">
+            Ermittle die thermodynamisch korrigierte Hauptdüse (HD) anhand der aktuellen Außenluftdichte:
+        </div>
+
+        <div class="form-grid" style="margin-bottom:12px;">
+            <div class="form-group">
+                <label>Temperatur (°C)</label>
+                <input type="number" step="0.5" id="weatherTemp" value="{{ temp_param }}" onchange="recalcWeather()">
+            </div>
+            <div class="form-group">
+                <label>Luftdruck (hPa)</label>
+                <input type="number" step="1.0" id="weatherPress" value="{{ pressure_param }}" onchange="recalcWeather()">
+            </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <button type="button" onclick="fetchLiveWeatherForTuning()" 
+                    style="flex:2; background:#1c1c24; border:1px solid #00ffcc; color:#00ffcc; padding:10px; border-radius:8px; font-weight:bold; font-size:0.85rem; cursor:pointer;">
+                🛰️ Wetter via Smartphone laden
+            </button>
+            <button type="button" onclick="applyWeatherToTuning()" 
+                    style="flex:1; background:#00e676; border:none; color:#000; padding:10px; border-radius:8px; font-weight:800; font-size:0.85rem; cursor:pointer;">
+                🔄 AKTUALISIEREN
+            </button>
+        </div>
+
+        <div style="background:#1f1f26; border:1px solid #2e2e38; border-radius:10px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+                <div style="font-size:0.75rem; color:#888; text-transform:uppercase; font-weight:bold;">Relative Luftdichte (RAD)</div>
+                <div style="font-size:1.3rem; font-weight:900; color:#fff; font-family:monospace;" id="displayRad">
+                    {{ weather_comp.rad_pct }}%
+                </div>
+                <div style="font-size:0.75rem; color:#aaa;" id="displayRadDesc">
+                    {% if weather_comp.rad > 1.01 %}
+                    Dichtere / kältere Luft &rarr; Gemisch magert ab
+                    {% elif weather_comp.rad < 0.99 %}
+                    Dünnere / wärmere Luft &rarr; Gemisch überfettet
+                    {% else %}
+                    Normbedingungen (&plusmn;1%)
+                    {% endif %}
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.75rem; color:#888; text-transform:uppercase; font-weight:bold;">Wetter-Empfohlene HD</div>
+                <div style="font-size:1.4rem; font-weight:900; color:#00ffcc; font-family:monospace;" id="displayHd">
+                    HD {{ weather_comp.recommended_hd }}
+                    <span style="font-size:0.85rem; color:{% if weather_comp.delta_hd > 0 %}#ff1744{% elif weather_comp.delta_hd < 0 %}#29b6f6{% else %}#00e676{% endif %};">
+                        ({% if weather_comp.delta_hd > 0 %}+{% endif %}{{ weather_comp.delta_hd }})
+                    </span>
+                </div>
+                <div style="font-size:0.75rem; color:#888;">
+                    Basis: HD {{ weather_comp.base_hd }} @ 20°C
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Live Bedüsungs-Diagnose -->
     <div class="section-card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -185,6 +256,87 @@
     </div>
 
     <script>
+        function onTubeSelectChange() {
+            const sel = document.getElementById('tubeSelect');
+            const input = document.getElementById('tubeCustomInput');
+            if (sel.value === 'custom') {
+                input.style.display = 'block';
+                input.focus();
+            } else {
+                input.style.display = 'none';
+                input.value = sel.value;
+            }
+        }
+
+        function initTubeSelect() {
+            const sel = document.getElementById('tubeSelect');
+            const input = document.getElementById('tubeCustomInput');
+            if (sel.value === 'custom') {
+                input.style.display = 'block';
+            } else {
+                input.value = sel.value;
+            }
+        }
+
+        function recalcWeather() {
+            const temp = parseFloat(document.getElementById('weatherTemp').value) || 20.0;
+            const press = parseFloat(document.getElementById('weatherPress').value) || 1013.25;
+            const baseHd = parseFloat(document.querySelector('input[name="main_jet_hd"]').value) || 125.0;
+
+            const tKelvin = Math.max(233.15, temp + 273.15);
+            const rad = (press / 1013.25) * (293.15 / tKelvin);
+            const sqrtRad = Math.sqrt(rad);
+            const corrHd = Math.round(baseHd * sqrtRad);
+            const deltaHd = corrHd - Math.round(baseHd);
+
+            document.getElementById('displayRad').innerText = (rad * 100).toFixed(1) + '%';
+            
+            let radDesc = "Normbedingungen (±1%)";
+            if (rad > 1.01) radDesc = "Dichtere / kältere Luft → Gemisch magert ab";
+            else if (rad < 0.99) radDesc = "Dünnere / wärmere Luft → Gemisch überfettet";
+            document.getElementById('displayRadDesc').innerText = radDesc;
+
+            const sign = deltaHd > 0 ? "+" : "";
+            const color = deltaHd > 0 ? "#ff1744" : (deltaHd < 0 ? "#29b6f6" : "#00e676");
+            document.getElementById('displayHd').innerHTML = `HD ${corrHd} <span style="font-size:0.85rem; color:${color};">(${sign}${deltaHd})</span>`;
+        }
+
+        function applyWeatherToTuning() {
+            const temp = document.getElementById('weatherTemp').value;
+            const press = document.getElementById('weatherPress').value;
+            const url = new URL(window.location.href);
+            url.searchParams.set('temp', temp);
+            url.searchParams.set('pressure', press);
+            window.location.href = url.toString();
+        }
+
+        function fetchLiveWeatherForTuning() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    fetchOpenMeteoTuning(pos.coords.latitude, pos.coords.longitude);
+                }, () => {
+                    fetchOpenMeteoTuning(48.137, 11.575);
+                });
+            } else {
+                fetchOpenMeteoTuning(48.137, 11.575);
+            }
+        }
+
+        function fetchOpenMeteoTuning(lat, lon) {
+            const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,surface_pressure`;
+            fetch(apiUrl)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.current) {
+                        document.getElementById('weatherTemp').value = d.current.temperature_2m.toFixed(1);
+                        document.getElementById('weatherPress').value = d.current.surface_pressure.toFixed(1);
+                        recalcWeather();
+                        applyWeatherToTuning();
+                    }
+                })
+                .catch(err => alert('Wetter konnte nicht abgerufen werden: ' + err));
+        }
+
         function saveSetup(e) {
             e.preventDefault();
             const form = document.getElementById('carbForm');
@@ -205,6 +357,10 @@
             })
             .catch(err => alert('Fehler beim Speichern: ' + err));
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initTubeSelect();
+        });
     </script>
 </body>
 </html>

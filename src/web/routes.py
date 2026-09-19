@@ -31,6 +31,7 @@ from config import (
     SLIDE_TYPES,
     INTAKE_TYPES,
     AIRBOX_TYPES,
+    EMULSION_TUBES,
     IGNITION_DEG_BTDC,
     DISPLACEMENT_CC
 )
@@ -50,7 +51,10 @@ from data.logger import (
     write_log_metadata,
     get_log_creation_datetime
 )
-from data.jetting_advisor import analyze_carb_jetting
+from data.jetting_advisor import (
+    analyze_carb_jetting,
+    calculate_weather_corrected_main_jet
+)
 from data.trip_analyzer import analyze_trip_session, calculate_gps_distance_km
 
 dyno_bp = Blueprint('dyno_bp', __name__)
@@ -252,7 +256,7 @@ def analyze_run() -> str:
 
         # Carburetor Jetting Diagnosis using the log's actual setup
         carb_setup = setup_meta.get("carb", load_carb_setup())
-        carb_diag = analyze_carb_jetting(trimmed_df, carb_setup)
+        carb_diag = analyze_carb_jetting(trimmed_df, carb_setup, temp_c=temp_param, pressure_hpa=pressure_param)
 
         diag_rows_html = ""
         if carb_diag.get("valid"):
@@ -383,6 +387,16 @@ def tuning_dashboard() -> str:
     carb = load_carb_setup()
     files = sorted(glob.glob(os.path.join(LOG_DIR, '*.csv')), key=os.path.getmtime, reverse=True)
 
+    try:
+        temp_param = float(request.args.get('temp', 20.0))
+    except (ValueError, TypeError):
+        temp_param = 20.0
+
+    try:
+        pressure_param = float(request.args.get('pressure', 1013.25))
+    except (ValueError, TypeError):
+        pressure_param = 1013.25
+
     analysis = None
     latest_file = os.path.basename(files[0]) if files else None
 
@@ -395,9 +409,15 @@ def tuning_dashboard() -> str:
             df = calculate_telemetry_metrics(df)
             trimmed, _ = detect_dyno_pull(df)
             file_carb = meta.get("carb", carb)
-            analysis = analyze_carb_jetting(trimmed, file_carb)
+            analysis = analyze_carb_jetting(trimmed, file_carb, temp_c=temp_param, pressure_hpa=pressure_param)
         except Exception as e:
             analysis = {"valid": False, "error": str(e), "overall_verdict": "Fehler bei der Analyse"}
+
+    weather_comp = calculate_weather_corrected_main_jet(
+        carb.get("main_jet_hd", 125),
+        temp_c=temp_param,
+        pressure_hpa=pressure_param
+    )
 
     zone_cards_html = ""
     if analysis and analysis.get("valid"):
@@ -434,7 +454,11 @@ def tuning_dashboard() -> str:
         slide_types=SLIDE_TYPES,
         intake_types=INTAKE_TYPES,
         airbox_types=AIRBOX_TYPES,
-        fuel_types=FUEL_STOICHIOMETRY
+        fuel_types=FUEL_STOICHIOMETRY,
+        emulsion_tubes=EMULSION_TUBES,
+        weather_comp=weather_comp,
+        temp_param=temp_param,
+        pressure_param=pressure_param
     )
 
 
@@ -488,7 +512,7 @@ def dyno_sheet() -> str:
         )
 
         carb = setup_meta.get("carb", load_carb_setup())
-        carb_diag = analyze_carb_jetting(trimmed, carb)
+        carb_diag = analyze_carb_jetting(trimmed, carb, temp_c=temp_param, pressure_hpa=pressure_param)
 
         slide_label = SLIDE_TYPES.get(carb.get("slide_type", ""), carb.get("slide_type", "Lemarxon Low Cutaway"))
         intake_label = INTAKE_TYPES.get(carb.get("intake_type", ""), carb.get("intake_type", "22mm Reduzierhülse Lemarxon"))

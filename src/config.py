@@ -110,6 +110,17 @@ AIRBOX_TYPES: Dict[str, str] = {
     "no_cover": "Ohne Deckel (Offene Wanne)"
 }
 
+EMULSION_TUBES: Dict[str, str] = {
+    "be3": "BE3 (Standard / Linear)",
+    "be2": "BE2 (Fett / Späte Vormischung)",
+    "be4": "BE4 (Mager / Frühe Vormischung)",
+    "be5": "BE5 (Mittel / Früher Übergang)",
+    "lemarxon_x234": "Lemarxon x234 (Tuning High-Flow)",
+    "custom": "Benutzerdefiniert"
+}
+
+STANDARD_HLKD_VALUES: list[int] = [140, 150, 160, 190]
+
 DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",

@@ -192,6 +192,12 @@
         <div style="background:#1f1f26; padding:10px 12px; border-radius:8px; margin-bottom:12px; font-size:0.85rem; color:#fff;">
             <strong>{{ carb_diag.overall_verdict if carb_diag else '' }}</strong>
         </div>
+        {% if carb_diag and carb_diag.weather_compensation and carb_diag.weather_compensation.delta_hd != 0 %}
+        <div style="background:#131d24; border:1px solid #00ffcc44; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; color:#00ffcc; display:flex; justify-content:space-between; align-items:center;">
+            <span>🛰️ <b>Wetter-Kompensation ({{ carb_diag.weather_compensation.temp_c }}°C / {{ carb_diag.weather_compensation.pressure_hpa }} hPa):</b> RAD {{ carb_diag.weather_compensation.rad_pct }}%</span>
+            <span style="font-weight:bold;">Empfohlene HD: {{ carb_diag.weather_compensation.recommended_hd }} ({% if carb_diag.weather_compensation.delta_hd > 0 %}+{% endif %}{{ carb_diag.weather_compensation.delta_hd }} zu Basis HD {{ carb_diag.weather_compensation.base_hd }})</span>
+        </div>
+        {% endif %}
         {{ diag_rows_html|safe }}
     </div>
 

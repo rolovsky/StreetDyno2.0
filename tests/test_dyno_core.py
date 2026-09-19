@@ -33,9 +33,13 @@ from data.analyzer_logic import (
 from data.jetting_advisor import (
     analyze_carb_jetting,
     parse_nd_ratio,
+    parse_nd_scale,
     is_richer_idle_jet,
     is_leaner_idle_jet,
-    get_idle_jet_advice
+    get_idle_jet_advice,
+    get_zone3_tube_hlkd_advice,
+    calculate_relative_air_density,
+    calculate_weather_corrected_main_jet
 )
 from data.logger import CSVLogger, TripLogger
 from data.trip_analyzer import (
@@ -199,6 +203,94 @@ class TestDynoPhysics(unittest.TestCase):
         rich_adv = get_idle_jet_advice("60/160", "RICHER")
         self.assertIn("65/160", rich_adv)
         self.assertIn("LLG-Schraube", rich_adv)
+
+    def test_extended_nd_matrix_and_escalation(self):
+        """Verify 140/120 ND parsing, series preservation, and multi-scale escalation."""
+        # Scale parsing
+        self.assertEqual(parse_nd_scale("60/160"), 160)
+        self.assertEqual(parse_nd_scale("50/140"), 140)
+        self.assertEqual(parse_nd_scale("45/120"), 120)
+
+        # 140 and 120 ratio checks
+        self.assertAlmostEqual(parse_nd_ratio("50/140"), 2.80, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("55/140"), 2.545, places=2)
+        self.assertAlmostEqual(parse_nd_ratio("50/120"), 2.40, places=2)
+
+        # Series preservation: When on 140er scale and asking for richer, stays in 140er
+        adv_140_rich = get_idle_jet_advice("50/140", "RICHER")
+        self.assertIn("52/140", adv_140_rich)
+
+        # Multi-scale escalation: When on 68/160 (richest 160er) and needing richer -> escalates to 120er
+        adv_escalate_rich = get_idle_jet_advice("68/160", "RICHER")
+        self.assertIn("Eskalation erforderlich", adv_escalate_rich)
+        self.assertIn("120er", adv_escalate_rich)
+
+        # Lean escalation: When on 55/160 (leanest 160er) and needing leaner -> triggers boundary note
+        adv_escalate_lean = get_idle_jet_advice("55/160", "LEANER")
+        self.assertIn("Bereits sehr mager", adv_escalate_lean.capitalize())
+
+    def test_tiered_emulsion_tube_and_hlkd_advice(self):
+        """Verify tiered advice in Zone 3 (HLKD adjustment first, then emulsion tube replacement)."""
+        # Step 1: Lean in Zone 3 with HLKD 160 -> Reduce HLKD to 150/140
+        adv_lean_step1 = get_zone3_tube_hlkd_advice(
+            mean_afr=13.5, t_min=12.0, t_max=12.7,
+            status="LEAN", lambda_measured=0.94,
+            tube="BE3", hlkd=160, hd=125
+        )
+        self.assertIn("Schritt 1", adv_lean_step1)
+        self.assertIn("HLKD von 160 auf 150 oder 140", adv_lean_step1)
+
+        # Step 2: Lean in Zone 3 with HLKD already at 140 and BE3 -> Change tube to BE2 or Lemarxon
+        adv_lean_step2 = get_zone3_tube_hlkd_advice(
+            mean_afr=13.5, t_min=12.0, t_max=12.7,
+            status="LEAN", lambda_measured=0.94,
+            tube="BE3", hlkd=140, hd=125
+        )
+        self.assertIn("Schritt 2", adv_lean_step2)
+        self.assertIn("BE2", adv_lean_step2)
+
+        # Step 1 Rich in Zone 3 with HLKD 140 -> Increase HLKD to 160
+        adv_rich_step1 = get_zone3_tube_hlkd_advice(
+            mean_afr=11.2, t_min=12.0, t_max=12.7,
+            status="RICH", lambda_measured=0.78,
+            tube="BE3", hlkd=140, hd=125
+        )
+        self.assertIn("Schritt 1", adv_rich_step1)
+        self.assertIn("HLKD von 140 auf 160", adv_rich_step1)
+
+    def test_weather_rad_and_hd_compensation(self):
+        """Verify Relative Air Density (RAD) physics and main jet compensation."""
+        # Standard DIN 70020 condition (20°C, 1013.25 hPa): RAD must be exactly 1.0
+        rad_std = calculate_relative_air_density(20.0, 1013.25)
+        self.assertAlmostEqual(rad_std, 1.0, places=3)
+
+        res_std = calculate_weather_corrected_main_jet(125, 20.0, 1013.25)
+        self.assertEqual(res_std["recommended_hd"], 125)
+        self.assertEqual(res_std["delta_hd"], 0)
+        self.assertAlmostEqual(res_std["rad_pct"], 100.0, places=1)
+
+        # Cold winter condition (0°C, 1020 hPa): Denser air -> higher RAD -> larger HD
+        rad_cold = calculate_relative_air_density(0.0, 1020.0)
+        self.assertGreater(rad_cold, 1.05)
+        res_cold = calculate_weather_corrected_main_jet(125, 0.0, 1020.0)
+        self.assertGreater(res_cold["recommended_hd"], 125)
+        self.assertGreaterEqual(res_cold["delta_hd"], 4)
+
+        # Hot summer condition (35°C, 1005 hPa): Thinner air -> lower RAD -> smaller HD
+        rad_hot = calculate_relative_air_density(35.0, 1005.0)
+        self.assertLess(rad_hot, 0.95)
+        res_hot = calculate_weather_corrected_main_jet(125, 35.0, 1005.0)
+        self.assertLess(res_hot["recommended_hd"], 125)
+        self.assertLessEqual(res_hot["delta_hd"], -3)
+
+        # Verify integration in analyze_carb_jetting
+        rpm = np.linspace(2000, 8500, 100)
+        df = pd.DataFrame({'RPM': rpm, 'AFR': np.full(100, 12.5), 'EGT': np.full(100, 550.0), 'Speed_kmh': rpm / 81.6})
+        analysis_cold = analyze_carb_jetting(df, DEFAULT_CARB_SETUP, temp_c=5.0, pressure_hpa=1018.0)
+        self.assertIn("weather_compensation", analysis_cold)
+        self.assertGreater(analysis_cold["weather_compensation"]["recommended_hd"], DEFAULT_CARB_SETUP["main_jet_hd"])
+        z4 = [z for z in analysis_cold["zones"] if z["id"] == "zone4"][0]
+        self.assertIn("Wetterkorrektur", z4["advice"])
 
     def test_sip_tacho_afr_calibration(self):
         """Verify calibrated SIP-Tacho synchronized formula: AFR = 22.62 - (5.72 * V), clamped [9.0, 19.5]."""
