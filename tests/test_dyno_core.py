@@ -760,7 +760,7 @@ class TestLogMetadata(unittest.TestCase):
             fpath = logger.start(setup_meta=custom_setup)
             logger.log(rpm=4800, afr=11.5, egt=420.0, speed=42.0)
             logger.log(rpm=6500, afr=11.0, egt=540.0, speed=72.0)
-            logger.stop()
+            logger.stop(min_samples=0)
 
             # Verify file content starts with comment lines
             with open(fpath, "r", encoding="utf-8") as f:
@@ -937,7 +937,7 @@ class TestSubsecondTimestampsAndJitter(unittest.TestCase):
             fpath = logger.start()
             test_ts = 1789494617.2275
             logger.log(rpm=4500, afr=12.5, egt=500.0, speed=55.0, timestamp=test_ts)
-            logger.stop()
+            logger.stop(min_samples=0)
 
             df, _ = load_telemetry_csv(fpath)
             self.assertEqual(len(df), 1)
@@ -999,7 +999,7 @@ class TestCHTIntegration(unittest.TestCase):
             logger = CSVLogger(log_dir=temp_dir)
             fpath = logger.start()
             logger.log(rpm=5200, afr=12.7, egt=580.0, cht=142.5, speed=65.0, timestamp=1789494620.1234)
-            logger.stop()
+            logger.stop(min_samples=0)
 
             df, meta = load_telemetry_csv(fpath)
             self.assertEqual(len(df), 1)
