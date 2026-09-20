@@ -130,16 +130,40 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "intake_type": "lemarxon_22mm",
     "airbox_type": "polini_airbox",
     "main_jet_hd": 125,
-    "idle_jet_nd": "60/160",
-    "air_corrector_hlkd": 160,
+    "idle_jet_nd": "52/140",
+    "air_corrector_hlkd": 170,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",
     "ignition_deg": 18.0,
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
     "lambda_ground_offset_mv": 0.0,
-    "notes": "VMC Super G 187cc Langhub / Dell'Orto T5 Schieber / HD 125 / ND 60/160 / 18° Zdg"
+    "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 170 / Lemarxon x234 / Polini Box"
 }
+
+# Gespeicherte Referenz-Setups als unveränderliche Baselines
+REFERENCE_SETUPS: Dict[str, Dict[str, Any]] = {
+    "lemarxon_22mm": {
+        "name": "22mm Lemarxon Reduzierhülse Referenz-Setup",
+        "description": "Offizielles Referenzsystem für SI 24 Vergaser mit 22mm Lemarxon Reduzierhülse auf VMC 187cc Langhub",
+        "carburetor_type": "BGM 24/24 Fastflow",
+        "fuel_type": "Super_E5",
+        "slide_type": "t5_dellorto",
+        "intake_type": "lemarxon_22mm",
+        "airbox_type": "polini_airbox",
+        "main_jet_hd": 125,
+        "idle_jet_nd": "52/140",
+        "air_corrector_hlkd": 170,
+        "emulsion_tube": "Lemarxon x234",
+        "exhaust": "Polini Box",
+        "ignition_deg": 18.0,
+        "displacement_cc": 187.0,
+        "stroke_mm": 60.0,
+        "lambda_ground_offset_mv": 0.0,
+        "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 170 / Lemarxon x234 / Polini Box"
+    }
+}
+
 
 
 def load_carb_setup() -> Dict[str, Any]:

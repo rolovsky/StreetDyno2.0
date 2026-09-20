@@ -1,4 +1,6 @@
 {
+    "name": "22mm Lemarxon Reduzierhülse Referenz-Setup",
+    "description": "Offizielles Referenz-Setup für 24/24 SI Vergaser mit 22mm Lemarxon Reduzierhülse auf VMC 187cc Langhub",
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
     "slide_type": "t5_dellorto",
