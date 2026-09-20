@@ -1,0 +1,33 @@
+[Unit]
+Description=StreetDyno 2.5 Bootstrap Web Server
+Documentation=https://github.com/rolovsky/streetdyno2.0
+# The web server reads from /tmp/streetdyno_state.json; the logger must
+# already be writing that file. Depend on the logger service, not hardware.
+After=network.target streetdyno-logger.service
+Wants=streetdyno-logger.service
+
+[Service]
+WorkingDirectory=/home/rolovsky/streetdyno2.0/src
+ExecStart=/usr/bin/python3 flask_web.py
+Restart=always
+RestartSec=5
+User=rolovsky
+
+# Crash isolation: Flask can be restarted without affecting the logger.
+# The logger has no dependency on this service.
+StandardOutput=journal
+StandardError=journal
+
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+# NOTE: This service is intentionally left DISABLED until V5.1
+#       (streetdyno.service) has been formally retired.
+#
+# To activate the Phase 2.5 stack (BOTH services):
+#   sudo systemctl enable  streetdyno-logger.service streetdyno-web.service
+#   sudo systemctl disable streetdyno.service
+#   sudo systemctl start   streetdyno-logger.service streetdyno-web.service
+#   sudo systemctl stop    streetdyno.service
