@@ -51,7 +51,18 @@ _SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from config import LOG_DIR, TRIP_LOG_DIR
+from config import (
+    LOG_DIR,
+    TRIP_LOG_DIR,
+    AUDIT_DIR,
+    FUEL_STOICHIOMETRY,
+    SLIDE_TYPES,
+    INTAKE_TYPES,
+    AIRBOX_TYPES,
+    EMULSION_TUBES,
+    load_carb_setup,
+    save_carb_setup,
+)
 
 # ══════════════════════════════════════════════════════════════════════════
 # IPC paths (must match simple_logger.py exactly)
@@ -344,6 +355,305 @@ def download_trip(filename: str) -> Response:
     )
 
 
+# ── /tuning ────────────────────────────────────────────────────────────────
+
+def _send_sighup() -> bool:
+    """Send SIGHUP to simple_logger.py to reload lambda_ground_offset_mv."""
+    pid = _read_logger_pid()
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, signal.SIGHUP)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _build_weather_comp(main_jet_hd: int, temp_c: float, pressure_hpa: float) -> Dict[str, Any]:
+    """
+    Lightweight inline weather correction for the tuning page.
+    Mirrors calculate_weather_corrected_main_jet() from analyzer_logic.py
+    without importing pandas/matplotlib. Uses the same DIN 70020 formula.
+    """
+    # DIN 70020: correction factor = sqrt((293.15 / (273.15 + temp_c)) * (pressure_hpa / 1013.25))
+    import math
+    factor = math.sqrt((293.15 / (273.15 + temp_c)) * (pressure_hpa / 1013.25))
+    recommended = round(main_jet_hd * factor)
+    delta = recommended - main_jet_hd
+    rad_pct = round((factor - 1.0) * 100, 1)
+    return {
+        "factor":         round(factor, 4),
+        "rad_pct":        rad_pct,
+        "recommended_hd": recommended,
+        "delta_hd":       delta,
+        "base_hd":        main_jet_hd,
+    }
+
+
+@bootstrap_bp.route("/tuning", methods=["GET", "POST"])
+def tuning_dashboard() -> Any:
+    """
+    GET  – render tuning.html with current carburetor setup + weather correction.
+    POST – persist changed setup to user_setup.json, then SIGHUP the logger
+           so it reloads lambda_ground_offset_mv without a restart.
+
+    The heavy jetting zone analysis (requires pandas + a dyno CSV) is skipped
+    in Bootstrap mode; zone_cards_html is an informational placeholder.
+    """
+    if request.method == "POST":
+        data: Dict[str, Any] = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if data:
+            # Coerce integer fields — same logic as V5.1 api_update_carb_setup
+            cleaned: Dict[str, Any] = {}
+            for k, v in data.items():
+                if k in ("main_jet_hd", "air_corrector_hlkd"):
+                    try:
+                        cleaned[k] = int(float(v))
+                    except (ValueError, TypeError):
+                        cleaned[k] = v
+                else:
+                    cleaned[k] = str(v)
+            ok = save_carb_setup(cleaned)
+            if ok:
+                _send_sighup()   # logger reloads lambda_ground_offset_mv immediately
+                return jsonify({"status": "success", "setup": load_carb_setup()})
+            return jsonify({"status": "error", "message": "Fehler beim Speichern"}), 500
+        return jsonify({"status": "error", "message": "Keine Daten empfangen"}), 400
+
+    # GET ──────────────────────────────────────────────────────────────────
+    carb = load_carb_setup()
+
+    try:
+        temp_c = float(request.args.get("temp", 20.0))
+    except (ValueError, TypeError):
+        temp_c = 20.0
+    try:
+        pressure_hpa = float(request.args.get("pressure", 1013.25))
+    except (ValueError, TypeError):
+        pressure_hpa = 1013.25
+
+    weather_comp = _build_weather_comp(
+        int(carb.get("main_jet_hd", 125)), temp_c, pressure_hpa
+    )
+
+    # Zone analysis requires pandas + a dyno CSV — deferred to Phase 3.
+    zone_cards_html = (
+        "<div style='color:#888; font-size:0.85rem; padding:8px 0;'>"
+        "⚡ Bootstrap-Modus: Live-Zonenanalyse startet nach einem Dyno-Pull. "
+        "Starte einen Pull auf dem HUD — die Auswertung erscheint hier automatisch."
+        "</div>"
+    )
+    latest_file = None
+    dyno_files = sorted(glob.glob(os.path.join(LOG_DIR, "dyno_log_*.csv")), reverse=True)
+    if dyno_files:
+        latest_file = os.path.basename(dyno_files[0])
+
+    return render_template(
+        "tuning.html",
+        carb=carb,
+        analysis=None,
+        zone_cards_html=zone_cards_html,
+        slide_types=SLIDE_TYPES,
+        intake_types=INTAKE_TYPES,
+        airbox_types=AIRBOX_TYPES,
+        fuel_types=FUEL_STOICHIOMETRY,
+        emulsion_tubes=EMULSION_TUBES,
+        weather_comp=weather_comp,
+        temp_param=temp_c,
+        pressure_param=pressure_hpa,
+        latest_file=latest_file,
+    )
+
+
+# ── /api/update_carb_setup (compat shim — tuning.html POSTs here via JS) ──
+
+@bootstrap_bp.route("/api/update_carb_setup", methods=["GET", "POST"])
+def api_update_carb_setup() -> Any:
+    """
+    V5.1-compatible endpoint. tuning.html's JS calls this via fetch().
+    Saves the carb setup and sends SIGHUP to the logger.
+    """
+    if request.method == "POST":
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+    else:
+        data = request.args.to_dict()
+
+    if not data:
+        return jsonify({"status": "error", "message": "Keine Daten empfangen"}), 400
+
+    cleaned: Dict[str, Any] = {}
+    for k, v in data.items():
+        if k in ("main_jet_hd", "air_corrector_hlkd"):
+            try:
+                cleaned[k] = int(float(v))
+            except (ValueError, TypeError):
+                cleaned[k] = v
+        else:
+            cleaned[k] = str(v)
+
+    ok = save_carb_setup(cleaned)
+    if ok:
+        _send_sighup()
+        return jsonify({"status": "success", "setup": load_carb_setup()})
+    return jsonify({"status": "error", "message": "Fehler beim Speichern"}), 500
+
+
+# ── /diagnostics ───────────────────────────────────────────────────────────
+
+def _list_audit_reports() -> List[Dict[str, Any]]:
+    """
+    List audit JSON reports from AUDIT_DIR without importing audit_manager.py
+    (which would drag in pandas). Returns same dict shape as list_audit_reports().
+    """
+    reports: List[Dict[str, Any]] = []
+    pattern = os.path.join(AUDIT_DIR, "audit_*.json")
+    for fpath in sorted(glob.glob(pattern), reverse=True):
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            reports.append({
+                "recorded_at":  d.get("recorded_at", os.path.basename(fpath)),
+                "delta_u_mv":   d.get("delta_u_mv", 0.0),
+                "afr_impact":   d.get("afr_impact", 0.0),
+                "status_label": d.get("status_label", "—"),
+                "filename":     os.path.basename(fpath),
+            })
+        except Exception:
+            continue
+    return reports
+
+
+@bootstrap_bp.route("/diagnostics")
+def diagnostics() -> str:
+    """
+    Render the hardware diagnostics + Sternmasse-Audit cockpit.
+    Passes carb setup, current lambda offset, and past audit reports.
+    Live telemetry is polled client-side via /api/diagnostics/live.
+    """
+    carb = load_carb_setup()
+    offset_mv = float(carb.get("lambda_ground_offset_mv", 0.0))
+    past_reports = _list_audit_reports()
+    return render_template(
+        "diagnostics.html",
+        carb=carb,
+        offset_mv=offset_mv,
+        past_reports=past_reports,
+    )
+
+
+# ── /api/diagnostics/live (called by diagnostics.html JS every 500 ms) ────
+
+@bootstrap_bp.route("/api/diagnostics/live")
+def api_diagnostics_live() -> Response:
+    """
+    Return live telemetry from state.json, enriched with reconstructed A0
+    voltage (inline formula — no pandas dependency).
+    """
+    import math
+    state = _read_state()
+    afr   = float(state.get("afr", 0.0))
+    rpm   = float(state.get("rpm", 0.0))
+    egt   = float(state.get("egt", 0.0))
+    cht   = float(state.get("cht", 0.0))
+    speed = float(state.get("speed", 0.0))
+    status = state.get("status", "IDLE")
+
+    # Reconstruct A0 voltage from AFR: mirrors reconstruct_afr_voltage() in audit_manager.py.
+    # Koso AFR sensor: V_A0 = (AFR / 20.0) * 5.0 V  (linear 0–20 AFR → 0–5 V)
+    v_a0 = round((afr / 20.0) * 5.0, 3) if afr > 0.0 else 0.0
+
+    carb = load_carb_setup()
+    offset_mv = float(carb.get("lambda_ground_offset_mv", 0.0))
+
+    import time as _time
+    resp = jsonify({
+        "rpm":        rpm,
+        "afr":        afr,
+        "voltage_a0": v_a0,
+        "egt":        egt,
+        "cht":        cht,
+        "speed":      speed,
+        "offset_mv":  offset_mv,
+        "status":     status,
+        "timestamp":  _time.time(),
+        "fix":        state.get("fix", False),
+        "lat":        state.get("lat", 0.0),
+        "lon":        state.get("lon", 0.0),
+        "alt":        state.get("alt", 0.0),
+    })
+    for k, v in _NO_CACHE.items():
+        resp.headers[k] = v
+    return resp
+
+
+# ── /api/diagnostics/save_audit ────────────────────────────────────────────
+
+@bootstrap_bp.route("/api/diagnostics/save_audit", methods=["POST"])
+def api_save_audit() -> Response:
+    """
+    Persist a completed Sternmasse-Audit report to AUDIT_DIR and optionally
+    apply the measured ground offset to user_setup.json + SIGHUP the logger.
+    """
+    import time as _time
+    try:
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if not data:
+            return jsonify({"status": "error", "message": "Keine Audit-Daten übermittelt"}), 400
+
+        delta_u_mv   = float(data.get("delta_u_mv", 0.0))
+        apply_comp   = str(data.get("apply_compensation", "false")).lower() in ("true", "1", "yes")
+
+        # Evaluate severity — mirrors evaluate_ground_offset() in audit_manager.py
+        abs_mv = abs(delta_u_mv)
+        if abs_mv < 5:
+            status_label = "OK"
+        elif abs_mv < 15:
+            status_label = "LEICHT VERSETZT"
+        elif abs_mv < 30:
+            status_label = "MODERAT VERSETZT"
+        else:
+            status_label = "STARK VERSETZT"
+
+        afr_impact = round((delta_u_mv / 1000.0) * 5.72, 3)
+
+        report = {
+            "recorded_at":        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "delta_u_mv":         delta_u_mv,
+            "afr_impact":         afr_impact,
+            "status_label":       status_label,
+            "apply_compensation": apply_comp,
+            **{k: v for k, v in data.items() if k not in ("delta_u_mv", "apply_compensation")},
+        }
+
+        os.makedirs(AUDIT_DIR, exist_ok=True)
+        ts_str  = datetime.now().strftime("%Y%m%d-%H%M%S")
+        json_path = os.path.join(AUDIT_DIR, f"audit_{ts_str}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+
+        if apply_comp and delta_u_mv != 0.0:
+            save_carb_setup({"lambda_ground_offset_mv": delta_u_mv})
+            _send_sighup()   # logger picks up new offset immediately
+
+        return jsonify({
+            "status":     "success",
+            "message":    f"Audit gespeichert ({status_label})",
+            "evaluation": {"status_label": status_label, "afr_impact": afr_impact},
+            "json_file":  os.path.basename(json_path),
+            "md_file":    "",   # Markdown export deferred to Phase 3
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ── /api/diagnostics/history ───────────────────────────────────────────────
+
+@bootstrap_bp.route("/api/diagnostics/history")
+def api_diagnostics_history() -> Response:
+    """Return list of past audit reports (same shape as V5.1)."""
+    return jsonify({"status": "success", "reports": _list_audit_reports()})
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Flask application factory
 # ══════════════════════════════════════════════════════════════════════════
@@ -372,6 +682,7 @@ def create_app() -> Flask:
 if __name__ == "__main__":
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(TRIP_LOG_DIR, exist_ok=True)
+    os.makedirs(AUDIT_DIR, exist_ok=True)
 
     app = create_app()
 
@@ -380,7 +691,9 @@ if __name__ == "__main__":
     print("   http://0.0.0.0:8080", flush=True)
     print(f"   State file: {STATE_FILE}", flush=True)
     print(f"   PID file:   {PID_FILE}", flush=True)
-    print("   Routes: /hud  /api/telemetry  /api/toggle_dyno  /logs  /trips", flush=True)
+    print("   Routes: /hud /tuning /diagnostics /logs /trips", flush=True)
+    print("   APIs:   /api/telemetry /api/toggle_dyno /api/update_carb_setup", flush=True)
+    print("           /api/diagnostics/live /api/diagnostics/save_audit", flush=True)
     print("=" * 60, flush=True)
 
     app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
