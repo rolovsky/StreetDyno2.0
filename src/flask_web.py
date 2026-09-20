@@ -60,6 +60,7 @@ from config import (
     INTAKE_TYPES,
     AIRBOX_TYPES,
     EMULSION_TUBES,
+    STANDARD_HLKD_VALUES,
     load_carb_setup,
     save_carb_setup,
 )
@@ -372,21 +373,30 @@ def _send_sighup() -> bool:
 def _build_weather_comp(main_jet_hd: int, temp_c: float, pressure_hpa: float) -> Dict[str, Any]:
     """
     Lightweight inline weather correction for the tuning page.
-    Mirrors calculate_weather_corrected_main_jet() from analyzer_logic.py
-    without importing pandas/matplotlib. Uses the same DIN 70020 formula.
+    Mirrors calculate_weather_corrected_main_jet() from jetting_advisor.py
+    without importing pandas/matplotlib. Uses Relative Air Density (RAD) physics:
+    HD_corr = round(HD_base * sqrt(RAD)).
     """
-    # DIN 70020: correction factor = sqrt((293.15 / (273.15 + temp_c)) * (pressure_hpa / 1013.25))
     import math
-    factor = math.sqrt((293.15 / (273.15 + temp_c)) * (pressure_hpa / 1013.25))
-    recommended = round(main_jet_hd * factor)
-    delta = recommended - main_jet_hd
-    rad_pct = round((factor - 1.0) * 100, 1)
+    base = float(main_jet_hd)
+    t_ref = 293.15
+    t_kelvin = max(233.15, float(temp_c) + 273.15)
+    p_ref = 1013.25
+    p_actual = max(700.0, min(1100.0, float(pressure_hpa)))
+    rad = (p_actual / p_ref) * (t_ref / t_kelvin)
+    sqrt_rad = math.sqrt(rad)
+    recommended_hd = int(round(base * sqrt_rad))
+    delta_hd = recommended_hd - int(round(base))
     return {
-        "factor":         round(factor, 4),
-        "rad_pct":        rad_pct,
-        "recommended_hd": recommended,
-        "delta_hd":       delta,
-        "base_hd":        main_jet_hd,
+        "base_hd": int(round(base)),
+        "recommended_hd": recommended_hd,
+        "delta_hd": delta_hd,
+        "rad": round(rad, 4),
+        "rad_pct": round(rad * 100.0, 1),
+        "temp_c": round(float(temp_c), 1),
+        "pressure_hpa": round(float(pressure_hpa), 1),
+        "sqrt_rad": round(sqrt_rad, 4),
+        "factor": round(sqrt_rad, 4),
     }
 
 
@@ -454,10 +464,19 @@ def tuning_dashboard() -> Any:
         analysis=None,
         zone_cards_html=zone_cards_html,
         slide_types=SLIDE_TYPES,
+        SLIDE_TYPES=SLIDE_TYPES,
+        SLIDE_CUTAWAY_PROFILES=SLIDE_TYPES,
         intake_types=INTAKE_TYPES,
+        INTAKE_TYPES=INTAKE_TYPES,
+        INTAKE_VENTURI_PROFILES=INTAKE_TYPES,
         airbox_types=AIRBOX_TYPES,
+        AIRBOX_TYPES=AIRBOX_TYPES,
         fuel_types=FUEL_STOICHIOMETRY,
+        FUEL_STOICHIOMETRY=FUEL_STOICHIOMETRY,
         emulsion_tubes=EMULSION_TUBES,
+        EMULSION_TUBES=EMULSION_TUBES,
+        standard_hlkd_values=STANDARD_HLKD_VALUES,
+        STANDARD_HLKD_VALUES=STANDARD_HLKD_VALUES,
         weather_comp=weather_comp,
         temp_param=temp_c,
         pressure_param=pressure_hpa,
