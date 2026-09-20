@@ -271,3 +271,20 @@ Bei einer analogen 0–5 V Kennlinie (wobei 0 V = AFR 10 und 5 V = AFR 20 bedeut
 - [ ] **Bordnetz-Spannungsprüfung:** Mit Multimeter prüfen: Am Eingang des Step-Downs im Leerlauf $\ge 9\,\text{V}$, bei Vollgas $\le 16\,\text{V}$; am 5V-Ausgang exakt 5,10 V bis 5,15 V unter Last.
 - [ ] **EGT-Potenzialfreiheit:** Durchgangsprüfung mit Multimeter: Zwischen den Sensorleitungen (T+/T-) und Auspuffrohr darf kein Durchgang ($R = \infty$) messbar sein.
 - [ ] **GPS-HF-Sicherung:** u.FL-Stecker am GPS-Modul mit elastischem Kleber/Silikon vibrationssicher fixieren.
+
+---
+
+## 9. Autonome WLAN- & Telemetrie-Konnektivität (Road & Wartung)
+
+### 9.1 Drei-Stufen-Priorisierung (NetworkManager)
+Auf dem Raspberry Pi Zero 2 W ist NetworkManager mit automatischer Priorisierung (`connection.autoconnect-priority`) konfiguriert:
+
+| Rang | Profilname | Modus | SSID | Priorität | Verhalten & Zweck |
+| :---: | :--- | :---: | :--- | :---: | :--- |
+| **1** | `Pachacamac` | Client | *Heim-WLAN* | **100** | Automatische Verbindung in Werkstatt/Garage. 2 Verbindungsversuche (`retries 2`). |
+| **2** | `iPhone-Hotspot` | Client | `iPhone` | **90** | Automatische Straßenanbindung via iPhone Hotspot für Live-Wetterabgleich, Telemetrie und Smartphone-Zugriff via `http://streetdyno.local:8080`. 2 Verbindungsversuche (`retries 2`). |
+| **3** | `Hotspot` | Access Point | `VespaDyno` | **50** | Autonomer Notfall- & Wartungs-AP (`10.42.0.1`), falls weder Heimnetz noch iPhone erreichbar sind (`retries -1`). Ermöglicht jederzeit Zugriff auf Cockpit und Logs ohne Internet. |
+
+### 9.2 iPhone-Besonderheit: 2,4-GHz-Pflicht
+* **Hardware-Einschränkung Pi Zero 2 W:** Der integrierte Broadcom BCM43436 Chip unterstützt ausschließlich 2,4 GHz (802.11 b/g/n).
+* **iOS-Konfiguration:** Neuere iPhones nutzen standardmäßig 5 GHz für Hotspots. Daher muss in den iPhone-Einstellungen unter **Persönlicher Hotspot** zwingend **„Kompatibilität maximieren“** aktiviert sein, damit das 2,4-GHz-Netz ausgestrahlt wird.
