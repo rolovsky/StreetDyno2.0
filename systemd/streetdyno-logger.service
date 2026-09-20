@@ -1,0 +1,28 @@
+[Unit]
+Description=StreetDyno 2.5 Minimal Blackbox Logger
+Documentation=https://github.com/rolovsky/streetdyno2.0
+# GPS daemon must be running before the logger starts so gpsd socket is available.
+After=network.target gpsd.service
+Wants=gpsd.service
+
+[Service]
+WorkingDirectory=/home/rolovsky/streetdyno2.0/src
+ExecStart=/usr/bin/python3 simple_logger.py
+Restart=always
+RestartSec=5
+User=rolovsky
+
+# Write stdout/stderr to the system journal (readable via journalctl -u streetdyno-logger)
+StandardOutput=journal
+StandardError=journal
+
+# Allow graceful shutdown: SIGTERM first, then SIGKILL after 10 s.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+# NOTE: This service is intentionally left DISABLED until V5.1 (streetdyno.service)
+#       has been formally retired. Enable with:
+#         sudo systemctl enable streetdyno-logger.service
+#         sudo systemctl disable streetdyno.service
