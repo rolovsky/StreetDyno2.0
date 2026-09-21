@@ -11,6 +11,8 @@
 
 **StreetDyno 2.0 (Master v6.0)** ist ein mobiles Echtzeit-Telemetrie- und Leistungsmesssystem für klassische Vespa-Roller (Largeframe PX / VMC 177). Die Version 6.0 implementiert eine komplett analytische **Savitzky-Golay Differenziations-Engine (deriv=1)** zur exakten Erfassung der 2-Takt-Resonanzspitze ohne Phasenverzug, **getriebeabhängige Trägheitsmassenkopplung ($J_{\text{wheels}} / J_{\text{engine}}$)**, hardwareseitige **Mikrosekunden-Zeitbasis mit NMEA-XOR-Checksumme**, einen **Dual-Layer Blackbox Trip-Logger mit 2D-AFR Kennfeldmatrix**, robuste **asymmetrische Glitch-Filter**, sowie die physikalisch korrekte **Raddrehmomentberechnung** an der Hinterachse.
 
+> 💡 **Phase 2.5 Minimal Bootstrap Edition**: Für die leichtgewichtige, 2-Prozess-entkoppelte Blackbox-Variante (<2% CPU auf Pi Zero 2 W ohne OLED) siehe die dedizierte Dokumentation in [**README_MINIMAL.md**](README_MINIMAL.md).
+
 ---
 
 ## 📑 Inhaltsverzeichnis
