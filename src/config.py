@@ -121,7 +121,7 @@ EMULSION_TUBES: Dict[str, str] = {
     "custom": "Benutzerdefiniert"
 }
 
-STANDARD_HLKD_VALUES: list[int] = [140, 150, 160, 190]
+STANDARD_HLKD_VALUES: list[int] = [140, 150, 160, 170, 180, 190]
 
 DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
@@ -131,14 +131,14 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "airbox_type": "polini_airbox",
     "main_jet_hd": 125,
     "idle_jet_nd": "52/140",
-    "air_corrector_hlkd": 170,
+    "air_corrector_hlkd": 190,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",
     "ignition_deg": 18.0,
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
     "lambda_ground_offset_mv": 0.0,
-    "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 170 / Lemarxon x234 / Polini Box"
+    "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 190 / Lemarxon x234 / Polini Box"
 }
 
 # Gespeicherte Referenz-Setups als unveränderliche Baselines
@@ -153,14 +153,14 @@ REFERENCE_SETUPS: Dict[str, Dict[str, Any]] = {
         "airbox_type": "polini_airbox",
         "main_jet_hd": 125,
         "idle_jet_nd": "52/140",
-        "air_corrector_hlkd": 170,
+        "air_corrector_hlkd": 190,
         "emulsion_tube": "Lemarxon x234",
         "exhaust": "Polini Box",
         "ignition_deg": 18.0,
         "displacement_cc": 187.0,
         "stroke_mm": 60.0,
         "lambda_ground_offset_mv": 0.0,
-        "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 170 / Lemarxon x234 / Polini Box"
+        "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 190 / Lemarxon x234 / Polini Box"
     }
 }
 
