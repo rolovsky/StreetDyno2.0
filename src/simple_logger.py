@@ -223,7 +223,7 @@ class GPSReader(threading.Thread):
 # CSV helpers
 # ══════════════════════════════════════════════════════════════════════════
 
-CSV_COLUMNS = ["Time", "RPM", "AFR", "EGT", "CHT", "Speed", "Lat", "Lon", "Alt", "GPS_Fix"]
+CSV_COLUMNS = ["Time", "RPM", "AFR", "EGT", "CHT", "Speed_kmh", "Lat", "Lon", "Alt", "GPS_Fix"]
 
 
 def _write_csv_header(f: IO[str], trigger: str) -> None:
@@ -557,6 +557,7 @@ class SimpleLogger:
         print("=" * 60, flush=True)
 
         ser: Optional[Any] = None  # serial.Serial instance
+        last_csv_write_time: float = 0.0
 
         try:
             while True:
@@ -589,6 +590,7 @@ class SimpleLogger:
                         continue
 
                 # ── Serial: drain available bytes (non-blocking) ───────────
+                new_frame = False
                 if ser is not None:
                     try:
                         waiting = ser.in_waiting
@@ -599,7 +601,8 @@ class SimpleLogger:
                                 line, self._serial_buf = self._serial_buf.split("\n", 1)
                                 line = line.strip()
                                 if line.startswith("$") and "*" in line:
-                                    self._parse_line(line)
+                                    if self._parse_line(line):
+                                        new_frame = True
                     except Exception as e:
                         print(f"[SERIAL] Read error: {e}", flush=True)
                         try:
@@ -655,14 +658,26 @@ class SimpleLogger:
                         if (wall_now - self._last_engine_active) >= ENGINE_STOP_DELAY:
                             self._trip_stop()
 
-                # ── Write to trip CSV ──────────────────────────────────────
-                if self._trip_f is not None:
+                # ── Throttle CSV logging to actual 10Hz Arduino frames ─────
+                # In normal operation, write exactly once per received serial frame.
+                # If serial is disconnected/offline, fall back to 10 Hz timer clock.
+                if new_frame:
+                    should_write_csv = True
+                    last_csv_write_time = wall_now
+                elif (ser is None) and (wall_now - last_csv_write_time >= 0.10):
+                    should_write_csv = True
+                    last_csv_write_time = wall_now
+                else:
+                    should_write_csv = False
+
+                # ── Write to trip CSV (10 Hz, zero duplicates) ─────────────
+                if should_write_csv and self._trip_f is not None:
                     ok = self._write_to(self._trip_f, row, "_trip_row_counter")
                     if not ok:
                         self._trip_stop()
 
-                # ── Write to dyno CSV ──────────────────────────────────────
-                if self._dyno_active and self._dyno_f is not None:
+                # ── Write to dyno CSV (10 Hz, zero duplicates) ─────────────
+                if should_write_csv and self._dyno_active and self._dyno_f is not None:
                     ok = self._write_to(self._dyno_f, row, "_dyno_row_counter")
                     if not ok:
                         self._dyno_close()
