@@ -94,8 +94,9 @@ def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
         if same_scale_richer:
             if "60/160" in current_nd:
                 return (
-                    f"ND von 60/160 (Q={current_q:.2f}) auf ND 62/160 (Q=2.58) oder ND 65/160 (Q=2.46) anfetten "
-                    f"(Fallback: ND 68/160 Q=2.35)."
+                    f"ND von 60/160 (Q={current_q:.2f}) auf ND 65/160 (Q=2.46, +17.4% Benzin) anfetten "
+                    f"und LLG-Schraube von 3.5 auf ca. 1.75-2.0 Umdrehungen zurückstellen "
+                    f"(ND 62/160 als Zwischenschritt oder ND 68/160 als fetter Fallback)."
                 )
             examples = " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in same_scale_richer[:2]])
             return (
@@ -120,7 +121,7 @@ def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
             ex_str = " ODER ".join(parts) if parts else " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in other_scale_richer[:2]])
             return (
                 f"ND {current_nd} (Q={current_q:.2f}) ist bereits die fetteste Düse der {current_scale}er-Serie! "
-                f"Eskalation erforderlich: Wechsel auf {ex_str}."
+                f"Eskalation erforderlich: Wechsel auf fettere Skala wie {ex_str}."
             )
         return f"ND {current_nd} ist bereits die absolut fetteste verfügbare Nebendüse (Q={current_q:.2f})."
 
@@ -134,6 +135,8 @@ def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
 
         if same_scale_leaner:
             examples = " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in same_scale_leaner[:2]])
+            if current_q >= 2.90:
+                return f"ND {current_nd} ist bereits sehr mager (Q={current_q:.2f}). Magerere Alternativen: {examples}."
             return f"ND von {current_nd} (Q={current_q:.2f}) auf magerere ND mit größerem Quotienten wie {examples} wechseln."
 
         # 2. Escalation if no leaner jet in the same scale exists
