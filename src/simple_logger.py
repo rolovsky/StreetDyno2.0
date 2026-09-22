@@ -37,6 +37,7 @@ import json
 import os
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -427,17 +428,48 @@ class SimpleLogger:
         self._trip_row_counter = 0
         print(f"[TRIP] Started: {self._trip_path}", flush=True)
 
+    def _trigger_cloud_sync(self, filepath: Optional[str], subfolder: str = "trips") -> None:
+        """
+        Asynchronously upload a closed CSV log to Google Drive via rclone.
+        Fully detached background process: zero impact on 10Hz sampling.
+        Upload target: gdrive:StreetDyno/logs/<subfolder>/
+        """
+        if not filepath or not os.path.exists(filepath):
+            return
+        rclone_conf = os.path.expanduser("~/.config/rclone/rclone.conf")
+        if not os.path.exists(rclone_conf):
+            return
+        fname = os.path.basename(filepath)
+        cmd = [
+            "rclone", "copy",
+            filepath,
+            f"gdrive:StreetDyno/logs/{subfolder}/",
+            "--quiet",
+        ]
+        try:
+            print(f"[CLOUD] Auto-syncing {fname} to Google Drive (background)...", flush=True)
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as e:
+            print(f"[CLOUD] Failed to spawn rclone: {e}", flush=True)
+
     def _trip_stop(self) -> None:
         if self._trip_f is None:
             return
+        closed_path = self._trip_path
         try:
             os.fsync(self._trip_f.fileno())   # final flush to disk
             self._trip_f.close()
         except Exception:
             pass
-        print(f"[TRIP] Closed:  {self._trip_path}", flush=True)
+        print(f"[TRIP] Closed:  {closed_path}", flush=True)
         self._trip_f    = None
         self._trip_path = None
+        self._trigger_cloud_sync(closed_path, "trips")
 
     # ── Dyno CSV lifecycle ────────────────────────────────────────────────
 
@@ -450,15 +482,17 @@ class SimpleLogger:
     def _dyno_close(self) -> None:
         if self._dyno_f is None:
             return
+        closed_path = self._dyno_path
         try:
             os.fsync(self._dyno_f.fileno())
             self._dyno_f.close()
         except Exception:
             pass
-        print(f"[DYNO] Manual recording stopped: {self._dyno_path}", flush=True)
+        print(f"[DYNO] Manual recording stopped: {closed_path}", flush=True)
         self._dyno_f      = None
         self._dyno_path   = None
         self._dyno_active = False
+        self._trigger_cloud_sync(closed_path, "dyno")
 
     def _dyno_toggle(self) -> None:
         if not self._dyno_active:
