@@ -124,6 +124,19 @@ $MICROS;RPM;AFR;EGT;CHT*XX\n
 
 ---
 
+## ☁️ Google Drive Cloud-Sync (rclone)
+
+StreetDyno verfügt über eine automatische, blockierungsfreie Cloud-Anbindung via `rclone`:
+
+- **Automatischer Einzelupload**: Sobald eine Fahrt (`trip_*.csv`) oder ein Prüflauf (`dyno_log_*.csv`) abgeschlossen und geschlossen wird, stößt `simple_logger.py` im Hintergrund (`subprocess.Popen` detached) einen stummen Upload an:
+  - Fahrten: `gdrive:StreetDyno/logs/trips/`
+  - Dyno-Pulls: `gdrive:StreetDyno/logs/dyno/`
+- **Zero-Impact auf Sampling**: Der Upload läuft völlig losgelöst vom Hauptthread. Das 10-Hz-Serial-Logging und die Messgenauigkeit werden zu keinem Zeitpunkt ausgebremst.
+- **Offline-Puffer (Funkloch-Sicherheit)**: Ist unterwegs kein Netz vorhanden, bricht der Upload geräuschlos ab; alle Dateien bleiben sicher auf der SD-Karte liegen.
+- **Batch-Synchronisation**: Mit dem Skript [`scripts/sync_gdrive.sh`](file:///scripts/sync_gdrive.sh) können jederzeit alle lokal gespeicherten Logs gesammelt auf Google Drive nachsynchronisiert werden.
+
+---
+
 ## 🔄 Interprozesskommunikation (IPC) & Signale
 
 | Kanal | Mechanismus | Zweck |
