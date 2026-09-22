@@ -61,6 +61,9 @@ from config import (
     AIRBOX_TYPES,
     EMULSION_TUBES,
     STANDARD_HLKD_VALUES,
+    AVAILABLE_IDLE_JETS,
+    IDLE_SCREW_LIMITS,
+    IDLE_SCREW_THREAD_TYPES,
     load_carb_setup,
     save_carb_setup,
 )
@@ -413,12 +416,22 @@ def tuning_dashboard() -> Any:
     if request.method == "POST":
         data: Dict[str, Any] = request.get_json(force=True, silent=True) or request.form.to_dict()
         if data:
-            # Coerce integer fields — same logic as V5.1 api_update_carb_setup
+            # Coerce integer/float fields — same logic as V5.1 api_update_carb_setup
             cleaned: Dict[str, Any] = {}
             for k, v in data.items():
                 if k in ("main_jet_hd", "air_corrector_hlkd"):
                     try:
                         cleaned[k] = int(float(v))
+                    except (ValueError, TypeError):
+                        cleaned[k] = v
+                elif k == "idle_screw_turns":
+                    try:
+                        cleaned[k] = round(float(v), 2)
+                    except (ValueError, TypeError):
+                        cleaned[k] = v
+                elif k in ("displacement_cc", "stroke_mm", "ignition_deg", "lambda_ground_offset_mv"):
+                    try:
+                        cleaned[k] = float(v)
                     except (ValueError, TypeError):
                         cleaned[k] = v
                 else:
@@ -477,6 +490,12 @@ def tuning_dashboard() -> Any:
         EMULSION_TUBES=EMULSION_TUBES,
         standard_hlkd_values=STANDARD_HLKD_VALUES,
         STANDARD_HLKD_VALUES=STANDARD_HLKD_VALUES,
+        available_idle_jets=AVAILABLE_IDLE_JETS,
+        AVAILABLE_IDLE_JETS=AVAILABLE_IDLE_JETS,
+        idle_screw_limits=IDLE_SCREW_LIMITS,
+        IDLE_SCREW_LIMITS=IDLE_SCREW_LIMITS,
+        idle_screw_thread_types=IDLE_SCREW_THREAD_TYPES,
+        IDLE_SCREW_THREAD_TYPES=IDLE_SCREW_THREAD_TYPES,
         weather_comp=weather_comp,
         temp_param=temp_c,
         pressure_param=pressure_hpa,
@@ -505,6 +524,16 @@ def api_update_carb_setup() -> Any:
         if k in ("main_jet_hd", "air_corrector_hlkd"):
             try:
                 cleaned[k] = int(float(v))
+            except (ValueError, TypeError):
+                cleaned[k] = v
+        elif k == "idle_screw_turns":
+            try:
+                cleaned[k] = round(float(v), 2)
+            except (ValueError, TypeError):
+                cleaned[k] = v
+        elif k in ("displacement_cc", "stroke_mm", "ignition_deg", "lambda_ground_offset_mv"):
+            try:
+                cleaned[k] = float(v)
             except (ValueError, TypeError):
                 cleaned[k] = v
         else:

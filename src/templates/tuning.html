@@ -167,6 +167,24 @@
                     <input type="text" id="tubeCustomInput" name="emulsion_tube" value="{{ carb.emulsion_tube }}" placeholder="Mischrohr Bezeichnung" style="margin-top:6px; display:none;" required>
                 </div>
                 <div class="form-group">
+                    <label>LLG-Schraube (Umdrehungen raus)</label>
+                    <input type="number" step="0.25" min="0.5" max="5.0" name="idle_screw_turns" value="{{ carb.idle_screw_turns or 3.0 }}" required>
+                </div>
+                <div class="form-group">
+                    <label>LLG Gewinde-Typ</label>
+                    <select name="idle_screw_thread">
+                        <option value="fine" {% if carb.idle_screw_thread == 'fine' or not carb.idle_screw_thread %}selected{% endif %}>Feingewinde M5x0.5 (BGM / PX Lusso / Spaco / T5) – Basis 2.5</option>
+                        <option value="coarse" {% if carb.idle_screw_thread == 'coarse' %}selected{% endif %}>Grobgewinde M5x0.75 (PX alt / Rally / Sprint) – Basis 1.5</option>
+                    </select>
+                </div>
+                <div class="form-group full" style="background:#121217; border:1px solid #27272e; border-radius:8px; padding:10px; margin:4px 0 6px 0;">
+                    <div style="font-size:0.75rem; color:#00ffcc; font-weight:800; margin-bottom:4px;">💡 LLGRS PRAXIS-REGEL (SCHEITELPUNKT-METHODE)</div>
+                    <div style="font-size:0.75rem; color:#aaa; line-height:1.4;">
+                        Schraube schrittweise herausdrehen, bis die Leerlaufdrehzahl nicht weiter ansteigt, sondern wieder absinkt (Überfettung).
+                        Von diesem Scheitelpunkt <strong>exakt 0.5 Umdrehungen hineindrehen</strong> (magerer / stabiles Standgas & Schiebebetrieb).
+                    </div>
+                </div>
+                <div class="form-group">
                     <label>Vergaser-Typ</label>
                     <input type="text" name="carburetor_type" value="{{ carb.carburetor_type }}">
                 </div>

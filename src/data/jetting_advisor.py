@@ -16,37 +16,15 @@ from config import (
     INTAKE_TYPES,
     AIRBOX_TYPES,
     EMULSION_TUBES,
-    STANDARD_HLKD_VALUES
+    STANDARD_HLKD_VALUES,
+    AVAILABLE_IDLE_JETS,
+    IDLE_SCREW_LIMITS,
+    IDLE_SCREW_THREAD_TYPES
 )
 
+# DELLORTO_SI_IDLE_JETS verweist strikt auf die Whitelist aus config.py (keine Phantasiedüsen!)
+DELLORTO_SI_IDLE_JETS = AVAILABLE_IDLE_JETS
 
-# Dell'Orto SI Idle Jet Database (Fuel / Air across 160er, 140er, and 120er scales)
-# Quotient Q = Air / Fuel (Higher Q = more air per fuel = LEANER; Smaller Q = less air / more fuel = RICHER)
-DELLORTO_SI_IDLE_JETS = [
-    # 160er Skala (Standard Largeframe SI 24/24)
-    {"name": "55/160", "fuel": 55, "air": 160, "scale": 160, "ratio": 160.0 / 55.0},  # 2.91 (Mager)
-    {"name": "58/160", "fuel": 58, "air": 160, "scale": 160, "ratio": 160.0 / 58.0},  # 2.76
-    {"name": "60/160", "fuel": 60, "air": 160, "scale": 160, "ratio": 160.0 / 60.0},  # 2.67 (Standard Referenz)
-    {"name": "62/160", "fuel": 62, "air": 160, "scale": 160, "ratio": 160.0 / 62.0},  # 2.58 (+6.8% Benzin)
-    {"name": "65/160", "fuel": 65, "air": 160, "scale": 160, "ratio": 160.0 / 65.0},  # 2.46 (+17.4% Benzin)
-    {"name": "68/160", "fuel": 68, "air": 160, "scale": 160, "ratio": 160.0 / 68.0},  # 2.35 (+28.4% Benzin)
-
-    # 140er Skala (Klassisch / Übergang)
-    {"name": "48/140", "fuel": 48, "air": 140, "scale": 140, "ratio": 140.0 / 48.0},  # 2.92 (Mager)
-    {"name": "50/140", "fuel": 50, "air": 140, "scale": 140, "ratio": 140.0 / 50.0},  # 2.80
-    {"name": "52/140", "fuel": 52, "air": 140, "scale": 140, "ratio": 140.0 / 52.0},  # 2.69
-    {"name": "55/140", "fuel": 55, "air": 140, "scale": 140, "ratio": 140.0 / 55.0},  # 2.55 (+10.5% Benzin vs 50/140)
-
-    # 120er Skala (Alter SI-Standard / Fetter Grundaufbau)
-    {"name": "42/120", "fuel": 42, "air": 120, "scale": 120, "ratio": 120.0 / 42.0},  # 2.86
-    {"name": "45/120", "fuel": 45, "air": 120, "scale": 120, "ratio": 120.0 / 45.0},  # 2.67
-    {"name": "48/120", "fuel": 48, "air": 120, "scale": 120, "ratio": 120.0 / 48.0},  # 2.50
-    {"name": "50/120", "fuel": 50, "air": 120, "scale": 120, "ratio": 120.0 / 50.0},  # 2.40
-    {"name": "55/120", "fuel": 55, "air": 120, "scale": 120, "ratio": 120.0 / 55.0},  # 2.18 (Sehr fett)
-
-    # 100er Skala (T5 / Rally / Extrem fett)
-    {"name": "50/100", "fuel": 50, "air": 100, "scale": 100, "ratio": 100.0 / 50.0},  # 2.00 (Extrem fett)
-]
 
 
 def parse_nd_ratio(nd_str: str) -> float:
@@ -91,16 +69,24 @@ def is_leaner_idle_jet(new_jet: str, current_jet: str) -> bool:
 def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
     """
     Generates physically correct mechanical recommendations for Dell'Orto SI idle jets
-    with series preservation (160er) and multi-scale escalation (140er/120er).
+    from AVAILABLE_IDLE_JETS whitelist with series preservation and multi-scale escalation.
     target_direction: 'RICHER' (anfetten) or 'LEANER' (abmagern).
     """
     current_q = parse_nd_ratio(current_nd)
     current_scale = parse_nd_scale(current_nd)
 
     if target_direction == "RICHER":
+        # Strikte Behandlung für 52/140 (bereits größte 140er-Düse)
+        if current_nd == "52/140" or (current_scale == 140 and current_q <= 2.70):
+            return (
+                "52/140 ist die fetteste Düse der 140er-Serie! Wechsel entweder auf die 120er-Serie "
+                "('50/120' Q=2.40 oder '48/120' Q=2.50) ODER auf die 160er-Serie mit größerer Benzinbohrung "
+                "('62/160' Q=2.58 bzw. '65/160' Q=2.46)"
+            )
+
         # 1. Look for richer candidates in the SAME scale first
         same_scale_richer = [
-            j for j in DELLORTO_SI_IDLE_JETS
+            j for j in AVAILABLE_IDLE_JETS
             if j["scale"] == current_scale and j["ratio"] < current_q - 0.04
         ]
         same_scale_richer.sort(key=lambda j: j["ratio"], reverse=True)
@@ -108,53 +94,59 @@ def get_idle_jet_advice(current_nd: str, target_direction: str) -> str:
         if same_scale_richer:
             if "60/160" in current_nd:
                 return (
-                    f"ND von 60/160 (Q={current_q:.2f}) auf ND 65/160 (Q=2.46, +17.4% Benzin) anfetten "
-                    f"und LLG-Schraube von 3.5 auf ca. 1.75-2.0 Umdrehungen zurückstellen "
-                    f"(ND 62/160 als Zwischenschritt oder ND 68/160 als fetter Fallback)."
+                    f"ND von 60/160 (Q={current_q:.2f}) auf ND 62/160 (Q=2.58) oder ND 65/160 (Q=2.46) anfetten "
+                    f"(Fallback: ND 68/160 Q=2.35)."
                 )
-            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in same_scale_richer[:2]])
+            examples = " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in same_scale_richer[:2]])
             return (
                 f"ND von {current_nd} (Q={current_q:.2f}) auf fettere ND mit kleinerem Quotienten wie {examples} "
-                f"wechseln (LLG-Schraube auf ~1.75-2.0 Umdrehungen Grundstellung)."
+                f"wechseln."
             )
 
         # 2. Escalation if no richer jet in the same scale exists
         other_scale_richer = [
-            j for j in DELLORTO_SI_IDLE_JETS
+            j for j in AVAILABLE_IDLE_JETS
             if j["ratio"] < current_q - 0.04
         ]
         other_scale_richer.sort(key=lambda j: j["ratio"], reverse=True)
         if other_scale_richer:
-            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in other_scale_richer[:2]])
+            scale_120 = [j for j in other_scale_richer if j["scale"] == 120][:2]
+            scale_160 = [j for j in other_scale_richer if j["scale"] == 160][:2]
+            parts = []
+            if scale_120:
+                parts.append("120er-Serie: " + " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in scale_120]))
+            if scale_160:
+                parts.append("160er-Serie: " + " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in scale_160]))
+            ex_str = " ODER ".join(parts) if parts else " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in other_scale_richer[:2]])
             return (
-                f"ND {current_nd} (Q={current_q:.2f}) ist bereits die fetteste Düse der {current_scale}er Skala! "
-                f"Eskalation erforderlich: Wechsel auf fettere Skala wie {examples} oder LLG-Schraube weiter herausdrehen."
+                f"ND {current_nd} (Q={current_q:.2f}) ist bereits die fetteste Düse der {current_scale}er-Serie! "
+                f"Eskalation erforderlich: Wechsel auf {ex_str}."
             )
         return f"ND {current_nd} ist bereits die absolut fetteste verfügbare Nebendüse (Q={current_q:.2f})."
 
     elif target_direction == "LEANER":
         # 1. Look for leaner candidates in the SAME scale first
         same_scale_leaner = [
-            j for j in DELLORTO_SI_IDLE_JETS
+            j for j in AVAILABLE_IDLE_JETS
             if j["scale"] == current_scale and j["ratio"] > current_q + 0.04
         ]
         same_scale_leaner.sort(key=lambda j: j["ratio"])
 
         if same_scale_leaner:
-            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in same_scale_leaner[:2]])
+            examples = " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in same_scale_leaner[:2]])
             return f"ND von {current_nd} (Q={current_q:.2f}) auf magerere ND mit größerem Quotienten wie {examples} wechseln."
 
         # 2. Escalation if no leaner jet in the same scale exists
         other_scale_leaner = [
-            j for j in DELLORTO_SI_IDLE_JETS
+            j for j in AVAILABLE_IDLE_JETS
             if j["ratio"] > current_q + 0.04
         ]
         other_scale_leaner.sort(key=lambda j: j["ratio"])
         if other_scale_leaner:
-            examples = " oder ".join([f"{j['name']} (Q={j['ratio']:.2f})" for j in other_scale_leaner[:2]])
+            examples = " oder ".join([f"'{j['name']}' (Q={j['ratio']:.2f})" for j in other_scale_leaner[:2]])
             return (
-                f"ND {current_nd} (Q={current_q:.2f}) ist bereits die magerste Düse der {current_scale}er Skala! "
-                f"Eskalation: Wechsel auf magerere Skala wie {examples}."
+                f"ND {current_nd} (Q={current_q:.2f}) ist bereits die magerste Düse der {current_scale}er-Serie! "
+                f"Eskalation: Wechsel auf magerere Serie wie {examples}."
             )
         return f"ND {current_nd} ist bereits sehr mager (Q={current_q:.2f})."
 
@@ -301,6 +293,17 @@ def analyze_carb_jetting(
     airbox_key = carb_setup.get("airbox_type", "polini_airbox")
     airbox_label = AIRBOX_TYPES.get(airbox_key, "Polini Airbox")
 
+    idle_screw_turns = float(carb_setup.get("idle_screw_turns", 3.0) or 3.0)
+    idle_screw_thread = str(carb_setup.get("idle_screw_thread", "fine") or "fine")
+    thread_limits = IDLE_SCREW_LIMITS.get(idle_screw_thread, IDLE_SCREW_LIMITS["fine"])
+    min_safe = thread_limits["min_safe"]
+    opt_min = thread_limits["opt_min"]
+    baseline = thread_limits["baseline"]
+    opt_max = thread_limits["opt_max"]
+    max_safe = thread_limits["max_safe"]
+    mechanical_limit = thread_limits["mechanical_limit"]
+    thread_label = "Feingewinde M5x0.5" if idle_screw_thread == "fine" else "Grobgewinde M5x0.75"
+
     weather_info = calculate_weather_corrected_main_jet(hd, temp_c, pressure_hpa)
 
     rpm_col = "RPM_smoothed" if "RPM_smoothed" in df.columns else ("RPM" if "RPM" in df.columns else None)
@@ -339,7 +342,7 @@ def analyze_carb_jetting(
             "rpm_max": 3200,
             "lambda_min": 0.880,
             "lambda_max": 0.940,
-            "component": f"Nebendüse (ND {nd}) & Gemischschraube",
+            "component": f"Nebendüse (ND {nd}) & LLG-Schraube ({idle_screw_turns:.2f} U, {thread_label})",
             "desc": "Leerlaufgemisch & unterer Schieberhub"
         },
         {
@@ -451,14 +454,45 @@ def analyze_carb_jetting(
 
         if zid == "zone1":
             cur_q = parse_nd_ratio(nd)
+            tip = "Praxis-Regel: Schraube herausdrehen, bis die Leerlaufdrehzahl nicht weiter ansteigt, sondern wieder absinkt (Überfettung). Von diesem Scheitelpunkt exakt 0.5 Umdrehungen hineindrehen (magerer)."
+            
             if "LEAN" in status or status == "CRITICAL_LEAN":
                 nd_advice = get_idle_jet_advice(nd, "RICHER")
-                advice = f"🚨 Magerloch im unteren Teillastbereich (AFR {mean_afr:.1f} > 14.5)! Gemischschraube 0.5-1.0 Umdrehungen herausdrehen (fetter). Falls AFR weiterhin > {t_max:.1f}, {nd_advice}"
+                if idle_screw_turns >= max_safe:
+                    advice = (
+                        f"🚨 ACHTUNG: Gemischschraube steht bereits bei {idle_screw_turns:.2f} Umdrehungen an der mechanischen Sicherheitsgrenze "
+                        f"(Gefahr des Herausvibrierens / Falschluft über Gewinde)! "
+                        f"Schraube NICHT weiter herausdrehen. Die Nebendüse ist grundlegend zu mager (AFR {mean_afr:.1f} > {t_max:.1f}). "
+                        f"Aktion: Wechsle auf eine fettere NEBENDÜSE aus der Whitelist: {nd_advice}. "
+                        f"Schraube danach wieder auf die Grundeinstellung ({baseline:.1f} Umdr.) zurückdrehen! 💡 {tip}"
+                    )
+                else:
+                    target_turns = round(min(max_safe, idle_screw_turns + 0.5), 2)
+                    advice = (
+                        f"🚨 Magerlauf im unteren Teillastbereich (AFR {mean_afr:.1f} > {t_max:.1f})! "
+                        f"Drehe die Gemischschraube um +0.5 Umdrehungen weiter HERAUS (fetter). "
+                        f"Aktuell: {idle_screw_turns:.2f} -> Ziel: {target_turns:.2f} Umdrehungen. "
+                        f"Falls AFR weiterhin > {t_max:.1f}: {nd_advice}. 💡 {tip}"
+                    )
             elif status == "RICH":
-                nd_advice = get_idle_jet_advice(nd, "LEANER")
-                advice = f"Teillast überfettet (AFR {mean_afr:.1f} < {t_min:.1f}). Gemischschraube 0.5 Umdrehungen hineindrehen (magerer) bzw. {nd_advice}"
+                if idle_screw_turns <= min_safe:
+                    nd_advice = get_idle_jet_advice(nd, "LEANER")
+                    advice = (
+                        f"Nebendüse liefert zu viel Grunddurchfluss (Motor läuft trotz fast geschlossener Schraube bei {idle_screw_turns:.2f} Umdr. noch fett, AFR {mean_afr:.1f} < {t_min:.1f}). "
+                        f"Aktion: Wechsle auf die nächstmagerere Nebendüse aus der Whitelist ({nd_advice}) und stelle die Schraube wieder auf {baseline:.1f} Umdrehungen zurück. 💡 {tip}"
+                    )
+                else:
+                    target_turns = round(max(min_safe, idle_screw_turns - 0.5), 2)
+                    advice = (
+                        f"Teillast überfettet (AFR {mean_afr:.1f} < {t_min:.1f}). "
+                        f"Drehe die Gemischschraube um -0.25 bis -0.5 Umdrehungen HINEIN (magerer). "
+                        f"Aktuell: {idle_screw_turns:.2f} -> Ziel: {target_turns:.2f} Umdrehungen. 💡 {tip}"
+                    )
             else:
-                advice = f"Nebendüse {nd} (Q={cur_q:.2f}) & Gemischschraube arbeiten im optimalen Lambda-Bereich (λ={lambda_measured:.2f})."
+                advice = (
+                    f"Nebendüse {nd} (Q={cur_q:.2f}) & Gemischschraube ({idle_screw_turns:.2f} Umdr., {thread_label}) "
+                    f"arbeiten im optimalen Lambda-Bereich (λ={lambda_measured:.2f}, AFR {mean_afr:.1f}). 💡 {tip}"
+                )
 
         elif zid == "zone2":
             if "LEAN" in status or status == "CRITICAL_LEAN":

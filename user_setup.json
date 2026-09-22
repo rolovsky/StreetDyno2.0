@@ -6,6 +6,8 @@
     "airbox_type": "polini_airbox",
     "main_jet_hd": 125,
     "idle_jet_nd": "52/140",
+    "idle_screw_turns": 3.0,
+    "idle_screw_thread": "fine",
     "air_corrector_hlkd": 190,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",

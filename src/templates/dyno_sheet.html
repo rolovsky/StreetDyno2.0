@@ -144,7 +144,7 @@
             <div class="spec-row"><span>Steuerzeiten:</span><span class="spec-val">A 176.5° &bull; Ü 121.1° &bull; VA 27.7° (DS 161.5°)</span></div>
             <div class="spec-row"><span>Messgang / Übersetzung:</span><span class="spec-val">{{ gear }}. Gang (i = {{ "%.2f"|format(i_total) if i_total else '6.61' }})</span></div>
             <div class="spec-row"><span>Vergaser & Kraftstoff:</span><span class="spec-val">{{ carb.carburetor_type }} &bull; {{ carb.fuel_type or 'Super_E5' }}</span></div>
-            <div class="spec-row"><span>Bedüsung:</span><span class="spec-val">HD {{ carb.main_jet_hd }} | ND {{ carb.idle_jet_nd }} | HLKD {{ carb.air_corrector_hlkd }}</span></div>
+            <div class="spec-row"><span>Bedüsung:</span><span class="spec-val">HD {{ carb.main_jet_hd }} | ND {{ carb.idle_jet_nd }}{% if carb.idle_screw_turns %} (LLG {{ carb.idle_screw_turns }}U){% endif %} | HLKD {{ carb.air_corrector_hlkd }}</span></div>
             <div class="spec-row"><span>Mischrohr / Schieber:</span><span class="spec-val">{{ carb.emulsion_tube }} | {{ slide_label }}</span></div>
             <div class="spec-row"><span>Ansaugung & Wanne:</span><span class="spec-val">{{ intake_label }} &bull; {{ airbox_label }}</span></div>
             <div class="spec-row"><span>Auspuff:</span><span class="spec-val">{{ carb.exhaust }}</span></div>

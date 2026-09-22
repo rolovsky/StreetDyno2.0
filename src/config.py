@@ -123,6 +123,66 @@ EMULSION_TUBES: Dict[str, str] = {
 
 STANDARD_HLKD_VALUES: list[int] = [140, 150, 160, 170, 180, 190]
 
+# Dell'Orto SI Strikte Nebendüsen-Whitelist (sortiert nach Gemisch-Quotient Q = Luft / Sprit)
+AVAILABLE_IDLE_JETS: List[Dict[str, Any]] = [
+    # 160er Serie (magerere Luftkorrektur)
+    {"name": "50/160", "fuel": 50, "air": 160, "scale": 160, "ratio": 160.0 / 50.0},  # 3.20
+    {"name": "52/160", "fuel": 52, "air": 160, "scale": 160, "ratio": 160.0 / 52.0},  # 3.08
+    {"name": "55/160", "fuel": 55, "air": 160, "scale": 160, "ratio": 160.0 / 55.0},  # 2.91
+    {"name": "58/160", "fuel": 58, "air": 160, "scale": 160, "ratio": 160.0 / 58.0},  # 2.76
+    {"name": "60/160", "fuel": 60, "air": 160, "scale": 160, "ratio": 160.0 / 60.0},  # 2.67
+    {"name": "62/160", "fuel": 62, "air": 160, "scale": 160, "ratio": 160.0 / 62.0},  # 2.58
+    {"name": "65/160", "fuel": 65, "air": 160, "scale": 160, "ratio": 160.0 / 65.0},  # 2.46
+    {"name": "68/160", "fuel": 68, "air": 160, "scale": 160, "ratio": 160.0 / 68.0},  # 2.35
+
+    # 140er Serie (mittlere Luftkorrektur / fetterer Übergang)
+    {"name": "45/140", "fuel": 45, "air": 140, "scale": 140, "ratio": 140.0 / 45.0},  # 3.11
+    {"name": "48/140", "fuel": 48, "air": 140, "scale": 140, "ratio": 140.0 / 48.0},  # 2.92
+    {"name": "50/140", "fuel": 50, "air": 140, "scale": 140, "ratio": 140.0 / 50.0},  # 2.80
+    {"name": "52/140", "fuel": 52, "air": 140, "scale": 140, "ratio": 140.0 / 52.0},  # 2.69 (Referenz / verbaut)
+
+    # 120er Serie (kleine Luftkorrektur / sehr fett im Übergang)
+    {"name": "45/120", "fuel": 45, "air": 120, "scale": 120, "ratio": 120.0 / 45.0},  # 2.67
+    {"name": "48/120", "fuel": 48, "air": 120, "scale": 120, "ratio": 120.0 / 48.0},  # 2.50
+    {"name": "50/120", "fuel": 50, "air": 120, "scale": 120, "ratio": 120.0 / 50.0},  # 2.40
+    {"name": "55/120", "fuel": 55, "air": 120, "scale": 120, "ratio": 120.0 / 55.0},  # 2.18
+]
+
+# Schwellenwert-Definitionen für Leerlaufgemischschraube (LLGRS)
+IDLE_SCREW_LIMITS: Dict[str, Dict[str, float]] = {
+    "fine": {       # M5x0.50 (PX Lusso / BGM Pro / Spaco / T5)
+        "min_safe": 1.25,        # Unterhalb = extreme Abmagerung
+        "opt_min": 1.75,
+        "baseline": 2.50,        # Standard-Ausgangswert
+        "opt_max": 3.75,
+        "max_safe": 4.00,        # Warnschwelle (Schraube zu weit draußen)
+        "mechanical_limit": 4.50 # Höchste Eisenbahn: Federkraft weg, Falschluft-/Verlustrisiko
+    },
+    "coarse": {     # M5x0.75 / M5x0.80 (PX alt / Rally / Sprint)
+        "min_safe": 0.75,
+        "opt_min": 1.00,
+        "baseline": 1.50,        # Standard-Ausgangswert
+        "opt_max": 2.25,
+        "max_safe": 2.50,        # Warnschwelle
+        "mechanical_limit": 3.00
+    }
+}
+
+IDLE_SCREW_THREAD_TYPES: Dict[str, Dict[str, Any]] = {
+    "fine": {
+        "label": "Feingewinde M5x0.5 (BGM / PX Lusso / Spaco / T5) – Basis 2.5",
+        "pitch_mm": 0.5,
+        "baseline": 2.50,
+        "limits": IDLE_SCREW_LIMITS["fine"]
+    },
+    "coarse": {
+        "label": "Grobgewinde M5x0.75 (PX alt / Rally / Sprint) – Basis 1.5",
+        "pitch_mm": 0.75,
+        "baseline": 1.50,
+        "limits": IDLE_SCREW_LIMITS["coarse"]
+    }
+}
+
 DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
@@ -131,6 +191,8 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "airbox_type": "polini_airbox",
     "main_jet_hd": 125,
     "idle_jet_nd": "52/140",
+    "idle_screw_turns": 3.0,
+    "idle_screw_thread": "fine",
     "air_corrector_hlkd": 190,
     "emulsion_tube": "Lemarxon x234",
     "exhaust": "Polini Box",
@@ -153,6 +215,8 @@ REFERENCE_SETUPS: Dict[str, Dict[str, Any]] = {
         "airbox_type": "polini_airbox",
         "main_jet_hd": 125,
         "idle_jet_nd": "52/140",
+        "idle_screw_turns": 3.0,
+        "idle_screw_thread": "fine",
         "air_corrector_hlkd": 190,
         "emulsion_tube": "Lemarxon x234",
         "exhaust": "Polini Box",
