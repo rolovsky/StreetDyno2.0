@@ -16,7 +16,7 @@ constexpr uint8_t PIN_AFR = A0;      // 0-5V Wideband Lambda Controller
 constexpr uint8_t PIN_EGT_SO = 4;    // MAX6675 SPI Serial Data Out
 constexpr uint8_t PIN_EGT_CS = 5;    // MAX6675 #1 SPI Chip Select (EGT Sensor)
 constexpr uint8_t PIN_EGT_SCK = 6;   // MAX6675 SPI Clock
-constexpr uint8_t PIN_CHT_CS = 7;    // MAX6675 #2 SPI Chip Select (CHT Sensor)
+// constexpr uint8_t PIN_CHT_CS = 7;    // MAX6675 #2 SPI Chip Select (CHT Sensor - disconnected)
 
 // --- Calibration Constants ---
 constexpr float PULSES_PER_REV = 3.0f;           // 3 pulses per revolution (Vespa Ducati CDI)
@@ -25,7 +25,7 @@ constexpr uint32_t RPM_TIMEOUT_MICROS = 500000;  // 0.5s stall detection
 constexpr float USB_VCC_VOLTAGE = 4.71f;         // Measured USB reference voltage
 
 MAX6675 thermocoupleEGT(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
-MAX6675 thermocoupleCHT(PIN_EGT_SCK, PIN_CHT_CS, PIN_EGT_SO);
+// MAX6675 thermocoupleCHT(PIN_EGT_SCK, PIN_CHT_CS, PIN_EGT_SO); // Disconnected
 
 // --- Atomic Interrupt Variables ---
 volatile uint32_t v_firstPulseTime = 0;
@@ -61,8 +61,8 @@ void setup() {
 
     pinMode(PIN_EGT_CS, OUTPUT);
     digitalWrite(PIN_EGT_CS, HIGH);
-    pinMode(PIN_CHT_CS, OUTPUT);
-    digitalWrite(PIN_CHT_CS, HIGH);
+    // pinMode(PIN_CHT_CS, OUTPUT);
+    // digitalWrite(PIN_CHT_CS, HIGH);
 }
 
 long readVccMillivolts() {
@@ -99,10 +99,9 @@ void loop() {
             }
         }
 
-        // Minimal SPI bus settling guard between chip selects
+        // CHT measurement commented out (sensor disconnected)
+        /*
         delayMicroseconds(100);
-
-        // 1b. CHT Measurement (Cylinder Head Temp, 25.0f delta filter for thermal inertia)
         const float rawCht = thermocoupleCHT.readCelsius();
         if (!isnan(rawCht) && rawCht > 0.0f) {
             if (lastValidCht < 0.0f) {
@@ -111,6 +110,7 @@ void loop() {
                 lastValidCht = rawCht;
             }
         }
+        */
     }
 
     // 2. 10Hz Telemetry Stream to Raspberry Pi ($RPM;AFR;EGT)
