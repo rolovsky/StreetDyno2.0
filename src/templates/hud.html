@@ -161,12 +161,12 @@
         }
         @media (orientation: portrait) {
             .hud-card.card-afr {
-                grid-column: span 2;
+                grid-column: span 1;
             }
         }
         @media (orientation: landscape) {
             .hud-grid {
-                grid-template-columns: repeat(5, 1fr);
+                grid-template-columns: repeat(4, 1fr);
                 grid-template-rows: 1fr;
                 gap: 8px;
             }
@@ -431,11 +431,13 @@
             <div id="egt" class="card-value">0</div>
             <div class="card-unit">°C (EGT)</div>
         </div>
+        <!-- CHT temporarily commented out as sensor is not connected
         <div class="hud-card card-cht" id="cardCht">
             <div class="card-header"><span>Zylinderkopf</span><span>MAX 170°C</span></div>
             <div id="cht" class="card-value">0</div>
             <div class="card-unit">°C (CHT)</div>
         </div>
+        -->
     </div>
 
     <!-- Bottom Navigation & Pull Control -->

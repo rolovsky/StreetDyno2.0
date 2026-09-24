@@ -314,6 +314,7 @@ def log_archive() -> str:
     return render_template("logs.html", logs=logs_data)
 
 
+@bootstrap_bp.route("/download/<path:filename>")
 @bootstrap_bp.route("/logs/download/<path:filename>")
 def download_log(filename: str) -> Response:
     """Serve a dyno CSV for direct download. Path traversal is prevented by send_from_directory."""
@@ -349,6 +350,7 @@ def trips_list() -> str:
     return render_template("trips.html", trips=trips_data)
 
 
+@bootstrap_bp.route("/download_trip/<path:filename>")
 @bootstrap_bp.route("/trips/download/<path:filename>")
 def download_trip(filename: str) -> Response:
     """Serve a trip CSV for direct download."""
