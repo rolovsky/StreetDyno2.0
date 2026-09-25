@@ -24,6 +24,20 @@ if [ ! -f "$HOME/.config/rclone/rclone.conf" ]; then
     exit 1
 fi
 
+# Heimnetz-Guard: Nur synchronisieren, wenn mit dem Heim-WLAN (Pachacamac) verbunden
+if [ "$1" != "--force" ]; then
+    CURRENT_SSID=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes:' | cut -d: -f2 || true)
+    if [ "$CURRENT_SSID" != "Pachacamac" ]; then
+        echo "⏸️  Nicht im Heimnetzwerk (aktuell: '${CURRENT_SSID:-Kein WLAN / AP-Modus}'). Cloud-Upload übersprungen."
+        exit 0
+    fi
+
+    if ! ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+        echo "⏸️  Keine aktive Internetverbindung trotz Heimnetz. Cloud-Upload übersprungen."
+        exit 0
+    fi
+fi
+
 echo "🚀 Synchronisiere StreetDyno Logs mit Google Drive (gdrive:StreetDyno/logs/)..."
 
 # 1. Sync trips
