@@ -58,4 +58,13 @@ if [ -d "$LOGS_DIR" ]; then
         --progress
 fi
 
+# 3. Sync fuel & oil state
+if [ -f "$LOGS_DIR/fuel_state.json" ]; then
+    echo "⛽ Synchronisiere Tank- & Öl-Status (fuel_state.json)..."
+    rclone copy "$LOGS_DIR/fuel_state.json" "gdrive:StreetDyno/logs/" \
+        --update \
+        --progress
+fi
+
 echo "✅ Synchronisation abgeschlossen!"
+
