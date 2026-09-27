@@ -115,6 +115,13 @@
             background: #181510;
         }
         .btn-sound:active { background: #2e1d08; }
+        .btn-fuel {
+            border-color: #00e676;
+            color: #00e676;
+            background: #0a1f14;
+        }
+        .btn-fuel:active { background: #133a25; }
+
 
         .rev-bar-container {
             width: 100%;
@@ -380,6 +387,233 @@
             cursor: pointer;
         }
         .modal-close-btn:active { background: #2f2f3d; }
+
+        /* --- Fuel Economy & Premix Ticker & Modal --- */
+        .fuel-status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 10px;
+            background: rgba(18, 18, 24, 0.90);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            margin-bottom: 6px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .fuel-status-bar:active { background: rgba(30, 30, 42, 0.95); transform: scale(0.99); }
+        .fuel-status-item { display: flex; align-items: center; gap: 6px; }
+        .badge-oil {
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 0.70rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+        }
+        .badge-success { background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.4); }
+        .badge-info { background: rgba(41, 182, 246, 0.15); color: #29b6f6; border: 1px solid rgba(41, 182, 246, 0.4); }
+        .badge-warning { background: rgba(255, 152, 0, 0.15); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.4); }
+        .badge-danger { background: rgba(255, 23, 68, 0.20); color: #ff1744; border: 1px solid #ff1744; animation: pulse-btn 0.6s infinite alternate; }
+        .fuel-type-tag { color: #8e8e99; font-size: 0.68rem; text-transform: uppercase; }
+        .fuel-cons-tag { color: #00ffcc; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+
+        .fuel-modal-box {
+            max-width: 430px;
+            max-height: 90vh;
+            overflow-y: auto;
+            text-align: left;
+            padding: 18px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .modal-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        .modal-x-btn {
+            background: #202028;
+            border: 1px solid #363644;
+            color: #888;
+            font-size: 1rem;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-x-btn:active { background: #333; color: #fff; }
+        .fuel-cur-banner {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            background: #181820;
+            border: 1px solid #282834;
+            border-radius: 12px;
+            padding: 8px 6px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .banner-stat { display: flex; flex-direction: column; gap: 2px; }
+        .stat-lbl { font-size: 0.60rem; color: #71717a; text-transform: uppercase; font-weight: 700; }
+        .stat-val { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 800; color: #fff; }
+        .fuel-form { display: flex; flex-direction: column; gap: 11px; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-label-row { display: flex; justify-content: space-between; align-items: center; }
+        .form-label-row label { font-size: 0.72rem; font-weight: 800; color: #a1a1aa; letter-spacing: 0.04em; }
+        .form-hint { font-size: 0.65rem; color: #52525b; font-weight: 600; }
+        .fuel-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: #1b1b24;
+            border: 1.5px solid #2f2f3d;
+            border-radius: 10px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.05rem;
+            font-weight: 700;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .fuel-input:focus { border-color: #00ffcc; box-shadow: 0 0 10px rgba(0, 255, 204, 0.2); }
+        .input-large { font-size: 1.35rem; padding: 11px; color: #00ffcc; }
+        .fuel-select {
+            width: 100%;
+            padding: 10px 12px;
+            background: #1b1b24;
+            border: 1.5px solid #2f2f3d;
+            border-radius: 10px;
+            color: #fff;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 700;
+            outline: none;
+        }
+        .fuel-select:focus { border-color: #00ffcc; }
+        .oil-selector-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+        }
+        .btn-oil-option {
+            background: #181820;
+            border: 1.5px solid #2c2c3a;
+            border-radius: 10px;
+            padding: 8px 4px;
+            color: #ccc;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            transition: all 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn-oil-option .oil-opt-title { font-size: 0.74rem; font-weight: 800; }
+        .btn-oil-option .oil-opt-sub { font-size: 0.62rem; color: #71717a; }
+        .btn-oil-option.active {
+            background: #092015;
+            border-color: #00e676;
+            color: #00e676;
+            box-shadow: 0 0 12px rgba(0, 230, 118, 0.25);
+        }
+        .btn-oil-option.active .oil-opt-sub { color: #80ed99; }
+        .manual-oil-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .unit-tag { font-size: 0.85rem; font-weight: 800; color: #71717a; }
+        .fuel-advice-box {
+            background: rgba(0, 230, 118, 0.10);
+            border: 1.5px solid #00e676;
+            border-radius: 12px;
+            padding: 9px 12px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: #fff;
+            animation: fadeIn 0.2s;
+        }
+        .advice-warning { background: rgba(255, 152, 0, 0.12); border-color: #ff9800; }
+        .advice-danger { background: rgba(255, 23, 68, 0.15); border-color: #ff1744; }
+        .advice-info { background: rgba(41, 182, 246, 0.12); border-color: #29b6f6; }
+        .advice-details { font-size: 0.68rem; color: #a1a1aa; margin-top: 2px; font-weight: 600; }
+        .form-checkbox-row {
+            display: flex;
+            align-items: center;
+            padding: 2px 0;
+        }
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: #ccc;
+            cursor: pointer;
+        }
+        .checkbox-container input { width: 16px; height: 16px; accent-color: #00e676; }
+        .modal-actions-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .btn-submit-refuel {
+            flex: 2;
+            padding: 12px;
+            border-radius: 12px;
+            background: #00e676;
+            border: none;
+            color: #000;
+            font-size: 0.85rem;
+            font-weight: 900;
+            letter-spacing: 0.03em;
+            cursor: pointer;
+            transition: all 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn-submit-refuel:active { transform: scale(0.97); background: #00c853; }
+        .btn-cancel-modal {
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            background: #202028;
+            border: 1px solid #333342;
+            color: #aaa;
+            font-size: 0.82rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-cancel-modal:active { background: #2a2a34; }
+        .fuel-history-preview {
+            margin-top: 12px;
+            border-top: 1px solid #22222d;
+            padding-top: 8px;
+        }
+        .history-hdr { font-size: 0.66rem; color: #71717a; text-transform: uppercase; font-weight: 800; margin-bottom: 6px; }
+        .history-list { display: flex; flex-direction: column; gap: 4px; }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 8px;
+            background: #181820;
+            border-radius: 8px;
+            font-size: 0.68rem;
+            color: #ccc;
+        }
+        .hist-date { color: #71717a; }
+        .hist-metrics { font-family: 'JetBrains Mono', monospace; color: #fff; font-weight: 700; }
+        .hist-cons { color: #00ffcc; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
     </style>
 </head>
 <body>
@@ -399,8 +633,24 @@
             </div>
         </div>
         <div class="top-actions">
+            <button class="btn-icon btn-fuel" id="btnOpenFuel" onclick="openFuelModal()">⛽ TANKEN</button>
             <button class="btn-icon btn-sound" onclick="openSoundModal()">🔊 SOUND</button>
             <button class="btn-icon" onclick="toggleFullScreen()">⛶ HUD</button>
+        </div>
+    </div>
+
+    <!-- Fuel & 2-Stroke Premix Status Ticker -->
+    <div class="fuel-status-bar" id="fuelStatusBar" onclick="openFuelModal()" title="Klicken für Tankstopp & Öl-Manager">
+        <div class="fuel-status-item">
+            <span class="fuel-icon">⛽</span>
+            <span id="fuelVolRange">8.0L • ~195 km</span>
+        </div>
+        <div class="fuel-status-item">
+            <span id="fuelOilBadge" class="badge-oil badge-success">🟢 1:47 Öl</span>
+        </div>
+        <div class="fuel-status-item">
+            <span id="fuelTypeBadge" class="fuel-type-tag">SP95 E5</span>
+            <span id="fuelConsTag" class="fuel-cons-tag">4.1 L/100km</span>
         </div>
     </div>
 
@@ -475,6 +725,130 @@
                 </button>
             </div>
             <button class="modal-close-btn" onclick="closeSoundModal()">✕ Schließen</button>
+        </div>
+    </div>
+
+    <!-- Fuel Economy & 2-Stroke Premix Modal -->
+    <div id="fuelModal" class="modal-overlay" onclick="closeFuelModalOnOutsideClick(event)">
+        <div class="modal-box fuel-modal-box">
+            <div class="modal-header-row">
+                <div>
+                    <div class="modal-title">⛽ Tankstopp & 2-Takt Öl</div>
+                    <div class="modal-subtitle">Verbrauch, Gemisch & Dosier-Empfehlung</div>
+                </div>
+                <button type="button" class="modal-x-btn" onclick="closeFuelModal()">✕</button>
+            </div>
+
+            <!-- Current Balance / Status Banner -->
+            <div class="fuel-cur-banner" id="modalCurBanner">
+                <div class="banner-stat">
+                    <span class="stat-lbl">Tacho</span>
+                    <span class="stat-val" id="bannerLastOdo">— km</span>
+                </div>
+                <div class="banner-stat">
+                    <span class="stat-lbl">Gemisch</span>
+                    <span class="stat-val" id="bannerCurRatio">1:47</span>
+                </div>
+                <div class="banner-stat">
+                    <span class="stat-lbl">Öl-Saldo</span>
+                    <span class="stat-val" id="bannerCurBalance">+0 ml</span>
+                </div>
+                <div class="banner-stat">
+                    <span class="stat-lbl">Ø Verbr.</span>
+                    <span class="stat-val" id="bannerAvgCons">4.10 L</span>
+                </div>
+            </div>
+
+            <!-- Form -->
+            <form id="refuelForm" onsubmit="submitRefuel(event)" class="fuel-form">
+                <!-- 1. Odometer -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label for="inputOdometer">🛵 TACHOSTAND (GESAMT-KM)</label>
+                        <span class="form-hint" id="odoHint">Vespa Tacho</span>
+                    </div>
+                    <input type="number" id="inputOdometer" class="fuel-input" step="1" inputmode="numeric" placeholder="z.B. 14250" required>
+                </div>
+
+                <!-- 2. Liters fueled -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label for="inputLiters">⛽ GETANKTE LITER</label>
+                        <span class="form-hint">Zapfsäule</span>
+                    </div>
+                    <input type="number" id="inputLiters" class="fuel-input input-large" step="0.01" min="0.1" max="15" inputmode="decimal" placeholder="z.B. 4.60" oninput="onFuelLitersChanged()" required>
+                </div>
+
+                <!-- Live Recommendation & Safety Warning Box -->
+                <div id="fuelAdviceBox" class="fuel-advice-box advice-success" style="display:none;">
+                    <div id="fuelAdviceText">💡 Empfehlung: 1 Dose Motul 710 (110 ml)</div>
+                    <div class="advice-details" id="fuelAdviceDetails">Ergibt im Tank 1:44 (2.29%). Saldo: +11 ml</div>
+                </div>
+
+                <!-- 3. Oil Dosage Selection -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label>🧪 2-TAKT ÖL (MOTUL 710)</label>
+                        <span class="form-hint" id="oilSelectedHint">1 Dose (110 ml)</span>
+                    </div>
+                    <div class="oil-selector-grid">
+                        <button type="button" class="btn-oil-option active" id="btnOil1" onclick="selectOilCans(1)">
+                            <span class="oil-opt-title">1 Dose</span>
+                            <span class="oil-opt-sub">110 ml</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnOil2" onclick="selectOilCans(2)">
+                            <span class="oil-opt-title">2 Dosen</span>
+                            <span class="oil-opt-sub">220 ml</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnOil0" onclick="selectOilCans(0)">
+                            <span class="oil-opt-title">Kein Öl</span>
+                            <span class="oil-opt-sub">0 ml</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnOilManual" onclick="selectOilManual()">
+                            <span class="oil-opt-title">Manuell</span>
+                            <span class="oil-opt-sub">ml</span>
+                        </button>
+                    </div>
+                    <div id="manualOilGroup" class="manual-oil-row" style="display:none;">
+                        <input type="number" id="inputManualOil" class="fuel-input" step="5" min="0" max="500" inputmode="numeric" placeholder="ml Öl (z.B. 95)" oninput="onManualOilChanged()">
+                        <span class="unit-tag">ml</span>
+                    </div>
+                </div>
+
+                <!-- 4. Fuel Type Selection -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label for="selectFuelType">🌍 KRAFTSTOFF-SORTE</label>
+                        <span class="form-hint" id="stoichHint">AFR 14.30</span>
+                    </div>
+                    <select id="selectFuelType" class="fuel-select" onchange="onFuelTypeChanged()">
+                        <!-- dynamically populated -->
+                    </select>
+                </div>
+
+                <!-- 5. Full Tank Checkbox -->
+                <div class="form-checkbox-row">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="chkFullTank" checked onchange="onFuelLitersChanged()">
+                        <span class="checkmark"></span>
+                        <span class="chk-label">Tank vollgetankt (Standard für Vespa)</span>
+                    </label>
+                </div>
+
+                <!-- Submit / Cancel -->
+                <div class="modal-actions-row">
+                    <button type="submit" class="btn-submit-refuel" id="btnSaveRefuel">💾 TANKSTOPP SPEICHERN</button>
+                    <button type="button" class="btn-cancel-modal" onclick="closeFuelModal()">Abbrechen</button>
+                </div>
+            </form>
+
+            <!-- Recent History Accordion/Preview -->
+            <div class="fuel-history-preview" id="fuelHistoryContainer">
+                <div class="history-hdr">Letzte Tankstopps</div>
+                <div id="fuelHistoryList" class="history-list">
+                    <!-- populated from state -->
+                </div>
+            </div>
         </div>
     </div>
 
@@ -803,6 +1177,326 @@
                 })
                 .catch(err => console.error('Fetch error:', err));
         }, 150);
+
+        // --- Fuel Economy & 2-Stroke Premix Modal Logic ---
+        let currentFuelData = null;
+        let selectedOilCans = 1;
+        let selectedManualOil = null;
+        let previewDebounceTimer = null;
+
+        function updateFuelStatusBar() {
+            fetch('/api/fuel/state?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.status !== 'success' || !d.fuel) return;
+                    currentFuelData = d.fuel;
+                    renderFuelStatusPills(d.fuel);
+                })
+                .catch(e => console.warn('Fuel state fetch error:', e));
+        }
+
+        function renderFuelStatusPills(f) {
+            const vRangeEl = document.getElementById('fuelVolRange');
+            const oilBadgeEl = document.getElementById('fuelOilBadge');
+            const typeBadgeEl = document.getElementById('fuelTypeBadge');
+            const consTagEl = document.getElementById('fuelConsTag');
+
+            if (vRangeEl) {
+                const rangeStr = f.is_on_reserve ? `⚠️ RES (~${f.est_range_km} km)` : `~${f.est_range_km} km`;
+                vRangeEl.innerText = `${f.fuel_volume_l.toFixed(1)}L • ${rangeStr}`;
+            }
+
+            if (oilBadgeEl) {
+                oilBadgeEl.innerText = `${f.oil_ratio_str} Öl`;
+                oilBadgeEl.className = 'badge-oil badge-' + (f.oil_badge || 'success');
+            }
+
+            if (typeBadgeEl) {
+                let lbl = f.fuel_label || 'SP95';
+                if (lbl.includes('E10')) lbl = 'SP95 E10';
+                else if (lbl.includes('E0')) lbl = 'SP98 E0';
+                else if (lbl.includes('98')) lbl = 'SP98 E5';
+                else if (lbl.includes('100') || lbl.includes('102')) lbl = 'PREMIUM';
+                else if (lbl.includes('Aspen')) lbl = 'ASPEN';
+                else if (lbl.includes('E85')) lbl = 'E85';
+                else lbl = 'SP95 E5';
+                typeBadgeEl.innerText = lbl;
+            }
+
+            if (consTagEl) {
+                consTagEl.innerText = `${f.avg_consumption_l_100km.toFixed(1)} L/100`;
+            }
+        }
+
+        function openFuelModal() {
+            getAudioContext();
+            const modal = document.getElementById('fuelModal');
+            if (!modal) return;
+
+            fetch('/api/fuel/state?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.status !== 'success' || !d.fuel) return;
+                    currentFuelData = d.fuel;
+                    populateFuelModal(d.fuel);
+                    modal.classList.add('open');
+                })
+                .catch(e => {
+                    modal.classList.add('open');
+                });
+        }
+
+        function populateFuelModal(f) {
+            const bLastOdo = document.getElementById('bannerLastOdo');
+            const bRatio = document.getElementById('bannerCurRatio');
+            const bBalance = document.getElementById('bannerCurBalance');
+            const bAvgCons = document.getElementById('bannerAvgCons');
+
+            if (bLastOdo) bLastOdo.innerText = f.last_odometer_km > 0 ? `${f.last_odometer_km.toLocaleString('de-DE')} km` : '—';
+            if (bRatio) bRatio.innerText = f.oil_ratio_str;
+            if (bBalance) {
+                const s = f.oil_balance_ml >= 0 ? `+${f.oil_balance_ml.toFixed(0)} ml` : `${f.oil_balance_ml.toFixed(0)} ml`;
+                bBalance.innerText = s;
+                bBalance.style.color = f.oil_balance_ml >= 0 ? '#00e676' : '#ff9800';
+            }
+            if (bAvgCons) bAvgCons.innerText = `${f.avg_consumption_l_100km.toFixed(2)} L`;
+
+            const inOdo = document.getElementById('inputOdometer');
+            if (inOdo) {
+                if (f.suggested_odometer_km > 0) {
+                    inOdo.value = Math.round(f.suggested_odometer_km);
+                } else if (f.last_odometer_km > 0) {
+                    inOdo.value = Math.round(f.last_odometer_km);
+                } else {
+                    inOdo.value = '';
+                }
+            }
+
+            const selFuel = document.getElementById('selectFuelType');
+            if (selFuel && f.available_fuels) {
+                selFuel.innerHTML = '';
+                f.available_fuels.forEach(fuel => {
+                    const opt = document.createElement('option');
+                    opt.value = fuel.key;
+                    opt.innerText = `${fuel.label} — ${fuel.desc} (AFR ${fuel.stoich.toFixed(2)})`;
+                    if (fuel.key === f.fuel_type) opt.selected = true;
+                    selFuel.appendChild(opt);
+                });
+                onFuelTypeChanged();
+            }
+
+            const inLiters = document.getElementById('inputLiters');
+            if (inLiters) {
+                inLiters.value = '';
+            }
+            selectOilCans(1);
+            document.getElementById('chkFullTank').checked = true;
+            document.getElementById('fuelAdviceBox').style.display = 'none';
+
+            renderFuelHistory(f.recent_refuels);
+        }
+
+        function renderFuelHistory(history) {
+            const container = document.getElementById('fuelHistoryList');
+            if (!container) return;
+            if (!history || history.length === 0) {
+                container.innerHTML = '<div style="font-size:0.70rem; color:#52525b; text-align:center; padding:6px;">Noch keine Tankstopps erfasst</div>';
+                return;
+            }
+            let html = '';
+            history.slice(0, 3).forEach(h => {
+                const kmStr = h.km_delta ? `+${h.km_delta.toFixed(0)} km` : `${h.odometer_km.toLocaleString('de-DE')} km`;
+                const consStr = h.consumption_l_100km ? `${h.consumption_l_100km.toFixed(2)} L/100` : '—';
+                const dateStr = h.date ? h.date.split(' ')[0].substring(5) : '';
+                html += `
+                    <div class="history-item">
+                        <span class="hist-date">${dateStr}</span>
+                        <span class="hist-metrics">${h.liters_added.toFixed(1)}L (${h.oil_ratio_after})</span>
+                        <span class="hist-metrics">${kmStr}</span>
+                        <span class="hist-cons">${consStr}</span>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function closeFuelModal() {
+            const modal = document.getElementById('fuelModal');
+            if (modal) modal.classList.remove('open');
+        }
+
+        function closeFuelModalOnOutsideClick(e) {
+            if (e.target.id === 'fuelModal') closeFuelModal();
+        }
+
+        function selectOilCans(cans) {
+            selectedOilCans = cans;
+            selectedManualOil = null;
+
+            ['btnOil0', 'btnOil1', 'btnOil2', 'btnOilManual'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) b.classList.remove('active');
+            });
+
+            const activeBtn = document.getElementById('btnOil' + cans);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            const mGroup = document.getElementById('manualOilGroup');
+            if (mGroup) mGroup.style.display = 'none';
+
+            const hint = document.getElementById('oilSelectedHint');
+            if (hint) {
+                if (cans === 1) hint.innerText = '1 Dose (110 ml)';
+                else if (cans === 2) hint.innerText = '2 Dosen (220 ml)';
+                else if (cans === 0) hint.innerText = '0 ml (Kein Öl)';
+            }
+
+            onFuelLitersChanged();
+        }
+
+        function selectOilManual() {
+            selectedOilCans = null;
+            ['btnOil0', 'btnOil1', 'btnOil2', 'btnOilManual'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) b.classList.remove('active');
+            });
+            const bManual = document.getElementById('btnOilManual');
+            if (bManual) bManual.classList.add('active');
+
+            const mGroup = document.getElementById('manualOilGroup');
+            if (mGroup) mGroup.style.display = 'flex';
+
+            const inManual = document.getElementById('inputManualOil');
+            if (inManual) {
+                inManual.focus();
+                selectedManualOil = parseFloat(inManual.value) || 0;
+            }
+
+            const hint = document.getElementById('oilSelectedHint');
+            if (hint) hint.innerText = 'Manuelle ml Eingabe';
+
+            onFuelLitersChanged();
+        }
+
+        function onManualOilChanged() {
+            const inManual = document.getElementById('inputManualOil');
+            selectedManualOil = inManual ? parseFloat(inManual.value) || 0 : 0;
+            onFuelLitersChanged();
+        }
+
+        function onFuelTypeChanged() {
+            const selFuel = document.getElementById('selectFuelType');
+            const hint = document.getElementById('stoichHint');
+            if (!selFuel || !hint) return;
+            const opt = selFuel.options[selFuel.selectedIndex];
+            if (opt && opt.innerText.includes('AFR')) {
+                const parts = opt.innerText.split('(');
+                if (parts.length > 1) {
+                    hint.innerText = parts[parts.length - 1].replace(')', '');
+                }
+            }
+        }
+
+        function onFuelLitersChanged() {
+            clearTimeout(previewDebounceTimer);
+            previewDebounceTimer = setTimeout(() => {
+                const inLiters = document.getElementById('inputLiters');
+                const liters = inLiters ? parseFloat(inLiters.value) : 0;
+                const isFull = document.getElementById('chkFullTank').checked;
+                const adviceBox = document.getElementById('fuelAdviceBox');
+                const adviceText = document.getElementById('fuelAdviceText');
+                const adviceDetails = document.getElementById('fuelAdviceDetails');
+
+                if (!inLiters || isNaN(liters) || liters <= 0.1) {
+                    if (adviceBox) adviceBox.style.display = 'none';
+                    return;
+                }
+
+                fetch(`/api/fuel/preview?liters=${liters}&full=${isFull}&t=${Date.now()}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.status !== 'success' || !d.recommendation) return;
+                        const rec = d.recommendation;
+
+                        if (adviceBox) {
+                            adviceBox.style.display = 'block';
+                            adviceBox.className = 'fuel-advice-box advice-' + (rec.badge || 'success');
+                            if (adviceText) adviceText.innerText = rec.advice.split('.')[0] + '.';
+                            if (adviceDetails) {
+                                adviceDetails.innerText = `Ziel: 2.15% (1:46) | Im Tank: ${rec.projected_ratio_str} (${rec.projected_ratio_pct}%) | Saldo: ${rec.projected_balance_ml >= 0 ? '+' : ''}${rec.projected_balance_ml} ml`;
+                            }
+                        }
+                    })
+                    .catch(e => console.warn('Preview error:', e));
+            }, 180);
+        }
+
+        function submitRefuel(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnSaveRefuel');
+            const inOdo = document.getElementById('inputOdometer');
+            const inLiters = document.getElementById('inputLiters');
+            const selFuel = document.getElementById('selectFuelType');
+            const chkFull = document.getElementById('chkFullTank');
+
+            const odo = parseFloat(inOdo.value);
+            const liters = parseFloat(inLiters.value);
+
+            if (isNaN(odo) || odo < 0) {
+                alert('Bitte gültigen Kilometerstand eingeben.');
+                return;
+            }
+            if (isNaN(liters) || liters <= 0.1) {
+                alert('Bitte gültige getankte Liter eingeben.');
+                return;
+            }
+
+            let oilCans = (selectedOilCans !== null) ? selectedOilCans : 1;
+            let manualOil = (selectedManualOil !== null) ? selectedManualOil : null;
+
+            btn.disabled = true;
+            btn.innerText = 'Speichere...';
+
+            const payload = {
+                odometer_km: odo,
+                liters_added: liters,
+                oil_cans: oilCans,
+                manual_oil_ml: manualOil,
+                fuel_type: selFuel.value,
+                is_full_tank: chkFull.checked
+            };
+
+            fetch('/api/fuel/refuel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(r => r.json())
+            .then(res => {
+                btn.disabled = false;
+                btn.innerText = '💾 TANKSTOPP SPEICHERN';
+                if (res.success || res.status === 'success') {
+                    playTone(880, 'sine', 80, 0.0);
+                    playTone(1174, 'triangle', 180, 0.10);
+                    if ('vibrate' in navigator) {
+                        try { navigator.vibrate([80, 40, 80]); } catch(e){}
+                    }
+                    closeFuelModal();
+                    updateFuelStatusBar();
+                } else {
+                    alert('Fehler beim Speichern: ' + (res.message || 'Unbekannt'));
+                }
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.innerText = '💾 TANKSTOPP SPEICHERN';
+                alert('Netzwerkfehler: ' + err);
+            });
+        }
+
+        // Initial fuel state fetch & 25s polling
+        updateFuelStatusBar();
+        setInterval(updateFuelStatusBar, 25000);
     </script>
 </body>
 </html>

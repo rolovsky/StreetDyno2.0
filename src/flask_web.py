@@ -67,6 +67,8 @@ from config import (
     load_carb_setup,
     save_carb_setup,
 )
+from data.fuel_manager import FuelManager
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # IPC paths (must match simple_logger.py exactly)
@@ -546,6 +548,93 @@ def api_update_carb_setup() -> Any:
         _send_sighup()
         return jsonify({"status": "success", "setup": load_carb_setup()})
     return jsonify({"status": "error", "message": "Fehler beim Speichern"}), 500
+
+
+# ── /api/fuel (Fuel Economy & 2-Stroke Premix Manager) ────────────────────
+
+@bootstrap_bp.route("/api/fuel/state")
+def api_fuel_state() -> Response:
+    """Return current fuel volume, oil mixture ratio, range, and recent refuels."""
+    try:
+        fm = FuelManager()
+        summary = fm.get_hud_summary(cumulative_gps_km=0.0)
+        resp = jsonify({"status": "success", "fuel": summary})
+    except Exception as e:
+        resp = jsonify({"status": "error", "message": str(e)})
+        resp.status_code = 500
+    for k, v in _NO_CACHE.items():
+        resp.headers[k] = v
+    return resp
+
+
+@bootstrap_bp.route("/api/fuel/preview")
+def api_fuel_preview() -> Response:
+    """
+    Live Motul 710 dosage recommendation and projected ratio.
+    Called as user enters liters in the HUD refuel modal.
+    """
+    try:
+        liters_str = request.args.get("liters", "0")
+        is_full = request.args.get("full", "true").lower() in ("true", "1", "yes")
+        try:
+            liters = float(liters_str)
+        except ValueError:
+            liters = 0.0
+        fm = FuelManager()
+        rec = fm.get_refuel_recommendation(liters, is_full_tank=is_full)
+        resp = jsonify({"status": "success", "recommendation": rec})
+    except Exception as e:
+        resp = jsonify({"status": "error", "message": str(e)})
+        resp.status_code = 500
+    for k, v in _NO_CACHE.items():
+        resp.headers[k] = v
+    return resp
+
+
+@bootstrap_bp.route("/api/fuel/refuel", methods=["POST"])
+def api_fuel_refuel() -> Response:
+    """
+    Records a completed refuel event:
+    Calculates fuel consumption, blends stoichiometry, updates oil balance,
+    and updates user_setup.json.
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or request.form.to_dict()
+        if not data:
+            return jsonify({"status": "error", "message": "Keine Daten empfangen"}), 400
+
+        odometer_km = float(data.get("odometer_km", 0.0))
+        liters_added = float(data.get("liters_added", 0.0))
+        oil_cans = int(data.get("oil_cans", 1))
+        manual_oil_ml = data.get("manual_oil_ml")
+        if manual_oil_ml not in (None, "", "null"):
+            try:
+                manual_oil_ml = float(manual_oil_ml)
+            except (ValueError, TypeError):
+                manual_oil_ml = None
+        else:
+            manual_oil_ml = None
+
+        fuel_type = str(data.get("fuel_type", "Super_E5"))
+        is_full = str(data.get("is_full_tank", "true")).lower() in ("true", "1", "yes")
+
+        fm = FuelManager()
+        result = fm.record_refuel(
+            odometer_km=odometer_km,
+            liters_added=liters_added,
+            oil_cans=oil_cans,
+            manual_oil_ml=manual_oil_ml,
+            fuel_type=fuel_type,
+            is_full_tank=is_full
+        )
+        _send_sighup()
+        resp = jsonify(result)
+    except Exception as e:
+        resp = jsonify({"status": "error", "message": str(e)})
+        resp.status_code = 500
+    for k, v in _NO_CACHE.items():
+        resp.headers[k] = v
+    return resp
 
 
 # ── /diagnostics ───────────────────────────────────────────────────────────

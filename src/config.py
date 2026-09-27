@@ -18,6 +18,15 @@ TRIP_LOG_DIR = os.path.join(LOG_DIR, "trips")
 AUDIT_DIR = os.path.join(LOG_DIR, "audits")
 PLOT_DIR = os.path.join(BASE_DIR, "plots")
 USER_SETUP_FILE = os.path.join(BASE_DIR, "user_setup.json")
+FUEL_STATE_FILE = os.path.join(LOG_DIR, "fuel_state.json")
+
+# --- Fuel Tank & 2-Stroke Premix Configuration ---
+TANK_CAPACITY_L: float = 8.0          # Vespa PX total tank capacity (Liters)
+TANK_RESERVE_L: float = 1.5           # Reserve threshold (Liters)
+DEFAULT_OIL_DOSE_ML: float = 110.0    # Standard pre-portioned 2-stroke oil bottle (Motul 710)
+TARGET_OIL_RATIO_PCT: float = 2.15    # Target ~1:46.5 ratio (21.5 ml oil per liter petrol)
+MIN_SAFE_OIL_RATIO_PCT: float = 1.90  # 1:53 - Alarm threshold below which seizure risk increases
+MAX_SAFE_OIL_RATIO_PCT: float = 2.60  # 1:38 - Warning threshold above which plug fouling occurs
 
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(TRIP_LOG_DIR, exist_ok=True)
@@ -85,11 +94,54 @@ AIR_DENSITY: float = 1.205            # Ambient air density rho (kg/m³)
 TRANSMISSION_EFFICIENCY: float = 0.90 # Powertrain mechanical efficiency
 GRAVITY: float = 9.81                 # Gravitational acceleration (m/s²)
 
-# --- Dell'Orto SI 24/24 Carburetor Component & Fuel Mappings ---
+# --- European Fuel Types & Stoichiometry (EN 228 Standards) ---
+EUROPEAN_FUEL_TYPES: Dict[str, Dict[str, Any]] = {
+    "Super_E5": {
+        "label": "Super 95 (E5)",
+        "stoich_afr": 14.30,
+        "ethanol_pct": 5.0,
+        "description": "Standard DE/AT/CH/IT/FR (SP95 E5)"
+    },
+    "Super_E10": {
+        "label": "Super 95 (E10)",
+        "stoich_afr": 14.08,
+        "ethanol_pct": 10.0,
+        "description": "DE/FR (SP95-E10)/NL/BE/UK"
+    },
+    "SuperPlus_E5": {
+        "label": "Super Plus 98 (E5)",
+        "stoich_afr": 14.40,
+        "ethanol_pct": 5.0,
+        "description": "Europaweit SP98 / Senza Piombo 98"
+    },
+    "SuperPlus_E0": {
+        "label": "Super Plus 98 (E0 Ethanolfrei)",
+        "stoich_afr": 14.70,
+        "ethanol_pct": 0.0,
+        "description": "Schweizer Bleifrei 98 / Reines Benzin"
+    },
+    "Premium_100_102": {
+        "label": "Premium 100/102 (Ultimate/V-Power)",
+        "stoich_afr": 14.50,
+        "ethanol_pct": 2.5,
+        "description": "Shell V-Power / Aral Ultimate / OMV MaxxMotion"
+    },
+    "Alkylat_Aspen": {
+        "label": "Sonderkraftstoff (Aspen 2T/4T)",
+        "stoich_afr": 14.86,
+        "ethanol_pct": 0.0,
+        "description": "Reines Alkylatbenzin (Ethanolfrei)"
+    },
+    "Superethanol_E85": {
+        "label": "Superéthanol (E85)",
+        "stoich_afr": 9.76,
+        "ethanol_pct": 85.0,
+        "description": "Frankreich E85 (Spezialdüsen erforderlich)"
+    }
+}
+
 FUEL_STOICHIOMETRY: Dict[str, float] = {
-    "Super_E5": 14.30,
-    "Super_E10": 14.10,
-    "SuperPlus_E0": 14.70
+    k: float(v["stoich_afr"]) for k, v in EUROPEAN_FUEL_TYPES.items()
 }
 
 SLIDE_TYPES: Dict[str, str] = {
