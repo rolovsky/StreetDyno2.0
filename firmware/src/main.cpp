@@ -43,8 +43,19 @@ volatile uint32_t v_lastSingleInterval = 0;
 float lastValidRPM = 0.0f;
 float lastValidEgt = -1.0f;
 float lastValidCht = -1.0f;
+float egtHistory[3] = {-1.0f, -1.0f, -1.0f};
+uint8_t egtHistIdx = 0;
+float chtHistory[3] = {-1.0f, -1.0f, -1.0f};
+uint8_t chtHistIdx = 0;
 uint32_t lastTempMeasurementTime = 0;
 uint32_t lastTelemetryOutputTime = 0;
+
+float medianOf3(float a, float b, float c) {
+    if (a > b) { float t = a; a = b; b = t; }
+    if (b > c) { float t = b; b = c; c = t; }
+    if (a > b) { float t = a; a = b; b = t; }
+    return b;
+}
 
 void rpmInterrupt() {
     const uint32_t now = micros();
@@ -92,27 +103,56 @@ void loop() {
     const uint32_t now = millis();
 
     // 1. Temperature Measurement every 500ms (Sequential EGT -> CHT)
+    // Uses 3-sample median + non-locking slew-rate filter so EMI spikes (e.g. MSB bit-flips)
+    // are rejected without ever deadlocking when genuine temperature rises by >25°C.
     if (now - lastTempMeasurementTime >= 500) {
         lastTempMeasurementTime = now;
 
-        // 1a. EGT Measurement (Exhaust Gas Temp, 50.0f delta filter)
+        // 1a. EGT Measurement (Plausible range: 10°C .. 950°C, excluding 701/705°C artefacts)
         const float rawEgt = thermocoupleEGT.readCelsius();
-        if (!isnan(rawEgt) && rawEgt > 0.0f && rawEgt < 980.0f) {
+        if (!isnan(rawEgt) && rawEgt >= 10.0f && rawEgt <= 950.0f &&
+            fabsf(rawEgt - 701.0f) > 0.5f && fabsf(rawEgt - 705.0f) > 0.5f) {
+            if (egtHistory[0] < 0.0f) {
+                egtHistory[0] = egtHistory[1] = egtHistory[2] = rawEgt;
+            } else {
+                egtHistory[egtHistIdx] = rawEgt;
+                egtHistIdx = (egtHistIdx + 1) % 3;
+            }
+            const float medEgt = medianOf3(egtHistory[0], egtHistory[1], egtHistory[2]);
             if (lastValidEgt < 0.0f) {
-                lastValidEgt = rawEgt;
-            } else if (fabsf(rawEgt - lastValidEgt) < 50.0f) {
-                lastValidEgt = rawEgt;
+                lastValidEgt = medEgt;
+            } else {
+                const float diffEgt = medEgt - lastValidEgt;
+                if (fabsf(diffEgt) <= 60.0f) {
+                    lastValidEgt = medEgt;
+                } else {
+                    lastValidEgt += (diffEgt > 0.0f) ? 45.0f : -45.0f;
+                }
             }
         }
 
-        // 1b. CHT Measurement (Cylinder Head Temp, 25.0f delta filter)
-        delayMicroseconds(100);
+        // 1b. CHT Measurement (Plausible range: 10°C .. 300°C)
+        // Guard against spark-induced MSB Bit-9 flip (-128°C drop to 2..10°C when head is warm)
+        delayMicroseconds(250);
         const float rawCht = thermocoupleCHT.readCelsius();
-        if (!isnan(rawCht) && rawCht > 0.0f && rawCht < 450.0f) {
+        const bool isBitFlipDrop = (lastValidCht > 60.0f && rawCht < 30.0f);
+        if (!isnan(rawCht) && rawCht >= 10.0f && rawCht <= 300.0f && !isBitFlipDrop) {
+            if (chtHistory[0] < 0.0f) {
+                chtHistory[0] = chtHistory[1] = chtHistory[2] = rawCht;
+            } else {
+                chtHistory[chtHistIdx] = rawCht;
+                chtHistIdx = (chtHistIdx + 1) % 3;
+            }
+            const float medCht = medianOf3(chtHistory[0], chtHistory[1], chtHistory[2]);
             if (lastValidCht < 0.0f) {
-                lastValidCht = rawCht;
-            } else if (fabsf(rawCht - lastValidCht) < 25.0f) {
-                lastValidCht = rawCht;
+                lastValidCht = medCht;
+            } else {
+                const float diffCht = medCht - lastValidCht;
+                if (fabsf(diffCht) <= 25.0f) {
+                    lastValidCht = 0.7f * medCht + 0.3f * lastValidCht;
+                } else {
+                    lastValidCht += (diffCht > 0.0f) ? 15.0f : -15.0f;
+                }
             }
         }
     }
