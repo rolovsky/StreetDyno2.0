@@ -13,10 +13,16 @@
 // --- Pin Assignments ---
 constexpr uint8_t PIN_RPM = 2;       // Hardware Interrupt INT0 (SIP Tacho Box)
 constexpr uint8_t PIN_AFR = A0;      // 0-5V Wideband Lambda Controller
-constexpr uint8_t PIN_EGT_SO = 4;    // MAX6675 SPI Serial Data Out
-constexpr uint8_t PIN_EGT_CS = 5;    // MAX6675 #1 SPI Chip Select (EGT Sensor)
-constexpr uint8_t PIN_EGT_SCK = 6;   // MAX6675 SPI Clock
-// constexpr uint8_t PIN_CHT_CS = 7;    // MAX6675 #2 SPI Chip Select (CHT Sensor - disconnected)
+
+// MAX6675 #1 (EGT Sensor - Existing Pinout)
+constexpr uint8_t PIN_EGT_SO  = 4;   // MAX6675 #1 SPI Serial Data Out
+constexpr uint8_t PIN_EGT_CS  = 5;   // MAX6675 #1 SPI Chip Select
+constexpr uint8_t PIN_EGT_SCK = 6;   // MAX6675 #1 SPI Clock
+
+// MAX6675 #2 (CHT Sensor - Fully Isolated Pinout)
+constexpr uint8_t PIN_CHT_CS  = 7;   // MAX6675 #2 SPI Chip Select
+constexpr uint8_t PIN_CHT_SO  = 8;   // MAX6675 #2 SPI Serial Data Out
+constexpr uint8_t PIN_CHT_SCK = 9;   // MAX6675 #2 SPI Clock
 
 // --- Calibration Constants ---
 constexpr float PULSES_PER_REV = 3.0f;           // 3 pulses per revolution (Vespa Ducati CDI)
@@ -25,7 +31,7 @@ constexpr uint32_t RPM_TIMEOUT_MICROS = 500000;  // 0.5s stall detection
 constexpr float USB_VCC_VOLTAGE = 4.71f;         // Measured USB reference voltage
 
 MAX6675 thermocoupleEGT(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
-// MAX6675 thermocoupleCHT(PIN_EGT_SCK, PIN_CHT_CS, PIN_EGT_SO); // Disconnected
+MAX6675 thermocoupleCHT(PIN_CHT_SCK, PIN_CHT_CS, PIN_CHT_SO);
 
 // --- Atomic Interrupt Variables ---
 volatile uint32_t v_firstPulseTime = 0;
@@ -61,8 +67,8 @@ void setup() {
 
     pinMode(PIN_EGT_CS, OUTPUT);
     digitalWrite(PIN_EGT_CS, HIGH);
-    // pinMode(PIN_CHT_CS, OUTPUT);
-    // digitalWrite(PIN_CHT_CS, HIGH);
+    pinMode(PIN_CHT_CS, OUTPUT);
+    digitalWrite(PIN_CHT_CS, HIGH);
 }
 
 long readVccMillivolts() {
@@ -91,7 +97,7 @@ void loop() {
 
         // 1a. EGT Measurement (Exhaust Gas Temp, 50.0f delta filter)
         const float rawEgt = thermocoupleEGT.readCelsius();
-        if (!isnan(rawEgt) && rawEgt > 0.0f) {
+        if (!isnan(rawEgt) && rawEgt > 0.0f && rawEgt < 980.0f) {
             if (lastValidEgt < 0.0f) {
                 lastValidEgt = rawEgt;
             } else if (fabsf(rawEgt - lastValidEgt) < 50.0f) {
@@ -99,18 +105,16 @@ void loop() {
             }
         }
 
-        // CHT measurement commented out (sensor disconnected)
-        /*
+        // 1b. CHT Measurement (Cylinder Head Temp, 25.0f delta filter)
         delayMicroseconds(100);
         const float rawCht = thermocoupleCHT.readCelsius();
-        if (!isnan(rawCht) && rawCht > 0.0f) {
+        if (!isnan(rawCht) && rawCht > 0.0f && rawCht < 450.0f) {
             if (lastValidCht < 0.0f) {
                 lastValidCht = rawCht;
             } else if (fabsf(rawCht - lastValidCht) < 25.0f) {
                 lastValidCht = rawCht;
             }
         }
-        */
     }
 
     // 2. 10Hz Telemetry Stream to Raspberry Pi ($RPM;AFR;EGT)

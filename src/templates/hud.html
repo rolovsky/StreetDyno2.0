@@ -168,12 +168,12 @@
         }
         @media (orientation: portrait) {
             .hud-card.card-afr {
-                grid-column: span 1;
+                grid-column: span 2;
             }
         }
         @media (orientation: landscape) {
             .hud-grid {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(5, 1fr);
                 grid-template-rows: 1fr;
                 gap: 8px;
             }
@@ -681,13 +681,11 @@
             <div id="egt" class="card-value">0</div>
             <div class="card-unit">°C (EGT)</div>
         </div>
-        <!-- CHT temporarily commented out as sensor is not connected
         <div class="hud-card card-cht" id="cardCht">
-            <div class="card-header"><span>Zylinderkopf</span><span>MAX 170°C</span></div>
+            <div class="card-header"><span>Zylinderkopf</span><span id="chtZone">MAX 170°C</span></div>
             <div id="cht" class="card-value">0</div>
             <div class="card-unit">°C (CHT)</div>
         </div>
-        -->
     </div>
 
     <!-- Bottom Navigation & Pull Control -->
@@ -1139,12 +1137,29 @@
                     }
 
                     const cardCht = document.getElementById('cardCht');
+                    const chtZone = document.getElementById('chtZone');
                     if (cardCht) {
+                        const effCht = (displayCht > 0) ? displayCht : targetCht;
                         if (targetCht >= 170.0) {
                             cardCht.classList.add('card-danger');
+                            if (chtZone) chtZone.innerText = '🚨 HITZESTAU!';
+                            cardCht.style.borderColor = '#ff1744';
                             isDanger = true;
                         } else {
                             cardCht.classList.remove('card-danger');
+                            if (effCht >= 155.0) {
+                                if (chtZone) chtZone.innerText = '⚠️ HEISS!';
+                                cardCht.style.borderColor = '#ff9800';
+                            } else if (effCht >= 85.0) {
+                                if (chtZone) chtZone.innerText = '🟢 OPTIMAL';
+                                cardCht.style.borderColor = 'rgba(0, 230, 118, 0.45)';
+                            } else if (effCht > 5.0) {
+                                if (chtZone) chtZone.innerText = '🔵 KALT';
+                                cardCht.style.borderColor = 'rgba(41, 182, 246, 0.35)';
+                            } else {
+                                if (chtZone) chtZone.innerText = 'MAX 170°C';
+                                cardCht.style.borderColor = 'rgba(255, 255, 255, 0.07)';
+                            }
                         }
                     }
 

@@ -586,8 +586,15 @@ def analyze_carb_jetting(
         if schub_mask.any():
             overall_verdict += " (Hinweis: Schub-Magerlauf bei Gaswegnahme erkannt -> typische Ursache für Krümmer-Patschen)."
 
+    cht_col = "CHT_cleaned" if "CHT_cleaned" in df.columns else ("CHT" if "CHT" in df.columns else None)
     max_egt = float(sub_df[egt_col].max()) if egt_col and not sub_df[egt_col].isna().all() else None
+    max_cht = float(sub_df[cht_col].max()) if cht_col and not sub_df[cht_col].isna().all() else None
     avg_total_afr = float(sub_df[afr_col].mean())
+
+    if max_cht and max_cht >= 170.0:
+        overall_verdict += f" 🚨 THERMISCHE WARNUNG: Zylinderkopftemperatur kritisch ({max_cht:.0f}°C >= 170°C)! Grauguss-Klemmgefahr bei Dauerlast."
+    elif max_cht and max_cht >= 155.0:
+        overall_verdict += f" ⚠️ Hinweis: Zylinderkopf erhöht warm ({max_cht:.0f}°C)."
 
     return {
         "valid": True,
@@ -598,6 +605,7 @@ def analyze_carb_jetting(
         "fuel_type": fuel_type,
         "stoich_afr": stoich_afr,
         "max_egt": round(max_egt, 0) if max_egt else None,
+        "max_cht": round(max_cht, 0) if (max_cht and max_cht > 0) else None,
         "carb_setup": carb_setup,
         "weather_compensation": weather_info,
         "zones": evaluated_zones

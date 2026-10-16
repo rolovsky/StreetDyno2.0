@@ -127,9 +127,9 @@
             <div class="res-sub">im Volllastzug</div>
         </div>
         <div class="result-card">
-            <div class="res-label">Peak EGT</div>
-            <div class="res-val" style="color:#ffd600;">{{ max_egt|int }}°C</div>
-            <div class="res-sub">Abgastemperatur</div>
+            <div class="res-label">Peak EGT{% if max_cht is defined and max_cht > 0 %} / CHT{% endif %}</div>
+            <div class="res-val" style="color:#ffd600;">{{ max_egt|int }}°C{% if max_cht is defined and max_cht > 0 %} <span style="font-size:1.15rem; color:#ff5722;">/ {{ max_cht|int }}°C</span>{% endif %}</div>
+            <div class="res-sub">Abgas{% if max_cht is defined and max_cht > 0 %} &amp; Zylinderkopf{% else %}temperatur{% endif %}</div>
         </div>
     </div>
 

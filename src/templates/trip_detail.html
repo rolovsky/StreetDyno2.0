@@ -252,36 +252,60 @@
         const timeline = {{ report.chart_timeline | tojson }};
         const ctx = document.getElementById('tripChart').getContext('2d');
         
+        const datasets = [
+            {
+                label: 'AFR (Gemisch)',
+                data: timeline.afr,
+                borderColor: '#ff9800',
+                borderWidth: 1.8,
+                pointRadius: 0,
+                yAxisID: 'yAfr'
+            },
+            {
+                label: 'Drehzahl (RPM)',
+                data: timeline.rpm,
+                borderColor: '#00ffcc',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                yAxisID: 'yRpm'
+            },
+            {
+                label: 'Speed (km/h)',
+                data: timeline.speed,
+                borderColor: '#29b6f6',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                yAxisID: 'ySpeed'
+            }
+        ];
+
+        if (timeline.cht && timeline.cht.some(v => v > 0)) {
+            datasets.push({
+                label: 'CHT Zylinderkopf (°C)',
+                data: timeline.cht,
+                borderColor: '#ff5722',
+                borderWidth: 2.0,
+                pointRadius: 0,
+                yAxisID: 'yTemp'
+            });
+        }
+        if (timeline.egt && timeline.egt.some(v => v > 0)) {
+            datasets.push({
+                label: 'EGT Abgas (°C)',
+                data: timeline.egt,
+                borderColor: '#ffd600',
+                borderWidth: 1.4,
+                borderDash: [4, 3],
+                pointRadius: 0,
+                yAxisID: 'yEgt'
+            });
+        }
+
         new Chart(ctx, {
             type: 'line',
             data: {
                 labels: timeline.time,
-                datasets: [
-                    {
-                        label: 'AFR (Gemisch)',
-                        data: timeline.afr,
-                        borderColor: '#ff9800',
-                        borderWidth: 1.8,
-                        pointRadius: 0,
-                        yAxisID: 'yAfr'
-                    },
-                    {
-                        label: 'Drehzahl (RPM)',
-                        data: timeline.rpm,
-                        borderColor: '#00ffcc',
-                        borderWidth: 1.5,
-                        pointRadius: 0,
-                        yAxisID: 'yRpm'
-                    },
-                    {
-                        label: 'Speed (km/h)',
-                        data: timeline.speed,
-                        borderColor: '#29b6f6',
-                        borderWidth: 1.5,
-                        pointRadius: 0,
-                        yAxisID: 'ySpeed'
-                    }
-                ]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -307,6 +331,20 @@
                         max: 9000,
                         ticks: { color: '#00ffcc' },
                         grid: { display: false }
+                    },
+                    yTemp: {
+                        type: 'linear',
+                        position: 'right',
+                        min: 20,
+                        max: 220,
+                        display: false
+                    },
+                    yEgt: {
+                        type: 'linear',
+                        position: 'right',
+                        min: 100,
+                        max: 750,
+                        display: false
                     },
                     ySpeed: {
                         type: 'linear',

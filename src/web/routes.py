@@ -39,6 +39,7 @@ from config import (
 )
 from data.analyzer_logic import (
     clean_egt_data,
+    clean_cht_data,
     calculate_telemetry_metrics,
     detect_dyno_pull,
     plot_telemetry,
@@ -208,6 +209,7 @@ def analyze_run() -> str:
             return f"<body style='background:#111; color:#fff; padding:20px;'><h3>Fehlende Spalten in CSV: {missing_cols}</h3><br><a href='/logs'>Zurück</a></body>"
 
         df = clean_egt_data(df)
+        df = clean_cht_data(df)
         df = calculate_telemetry_metrics(
             df,
             gear=gear_param,
@@ -244,6 +246,7 @@ def analyze_run() -> str:
         ps_raw = float(trimmed_df['PS_Raw'].max()) if 'PS_Raw' in trimmed_df.columns else max_ps
         max_nm = float(trimmed_df['Nm'].max()) if 'Nm' in trimmed_df.columns else 0.0
         max_egt = float(trimmed_df['EGT_cleaned'].max()) if 'EGT_cleaned' in trimmed_df.columns else 0.0
+        max_cht = float(trimmed_df['CHT_cleaned'].max()) if 'CHT_cleaned' in trimmed_df.columns else (float(trimmed_df['CHT'].max()) if 'CHT' in trimmed_df.columns else 0.0)
         avg_afr = float(trimmed_df['AFR'].mean()) if 'AFR' in trimmed_df.columns else 0.0
 
         peak_ps_idx = trimmed_df['PS'].idxmax() if 'PS' in trimmed_df.columns else None
@@ -305,6 +308,7 @@ def analyze_run() -> str:
             max_nm=max_nm,
             avg_afr=avg_afr,
             max_egt=max_egt,
+            max_cht=max_cht,
             peak_ps_rpm=peak_ps_rpm,
             peak_nm_rpm=peak_nm_rpm,
             detected_gear=detected_gear,
@@ -418,6 +422,7 @@ def tuning_dashboard() -> str:
             raw_df, meta = load_telemetry_csv(p)
             raw_df.columns = [c.strip() for c in raw_df.columns]
             df = clean_egt_data(raw_df)
+            df = clean_cht_data(df)
             df = calculate_telemetry_metrics(df)
             trimmed, _ = detect_dyno_pull(df)
             file_carb = meta.get("carb", carb)
@@ -506,6 +511,7 @@ def dyno_sheet() -> str:
         df, setup_meta = load_telemetry_csv(fpath)
         df.columns = [c.strip() for c in df.columns]
         df = clean_egt_data(df)
+        df = clean_cht_data(df)
         df = calculate_telemetry_metrics(
             df,
             gear=gear_param,
@@ -539,6 +545,7 @@ def dyno_sheet() -> str:
         max_nm = float(trimmed['Nm'].max()) if 'Nm' in trimmed.columns else 0.0
         avg_afr = float(trimmed['AFR'].mean()) if 'AFR' in trimmed.columns else 0.0
         max_egt = float(trimmed['EGT_cleaned'].max()) if 'EGT_cleaned' in trimmed.columns else 0.0
+        max_cht = float(trimmed['CHT_cleaned'].max()) if 'CHT_cleaned' in trimmed.columns else (float(trimmed['CHT'].max()) if 'CHT' in trimmed.columns else 0.0)
 
         peak_ps_idx = trimmed['PS'].idxmax() if 'PS' in trimmed.columns else None
         peak_ps_rpm = float(trimmed.loc[peak_ps_idx, 'RPM_smoothed']) if (peak_ps_idx is not None and not pd.isna(peak_ps_idx)) else 0.0
@@ -569,6 +576,7 @@ def dyno_sheet() -> str:
             max_nm=max_nm,
             avg_afr=avg_afr,
             max_egt=max_egt,
+            max_cht=max_cht,
             peak_ps_rpm=peak_ps_rpm,
             peak_nm_rpm=peak_nm_rpm,
             carb=carb,
