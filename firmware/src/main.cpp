@@ -71,6 +71,40 @@ float medianOf5(float a, float b, float c, float d, float e) {
     return v[2];
 }
 
+// Reads 12-bit temperature from CHT MAX6675 (#2) while bypassing false Bit D2 (0x04)
+// open-thermocouple flags triggered by AC/ignition ground currents on the grounded
+// spark-plug copper ring when the engine is running.
+float readChtCelsiusIgnoreGroundFault() {
+    digitalWrite(PIN_CHT_SCK, LOW);
+    delayMicroseconds(10);
+    digitalWrite(PIN_CHT_CS, LOW);
+    delayMicroseconds(10);
+
+    uint16_t v = 0;
+    for (int8_t i = 15; i >= 0; --i) {
+        digitalWrite(PIN_CHT_SCK, LOW);
+        delayMicroseconds(10);
+        if (digitalRead(PIN_CHT_SO)) {
+            v |= (static_cast<uint16_t>(1) << i);
+        }
+        digitalWrite(PIN_CHT_SCK, HIGH);
+        delayMicroseconds(10);
+    }
+    digitalWrite(PIN_CHT_CS, HIGH);
+    digitalWrite(PIN_CHT_SCK, LOW);
+
+    // If sensor is unplugged at cold boot with engine off, keep 0.0 sentinel
+    if ((v & 0x04) && lastValidRPM == 0.0f && lastValidCht < 0.0f) {
+        return NAN;
+    }
+
+    const uint16_t raw12 = (v >> 3) & 0x0FFF;
+    if (raw12 == 0 || raw12 >= 1040) {  // Outside 0.25°C .. 260.0°C
+        return NAN;
+    }
+    return static_cast<float>(raw12) * 0.25f;
+}
+
 void rpmInterrupt() {
     const uint32_t now = micros();
     const uint32_t interval = now - v_lastPulseTime;
@@ -153,12 +187,10 @@ void loop() {
         }
 
         // 1b. CHT Measurement (Plausible range: 5°C .. 260°C)
-        // Uses 5-sample median (rejects up to 2 back-to-back EMI spikes) + physical
-        // cast-iron thermal slew limiter (±2.0°C/500ms running, ±5.0°C/500ms engine off)
-        // with NO minimum-temperature lockout so cold cylinder heads (<30°C) never deadlock.
-        digitalWrite(PIN_CHT_SCK, LOW);
+        // Uses direct 12-bit SPI readout (ignoring false Bit D2 ground-fault under load)
+        // + 5-sample median + physical cast-iron thermal slew limiter.
         delayMicroseconds(250);
-        const float rawCht = thermocoupleCHT.readCelsius();
+        const float rawCht = readChtCelsiusIgnoreGroundFault();
         if (!isnan(rawCht) && rawCht >= 5.0f && rawCht <= 260.0f) {
             if (chtHistory[0] < 0.0f) {
                 for (uint8_t i = 0; i < 5; ++i) {
