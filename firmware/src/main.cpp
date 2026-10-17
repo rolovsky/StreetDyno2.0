@@ -45,7 +45,7 @@ float lastValidEgt = -1.0f;
 float lastValidCht = -1.0f;
 float egtHistory[3] = {-1.0f, -1.0f, -1.0f};
 uint8_t egtHistIdx = 0;
-float chtHistory[3] = {-1.0f, -1.0f, -1.0f};
+float chtHistory[5] = {-1.0f, -1.0f, -1.0f, -1.0f, -1.0f};
 uint8_t chtHistIdx = 0;
 uint32_t lastTempMeasurementTime = 0;
 uint32_t lastTelemetryOutputTime = 0;
@@ -55,6 +55,20 @@ float medianOf3(float a, float b, float c) {
     if (b > c) { float t = b; b = c; c = t; }
     if (a > b) { float t = a; a = b; b = t; }
     return b;
+}
+
+float medianOf5(float a, float b, float c, float d, float e) {
+    float v[5] = {a, b, c, d, e};
+    for (uint8_t i = 0; i < 4; ++i) {
+        for (uint8_t j = i + 1; j < 5; ++j) {
+            if (v[i] > v[j]) {
+                const float t = v[i];
+                v[i] = v[j];
+                v[j] = t;
+            }
+        }
+    }
+    return v[2];
 }
 
 void rpmInterrupt() {
@@ -78,8 +92,13 @@ void setup() {
 
     pinMode(PIN_EGT_CS, OUTPUT);
     digitalWrite(PIN_EGT_CS, HIGH);
+    pinMode(PIN_EGT_SCK, OUTPUT);
+    digitalWrite(PIN_EGT_SCK, LOW);
+
     pinMode(PIN_CHT_CS, OUTPUT);
     digitalWrite(PIN_CHT_CS, HIGH);
+    pinMode(PIN_CHT_SCK, OUTPUT);
+    digitalWrite(PIN_CHT_SCK, LOW);
 }
 
 long readVccMillivolts() {
@@ -103,14 +122,16 @@ void loop() {
     const uint32_t now = millis();
 
     // 1. Temperature Measurement every 500ms (Sequential EGT -> CHT)
-    // Uses 3-sample median + non-locking slew-rate filter so EMI spikes (e.g. MSB bit-flips)
-    // are rejected without ever deadlocking when genuine temperature rises by >25°C.
     if (now - lastTempMeasurementTime >= 500) {
         lastTempMeasurementTime = now;
 
-        // 1a. EGT Measurement (Plausible range: 10°C .. 950°C, excluding 701/705°C artefacts)
+        // Ensure SCK is idle LOW before CS falls (MAX6675 datasheet Figure 2 timing)
+        digitalWrite(PIN_EGT_SCK, LOW);
+        delayMicroseconds(10);
+
+        // 1a. EGT Measurement (Plausible range: 5°C .. 950°C, excluding 701/705°C artefacts)
         const float rawEgt = thermocoupleEGT.readCelsius();
-        if (!isnan(rawEgt) && rawEgt >= 10.0f && rawEgt <= 950.0f &&
+        if (!isnan(rawEgt) && rawEgt >= 5.0f && rawEgt <= 950.0f &&
             fabsf(rawEgt - 701.0f) > 0.5f && fabsf(rawEgt - 705.0f) > 0.5f) {
             if (egtHistory[0] < 0.0f) {
                 egtHistory[0] = egtHistory[1] = egtHistory[2] = rawEgt;
@@ -131,27 +152,34 @@ void loop() {
             }
         }
 
-        // 1b. CHT Measurement (Plausible range: 10°C .. 300°C)
-        // Guard against spark-induced MSB Bit-9 flip (-128°C drop to 2..10°C when head is warm)
+        // 1b. CHT Measurement (Plausible range: 5°C .. 260°C)
+        // Uses 5-sample median (rejects up to 2 back-to-back EMI spikes) + physical
+        // cast-iron thermal slew limiter (±2.0°C/500ms running, ±5.0°C/500ms engine off)
+        // with NO minimum-temperature lockout so cold cylinder heads (<30°C) never deadlock.
+        digitalWrite(PIN_CHT_SCK, LOW);
         delayMicroseconds(250);
         const float rawCht = thermocoupleCHT.readCelsius();
-        const bool isBitFlipDrop = (lastValidCht > 60.0f && rawCht < 30.0f);
-        if (!isnan(rawCht) && rawCht >= 10.0f && rawCht <= 300.0f && !isBitFlipDrop) {
+        if (!isnan(rawCht) && rawCht >= 5.0f && rawCht <= 260.0f) {
             if (chtHistory[0] < 0.0f) {
-                chtHistory[0] = chtHistory[1] = chtHistory[2] = rawCht;
+                for (uint8_t i = 0; i < 5; ++i) {
+                    chtHistory[i] = rawCht;
+                }
             } else {
                 chtHistory[chtHistIdx] = rawCht;
-                chtHistIdx = (chtHistIdx + 1) % 3;
+                chtHistIdx = (chtHistIdx + 1) % 5;
             }
-            const float medCht = medianOf3(chtHistory[0], chtHistory[1], chtHistory[2]);
+            const float medCht = medianOf5(
+                chtHistory[0], chtHistory[1], chtHistory[2], chtHistory[3], chtHistory[4]
+            );
             if (lastValidCht < 0.0f) {
                 lastValidCht = medCht;
             } else {
                 const float diffCht = medCht - lastValidCht;
-                if (fabsf(diffCht) <= 25.0f) {
-                    lastValidCht = 0.7f * medCht + 0.3f * lastValidCht;
+                const float maxStep = (lastValidRPM > 100.0f) ? 2.0f : 5.0f;
+                if (fabsf(diffCht) <= maxStep) {
+                    lastValidCht = 0.6f * medCht + 0.4f * lastValidCht;
                 } else {
-                    lastValidCht += (diffCht > 0.0f) ? 15.0f : -15.0f;
+                    lastValidCht += (diffCht > 0.0f) ? maxStep : -maxStep;
                 }
             }
         }
