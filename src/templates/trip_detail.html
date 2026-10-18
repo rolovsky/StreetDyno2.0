@@ -161,9 +161,10 @@
             <div class="stat-val" style="color:#ff7043;">{{ report.max_egt }} <span style="font-size:0.8rem;">°C</span></div>
         </div>
         {% if report.max_cht is defined and report.max_cht > 0 %}
+        {% set t2_mode = report.carb_setup.get('sensor_temp2_mode', 'IAT') if report.carb_setup else 'IAT' %}
         <div class="stat-card">
-            <div class="stat-label">Max CHT</div>
-            <div class="stat-val" style="color:#ff8a65;">{{ report.max_cht }} <span style="font-size:0.8rem;">°C</span></div>
+            <div class="stat-label">{% if t2_mode == 'IAT' %}Ø / Max IAT{% else %}Max CHT{% endif %}</div>
+            <div class="stat-val" style="color:{% if t2_mode == 'IAT' %}#38bdf8{% else %}#ff8a65{% endif %};">{% if t2_mode == 'IAT' %}{{ report.avg_cht }} / {{ report.max_cht }}{% else %}{{ report.max_cht }}{% endif %} <span style="font-size:0.8rem;">°C</span></div>
         </div>
         {% endif %}
     </div>
@@ -279,11 +280,12 @@
             }
         ];
 
+        const temp2Mode = {{ (report.carb_setup.get('sensor_temp2_mode', 'IAT') if report.carb_setup else 'IAT') | tojson }};
         if (timeline.cht && timeline.cht.some(v => v > 0)) {
             datasets.push({
-                label: 'CHT Zylinderkopf (°C)',
+                label: temp2Mode === 'IAT' ? 'IAT Ansaugluft (°C)' : 'CHT Zylinderkopf (°C)',
                 data: timeline.cht,
-                borderColor: '#ff5722',
+                borderColor: temp2Mode === 'IAT' ? '#38bdf8' : '#ff5722',
                 borderWidth: 2.0,
                 pointRadius: 0,
                 yAxisID: 'yTemp'

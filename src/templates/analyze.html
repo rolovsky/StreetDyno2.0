@@ -172,9 +172,10 @@
             <span class="sub">im Volllastzug</span>
         </div>
         <div class="card card-egt">
-            <span class="label">EGT / CHT (Peak)</span>
-            <span class="value">{{ max_egt|int }}°C{% if max_cht is defined and max_cht > 0 %} <span style="font-size:1.15rem; color:#ff5722;">/ {{ max_cht|int }}°C</span>{% endif %}</span>
-            <span class="sub">Abgas{% if max_cht is defined and max_cht > 0 %} &amp; Zylinderkopf{% else %}temperatur{% endif %}</span>
+            {% set t2_mode = carb_diag.sensor_temp2_mode if (carb_diag and carb_diag.sensor_temp2_mode) else 'IAT' %}
+            <span class="label">EGT / {% if t2_mode == 'IAT' %}IAT{% else %}CHT{% endif %} (Peak)</span>
+            <span class="value">{{ max_egt|int }}°C{% if max_cht is defined and max_cht > 0 %} <span style="font-size:1.15rem; color:{% if t2_mode == 'IAT' %}#38bdf8{% else %}#ff5722{% endif %};">/ {{ max_cht|int }}°C</span>{% endif %}</span>
+            <span class="sub">Abgas{% if max_cht is defined and max_cht > 0 %} &amp; {% if t2_mode == 'IAT' %}Ansaugluft{% else %}Zylinderkopf{% endif %}{% else %}temperatur{% endif %}</span>
         </div>
     </div>
 

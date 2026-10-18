@@ -19,10 +19,46 @@ constexpr uint8_t PIN_EGT_SO  = 4;   // MAX6675 #1 SPI Serial Data Out
 constexpr uint8_t PIN_EGT_CS  = 5;   // MAX6675 #1 SPI Chip Select
 constexpr uint8_t PIN_EGT_SCK = 6;   // MAX6675 #1 SPI Clock
 
-// MAX6675 #2 (CHT Sensor - Fully Isolated Pinout)
+// MAX6675 #2 (Channel 2: IAT Ansaugluft im Faltenbalg / Temp2 - Galv. isoliert im Gummibalg)
 constexpr uint8_t PIN_CHT_CS  = 7;   // MAX6675 #2 SPI Chip Select
 constexpr uint8_t PIN_CHT_SO  = 8;   // MAX6675 #2 SPI Serial Data Out
 constexpr uint8_t PIN_CHT_SCK = 9;   // MAX6675 #2 SPI Clock
+
+// =========================================================================
+// [VORBEREITET - AUSKOMMENTIERT BIS SENSOR GELIEFERT]
+// KOSO NTC CHT-Sensor (Zylinderkopftemperatur) an Analog-Pin A1
+// Schaltung: 5V -> 10kOhm Pullup-Widerstand -> Pin A1 -> KOSO NTC -> Arduino GND
+// (Ratiometrische Messung, 100% immun gegen Zündungs-EMI und Masseschleifen)
+// =========================================================================
+/*
+constexpr uint8_t PIN_CHT_KOSO     = A1;       // Analog-Eingang für KOSO NTC Sensor
+constexpr float   KOSO_PULLUP_OHMS = 10000.0f; // 10 kOhm Vorwiderstand gegen 5V
+constexpr float   KOSO_R25_OHMS    = 50000.0f; // KOSO NTC Nennwiderstand bei 25°C (typ. 50k oder 10k)
+constexpr float   KOSO_BETA_K      = 3950.0f;  // NTC Beta-Koeffizient (K)
+float lastValidKosoCht = -1.0f;
+
+float readKosoChtCelsius() {
+    analogRead(PIN_CHT_KOSO); // Dummy-Read zum Umladen des ADC Sample&Hold-Kondensators
+    uint32_t adcSum = 0;
+    for (uint8_t i = 0; i < 4; ++i) {
+        adcSum += analogRead(PIN_CHT_KOSO);
+    }
+    const float adcAvg = static_cast<float>(adcSum) * 0.25f;
+    // Schutz gegen Kabelbruch (ADC -> 1023) oder Kurzschluss (ADC -> 0)
+    if (adcAvg < 5.0f || adcAvg > 1018.0f) {
+        return NAN;
+    }
+    // Ratiometrische Widerstandsberechnung (VCC kürzt sich exakt heraus!)
+    const float rNtc = KOSO_PULLUP_OHMS * (adcAvg / (1023.0f - adcAvg));
+    // Beta-Gleichung: 1/T = 1/T25 + (1/Beta) * ln(R / R25)
+    const float invT = (1.0f / 298.15f) + (logf(rNtc / KOSO_R25_OHMS) / KOSO_BETA_K);
+    const float tempC = (1.0f / invT) - 273.15f;
+    if (tempC < -10.0f || tempC > 260.0f) {
+        return NAN;
+    }
+    return tempC;
+}
+*/
 
 // --- Calibration Constants ---
 constexpr float PULSES_PER_REV = 3.0f;           // 3 pulses per revolution (Vespa Ducati CDI)
@@ -31,7 +67,7 @@ constexpr uint32_t RPM_TIMEOUT_MICROS = 500000;  // 0.5s stall detection
 constexpr float USB_VCC_VOLTAGE = 4.71f;         // Measured USB reference voltage
 
 MAX6675 thermocoupleEGT(PIN_EGT_SCK, PIN_EGT_CS, PIN_EGT_SO);
-MAX6675 thermocoupleCHT(PIN_CHT_SCK, PIN_CHT_CS, PIN_CHT_SO);
+MAX6675 thermocoupleCHT(PIN_CHT_SCK, PIN_CHT_CS, PIN_CHT_SO); // genutzt als IAT (Ansaugluft) / Temp2
 
 // --- Atomic Interrupt Variables ---
 volatile uint32_t v_firstPulseTime = 0;
@@ -42,10 +78,10 @@ volatile uint32_t v_lastSingleInterval = 0;
 // --- Runtime State ---
 float lastValidRPM = 0.0f;
 float lastValidEgt = -1.0f;
-float lastValidCht = -1.0f;
+float lastValidCht = -1.0f; // trägt IAT (Ansaugluft) bzw. Kanal-2 Temperatur
 float egtHistory[3] = {-1.0f, -1.0f, -1.0f};
 uint8_t egtHistIdx = 0;
-float chtHistory[5] = {-1.0f, -1.0f, -1.0f, -1.0f, -1.0f};
+float chtHistory[3] = {-1.0f, -1.0f, -1.0f};
 uint8_t chtHistIdx = 0;
 uint32_t lastTempMeasurementTime = 0;
 uint32_t lastTelemetryOutputTime = 0;
@@ -55,54 +91,6 @@ float medianOf3(float a, float b, float c) {
     if (b > c) { float t = b; b = c; c = t; }
     if (a > b) { float t = a; a = b; b = t; }
     return b;
-}
-
-float medianOf5(float a, float b, float c, float d, float e) {
-    float v[5] = {a, b, c, d, e};
-    for (uint8_t i = 0; i < 4; ++i) {
-        for (uint8_t j = i + 1; j < 5; ++j) {
-            if (v[i] > v[j]) {
-                const float t = v[i];
-                v[i] = v[j];
-                v[j] = t;
-            }
-        }
-    }
-    return v[2];
-}
-
-// Reads 12-bit temperature from CHT MAX6675 (#2) while bypassing false Bit D2 (0x04)
-// open-thermocouple flags triggered by AC/ignition ground currents on the grounded
-// spark-plug copper ring when the engine is running.
-float readChtCelsiusIgnoreGroundFault() {
-    digitalWrite(PIN_CHT_SCK, LOW);
-    delayMicroseconds(10);
-    digitalWrite(PIN_CHT_CS, LOW);
-    delayMicroseconds(10);
-
-    uint16_t v = 0;
-    for (int8_t i = 15; i >= 0; --i) {
-        digitalWrite(PIN_CHT_SCK, LOW);
-        delayMicroseconds(10);
-        if (digitalRead(PIN_CHT_SO)) {
-            v |= (static_cast<uint16_t>(1) << i);
-        }
-        digitalWrite(PIN_CHT_SCK, HIGH);
-        delayMicroseconds(10);
-    }
-    digitalWrite(PIN_CHT_CS, HIGH);
-    digitalWrite(PIN_CHT_SCK, LOW);
-
-    // If sensor is unplugged at cold boot with engine off, keep 0.0 sentinel
-    if ((v & 0x04) && lastValidRPM == 0.0f && lastValidCht < 0.0f) {
-        return NAN;
-    }
-
-    const uint16_t raw12 = (v >> 3) & 0x0FFF;
-    if (raw12 == 0 || raw12 >= 1040) {  // Outside 0.25°C .. 260.0°C
-        return NAN;
-    }
-    return static_cast<float>(raw12) * 0.25f;
 }
 
 void rpmInterrupt() {
@@ -155,12 +143,13 @@ long readVccMillivolts() {
 void loop() {
     const uint32_t now = millis();
 
-    // 1. Temperature Measurement every 500ms (Sequential EGT -> CHT)
+    // 1. Temperature Measurement every 500ms (Sequential EGT -> IAT/Temp2)
     if (now - lastTempMeasurementTime >= 500) {
         lastTempMeasurementTime = now;
 
         // Ensure SCK is idle LOW before CS falls (MAX6675 datasheet Figure 2 timing)
         digitalWrite(PIN_EGT_SCK, LOW);
+        digitalWrite(PIN_CHT_SCK, LOW);
         delayMicroseconds(10);
 
         // 1a. EGT Measurement (Plausible range: 5°C .. 950°C, excluding 701/705°C artefacts)
@@ -186,35 +175,42 @@ void loop() {
             }
         }
 
-        // 1b. CHT Measurement (Plausible range: 5°C .. 260°C)
-        // Uses direct 12-bit SPI readout (ignoring false Bit D2 ground-fault under load)
-        // + 5-sample median + physical cast-iron thermal slew limiter.
+        // 1b. IAT / Temp2 Measurement (MAX6675 #2 im Gummi-Ansaugbalg vor dem Vergaser)
+        // Da der Fühler im Gummi-Faltenbalg 100% massefrei sitzt, arbeitet thermocoupleCHT.readCelsius()
+        // völlig ohne Masseschleife. Messbereich: 0.25°C .. 260.0°C (für IAT & CHT).
         delayMicroseconds(250);
-        const float rawCht = readChtCelsiusIgnoreGroundFault();
-        if (!isnan(rawCht) && rawCht >= 5.0f && rawCht <= 260.0f) {
+        const float rawIat = thermocoupleCHT.readCelsius();
+        if (!isnan(rawIat) && rawIat >= 0.25f && rawIat <= 260.0f) {
             if (chtHistory[0] < 0.0f) {
-                for (uint8_t i = 0; i < 5; ++i) {
-                    chtHistory[i] = rawCht;
-                }
+                chtHistory[0] = chtHistory[1] = chtHistory[2] = rawIat;
             } else {
-                chtHistory[chtHistIdx] = rawCht;
-                chtHistIdx = (chtHistIdx + 1) % 5;
+                chtHistory[chtHistIdx] = rawIat;
+                chtHistIdx = (chtHistIdx + 1) % 3;
             }
-            const float medCht = medianOf5(
-                chtHistory[0], chtHistory[1], chtHistory[2], chtHistory[3], chtHistory[4]
-            );
+            const float medIat = medianOf3(chtHistory[0], chtHistory[1], chtHistory[2]);
             if (lastValidCht < 0.0f) {
-                lastValidCht = medCht;
+                lastValidCht = medIat;
             } else {
-                const float diffCht = medCht - lastValidCht;
-                const float maxStep = (lastValidRPM > 100.0f) ? 2.0f : 5.0f;
-                if (fabsf(diffCht) <= maxStep) {
-                    lastValidCht = 0.6f * medCht + 0.4f * lastValidCht;
+                const float diffIat = medIat - lastValidCht;
+                if (fabsf(diffIat) <= 15.0f) {
+                    lastValidCht = medIat;
                 } else {
-                    lastValidCht += (diffCht > 0.0f) ? maxStep : -maxStep;
+                    lastValidCht += (diffIat > 0.0f) ? 10.0f : -10.0f;
                 }
             }
         }
+
+        // 1c. [VORBEREITET - AUSKOMMENTIERT] KOSO NTC CHT-Sensor an A1
+        /*
+        const float rawKosoCht = readKosoChtCelsius();
+        if (!isnan(rawKosoCht)) {
+            if (lastValidKosoCht < 0.0f) {
+                lastValidKosoCht = rawKosoCht;
+            } else {
+                lastValidKosoCht = 0.7f * rawKosoCht + 0.3f * lastValidKosoCht;
+            }
+        }
+        */
     }
 
     // 2. 10Hz Telemetry Stream to Raspberry Pi ($RPM;AFR;EGT)

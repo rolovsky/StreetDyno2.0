@@ -235,6 +235,12 @@ IDLE_SCREW_THREAD_TYPES: Dict[str, Dict[str, Any]] = {
     }
 }
 
+SENSOR_TEMP2_MODES: Dict[str, str] = {
+    "IAT": "Ansaugluft-Temperatur (IAT im Faltenbalg / Airbox)",
+    "CHT": "Zylinderkopf-Temperatur (CHT via MAX6675 #2)",
+    "OFF": "Deaktiviert / Ausgeblendet"
+}
+
 DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "carburetor_type": "BGM 24/24 Fastflow",
     "fuel_type": "Super_E5",
@@ -252,6 +258,9 @@ DEFAULT_CARB_SETUP: Dict[str, Any] = {
     "displacement_cc": 187.0,
     "stroke_mm": 60.0,
     "lambda_ground_offset_mv": 0.0,
+    "sensor_egt_enabled": True,
+    "sensor_temp2_mode": "IAT",
+    "sensor_koso_cht_enabled": False,
     "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 190 / Lemarxon x234 / Polini Box"
 }
 
@@ -276,6 +285,9 @@ REFERENCE_SETUPS: Dict[str, Dict[str, Any]] = {
         "displacement_cc": 187.0,
         "stroke_mm": 60.0,
         "lambda_ground_offset_mv": 0.0,
+        "sensor_egt_enabled": True,
+        "sensor_temp2_mode": "IAT",
+        "sensor_koso_cht_enabled": False,
         "notes": "Referenz-Setup 22mm Lemarxon: VMC Super G 187cc Langhub / T5 Dell'Orto Schieber / ND 52/140 / HD 125 / HLKD 190 / Lemarxon x234 / Polini Box"
     }
 }

@@ -283,8 +283,8 @@
             <div id="liveTemp" class="live-val" style="font-size:0.95rem;">--°C</div>
         </div>
         <div class="live-item">
-            <div class="live-label">CHT</div>
-            <div id="liveCht" class="live-val" style="font-size:0.95rem; color:#ff5722;">--°C</div>
+            <div class="live-label">{% if carb.get('sensor_temp2_mode', 'IAT') == 'IAT' %}IAT{% else %}CHT{% endif %}</div>
+            <div id="liveCht" class="live-val" style="font-size:0.95rem; color:{% if carb.get('sensor_temp2_mode', 'IAT') == 'IAT' %}#38bdf8{% else %}#ff5722{% endif %};">--°C</div>
         </div>
     </div>
 
@@ -364,15 +364,15 @@
                 <div id="s3Egt" style="font-size:1.15rem; font-weight:800; font-family:monospace; color:#ffd600;">-- °C</div>
             </div>
             <div style="background:#0d0d12; border:1px solid #222; border-radius:8px; padding:10px;">
-                <div style="font-size:0.65rem; color:#888;">CHT (D7/8/9)</div>
-                <div id="s3Cht" style="font-size:1.15rem; font-weight:800; font-family:monospace; color:#ff5722;">-- °C</div>
+                <div style="font-size:0.65rem; color:#888;">{% if carb.get('sensor_temp2_mode', 'IAT') == 'IAT' %}IAT (D7/8/9){% else %}CHT (D7/8/9){% endif %}</div>
+                <div id="s3Cht" style="font-size:1.15rem; font-weight:800; font-family:monospace; color:{% if carb.get('sensor_temp2_mode', 'IAT') == 'IAT' %}#38bdf8{% else %}#ff5722{% endif %};">-- °C</div>
             </div>
         </div>
 
         <div id="s3CheckList" style="font-size:0.82rem; color:#bbb; line-height:1.6; margin-bottom:14px;">
             <div>• RPM-Signal: <span id="s3RpmCheck" style="color:#00ffcc; font-weight:bold;">Warte auf Motorstart...</span></div>
             <div>• EGT-Signal (MAX6675 #1): <span id="s3EgtCheck" style="color:#00ffcc; font-weight:bold;">Prüfe auf Spikes...</span></div>
-            <div>• CHT-Signal (MAX6675 #2): <span id="s3ChtCheck" style="color:#00ffcc; font-weight:bold;">Prüfe auf Spikes...</span></div>
+            <div>• {% if carb.get('sensor_temp2_mode', 'IAT') == 'IAT' %}IAT-Signal (Ansaugluft MAX6675 #2){% else %}CHT-Signal (MAX6675 #2){% endif %}: <span id="s3ChtCheck" style="color:#00ffcc; font-weight:bold;">Prüfe auf Spikes...</span></div>
             <div>• Lambda-Signal A0: <span id="s3AfrCheck" style="color:#00ffcc; font-weight:bold;">Aktiv</span></div>
         </div>
 
@@ -401,7 +401,7 @@
             <tr><td>AFR-Verschiebung</td><td id="resAfrImpact" style="font-weight:bold;">--</td><td>Systematisch</td></tr>
             <tr><td>Baseline AFR</td><td id="resBaseAfr">--</td><td>Ruhe</td></tr>
             <tr><td>EGT-Sensorik</td><td id="resEgtStatus">--</td><td>Isoliert (D4/D5/D6)</td></tr>
-            <tr><td>CHT-Sensorik</td><td id="resChtStatus">--</td><td>Isoliert (D7/D8/D9)</td></tr>
+            <tr><td>{% if carb.get('sensor_temp2_mode', 'IAT') == 'IAT' %}IAT-Sensorik (Ansaugluft){% else %}CHT-Sensorik{% endif %}</td><td id="resChtStatus">--</td><td>Isoliert (D7/D8/D9)</td></tr>
         </table>
 
         <div class="form-row" style="background:#101016; border:1px solid #222; border-radius:10px; padding:10px; margin-bottom:14px;">

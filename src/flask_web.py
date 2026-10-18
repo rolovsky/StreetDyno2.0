@@ -186,12 +186,10 @@ _NO_CACHE = {
 @bootstrap_bp.route("/hud")
 def live_hud() -> Response:
     """
-    Render the full-screen Live HUD.
-    Reuses the existing src/templates/hud.html without modification.
-    The template polls /api/telemetry and /api/toggle_logging — those
-    names are shimmed below so the existing JS works without changes.
+    Render the full-screen Live HUD with active sensor configuration.
     """
-    resp = Response(render_template("hud.html"))
+    carb = load_carb_setup()
+    resp = Response(render_template("hud.html", carb=carb))
     for k, v in _NO_CACHE.items():
         resp.headers[k] = v
     return resp
@@ -438,6 +436,8 @@ def tuning_dashboard() -> Any:
                         cleaned[k] = float(v)
                     except (ValueError, TypeError):
                         cleaned[k] = v
+                elif k in ("sensor_egt_enabled", "sensor_koso_cht_enabled"):
+                    cleaned[k] = v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes", "on")
                 else:
                     cleaned[k] = str(v)
             ok = save_carb_setup(cleaned)
@@ -540,6 +540,8 @@ def api_update_carb_setup() -> Any:
                 cleaned[k] = float(v)
             except (ValueError, TypeError):
                 cleaned[k] = v
+        elif k in ("sensor_egt_enabled", "sensor_koso_cht_enabled"):
+            cleaned[k] = v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes", "on")
         else:
             cleaned[k] = str(v)
 

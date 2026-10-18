@@ -589,12 +589,25 @@ def analyze_carb_jetting(
     cht_col = "CHT_cleaned" if "CHT_cleaned" in df.columns else ("CHT" if "CHT" in df.columns else None)
     max_egt = float(sub_df[egt_col].max()) if egt_col and not sub_df[egt_col].isna().all() else None
     max_cht = float(sub_df[cht_col].max()) if cht_col and not sub_df[cht_col].isna().all() else None
+    avg_cht = float(sub_df[cht_col].mean()) if cht_col and not sub_df[cht_col].isna().all() else None
     avg_total_afr = float(sub_df[afr_col].mean())
 
-    if max_cht and max_cht >= 170.0:
-        overall_verdict += f" 🚨 THERMISCHE WARNUNG: Zylinderkopftemperatur kritisch ({max_cht:.0f}°C >= 170°C)! Grauguss-Klemmgefahr bei Dauerlast."
-    elif max_cht and max_cht >= 155.0:
-        overall_verdict += f" ⚠️ Hinweis: Zylinderkopf erhöht warm ({max_cht:.0f}°C)."
+    temp2_mode = str(carb_setup.get("sensor_temp2_mode", "IAT")).upper()
+    if temp2_mode == "IAT":
+        if max_cht and max_cht > 0.0 and max_cht <= 95.0:
+            if avg_cht and avg_cht >= 38.0:
+                overall_verdict += (
+                    f" 🌡️ ANSAUGLUFT-HINWEIS (IAT): Warme Ansaugluft im Faltenbalg "
+                    f"(Ø {avg_cht:.1f}°C, Peak {max_cht:.1f}°C) -> reduzierte Sauerstoffdichte "
+                    f"lässt das Gemisch thermisch fetter laufen."
+                )
+            elif avg_cht and avg_cht > 0.0:
+                overall_verdict += f" 🌬️ Ansaugluft (IAT im Balg): Ø {avg_cht:.1f}°C (Peak {max_cht:.1f}°C)."
+    elif temp2_mode == "CHT":
+        if max_cht and max_cht >= 170.0:
+            overall_verdict += f" 🚨 THERMISCHE WARNUNG: Zylinderkopftemperatur kritisch ({max_cht:.0f}°C >= 170°C)! Grauguss-Klemmgefahr bei Dauerlast."
+        elif max_cht and max_cht >= 155.0:
+            overall_verdict += f" ⚠️ Hinweis: Zylinderkopf erhöht warm ({max_cht:.0f}°C)."
 
     return {
         "valid": True,
@@ -605,7 +618,9 @@ def analyze_carb_jetting(
         "fuel_type": fuel_type,
         "stoich_afr": stoich_afr,
         "max_egt": round(max_egt, 0) if max_egt else None,
-        "max_cht": round(max_cht, 0) if (max_cht and max_cht > 0) else None,
+        "max_cht": round(max_cht, 1) if (max_cht and max_cht > 0) else None,
+        "avg_cht": round(avg_cht, 1) if (avg_cht and avg_cht > 0) else None,
+        "sensor_temp2_mode": temp2_mode,
         "carb_setup": carb_setup,
         "weather_compensation": weather_info,
         "zones": evaluated_zones

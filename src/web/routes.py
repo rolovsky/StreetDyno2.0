@@ -80,8 +80,9 @@ def get_hw_service():
 
 @dyno_bp.route('/')
 def live_hud() -> str:
-    """Renders the high-contrast OLED Live Cockpit HUD."""
-    resp = Response(render_template('hud.html'))
+    """Renders the high-contrast OLED Live Cockpit HUD with active sensor setup."""
+    carb = load_carb_setup()
+    resp = Response(render_template('hud.html', carb=carb))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -210,6 +211,15 @@ def analyze_run() -> str:
 
         df = clean_egt_data(df)
         df = clean_cht_data(df)
+
+        carb_setup = setup_meta.get("carb", load_carb_setup())
+        if 'temp' not in request.args and str(carb_setup.get("sensor_temp2_mode", "IAT")).upper() == "IAT":
+            iat_col = 'CHT_cleaned' if 'CHT_cleaned' in df.columns else ('CHT' if 'CHT' in df.columns else None)
+            if iat_col:
+                valid_iat = df[iat_col][(df[iat_col] >= 5.0) & (df[iat_col] <= 65.0)]
+                if len(valid_iat) > 0:
+                    temp_param = round(float(valid_iat.mean()), 1)
+
         df = calculate_telemetry_metrics(
             df,
             gear=gear_param,
@@ -512,6 +522,14 @@ def dyno_sheet() -> str:
         df.columns = [c.strip() for c in df.columns]
         df = clean_egt_data(df)
         df = clean_cht_data(df)
+        carb = setup_meta.get("carb", load_carb_setup())
+        if 'temp' not in request.args and str(carb.get("sensor_temp2_mode", "IAT")).upper() == "IAT":
+            iat_col = 'CHT_cleaned' if 'CHT_cleaned' in df.columns else ('CHT' if 'CHT' in df.columns else None)
+            if iat_col:
+                valid_iat = df[iat_col][(df[iat_col] >= 5.0) & (df[iat_col] <= 65.0)]
+                if len(valid_iat) > 0:
+                    temp_param = round(float(valid_iat.mean()), 1)
+
         df = calculate_telemetry_metrics(
             df,
             gear=gear_param,
@@ -529,7 +547,6 @@ def dyno_sheet() -> str:
             norm_standard=norm_param
         )
 
-        carb = setup_meta.get("carb", load_carb_setup())
         carb_diag = analyze_carb_jetting(trimmed, carb, temp_c=temp_param, pressure_hpa=pressure_param)
 
         slide_label = SLIDE_TYPES.get(carb.get("slide_type", ""), carb.get("slide_type", "Lemarxon Low Cutaway"))
@@ -665,6 +682,8 @@ def api_update_carb_setup():
                     cleaned[k] = int(float(v))
                 except Exception:
                     cleaned[k] = v
+            elif k in ['sensor_egt_enabled', 'sensor_koso_cht_enabled']:
+                cleaned[k] = v if isinstance(v, bool) else str(v).lower() in ('true', '1', 'yes', 'on')
             else:
                 cleaned[k] = v
 

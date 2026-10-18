@@ -156,7 +156,7 @@
         }
         @keyframes flash-border { 50% { opacity: 0.15; } }
 
-        /* --- 5 Main HUD Gauges Grid --- */
+        /* --- Main HUD Gauges Grid (Auto-Adapting 3/4/5/6 Cards) --- */
         .hud-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -167,8 +167,13 @@
             margin-bottom: 6px;
         }
         @media (orientation: portrait) {
-            .hud-card.card-afr {
+            .hud-grid.cards-5 .hud-card.card-afr,
+            .hud-grid.cards-3 .hud-card.card-afr {
                 grid-column: span 2;
+            }
+            .hud-grid.cards-4 .hud-card.card-afr,
+            .hud-grid.cards-6 .hud-card.card-afr {
+                grid-column: span 1;
             }
         }
         @media (orientation: landscape) {
@@ -177,8 +182,12 @@
                 grid-template-rows: 1fr;
                 gap: 8px;
             }
+            .hud-grid.cards-3 { grid-template-columns: repeat(3, 1fr); }
+            .hud-grid.cards-4 { grid-template-columns: repeat(4, 1fr); }
+            .hud-grid.cards-5 { grid-template-columns: repeat(5, 1fr); }
+            .hud-grid.cards-6 { grid-template-columns: repeat(6, 1fr); }
             .hud-card.card-afr {
-                grid-column: span 1;
+                grid-column: span 1 !important;
             }
         }
         .hud-card {
@@ -225,6 +234,13 @@
         .card-afr .card-value { color: #00e676; text-shadow: 0 0 30px rgba(0,230,118,0.35); }
         .card-egt .card-value { color: #ffd600; text-shadow: 0 0 30px rgba(255,214,0,0.35); }
         .card-cht .card-value { color: #ff5722; text-shadow: 0 0 30px rgba(255,87,34,0.35); }
+        .card-iat .card-value { color: #38bdf8; text-shadow: 0 0 30px rgba(56,189,248,0.38); }
+        .btn-sensors {
+            border-color: #38bdf8;
+            color: #38bdf8;
+            background: #0c1924;
+        }
+        .btn-sensors:active { background: #142c40; }
         @keyframes danger-blink {
             0% { background: #131318; border-color: #ff1744; }
             50% { background: #3b0811; border-color: #ff1744; box-shadow: 0 0 35px rgba(255,23,68,0.8); }
@@ -633,6 +649,7 @@
             </div>
         </div>
         <div class="top-actions">
+            <button class="btn-icon btn-sensors" id="btnOpenSensors" onclick="openSensorModal()">⚙️ SENSOREN</button>
             <button class="btn-icon btn-fuel" id="btnOpenFuel" onclick="openFuelModal()">⛽ TANKEN</button>
             <button class="btn-icon btn-sound" onclick="openSoundModal()">🔊 SOUND</button>
             <button class="btn-icon" onclick="toggleFullScreen()">⛶ HUD</button>
@@ -659,8 +676,8 @@
         <div id="revBar" class="rev-bar-fill"></div>
     </div>
 
-    <!-- 5 Main Telemetry Cards -->
-    <div class="hud-grid">
+    <!-- Main Telemetry Cards (Auto-Adapting to Active Sensor Setup) -->
+    <div class="hud-grid cards-5" id="hudGrid">
         <div class="hud-card card-speed">
             <div class="card-header"><span>Speed</span><span>GPS</span></div>
             <div id="speed" class="card-value">0.0</div>
@@ -681,10 +698,16 @@
             <div id="egt" class="card-value">0</div>
             <div class="card-unit">°C (EGT)</div>
         </div>
-        <div class="hud-card card-cht" id="cardCht">
-            <div class="card-header"><span>Zylinderkopf</span><span id="chtZone">MAX 170°C</span></div>
+        <div class="hud-card card-iat" id="cardCht">
+            <div class="card-header"><span id="temp2Title">Ansaugluft</span><span id="chtZone">IAT BALG</span></div>
             <div id="cht" class="card-value">0</div>
-            <div class="card-unit">°C (CHT)</div>
+            <div class="card-unit" id="temp2Unit">°C (IAT)</div>
+        </div>
+        <!-- Prepared KOSO NTC Cylinder Head Temperature Card (Pin A1) -->
+        <div class="hud-card card-cht" id="cardKosoCht" style="display:none;">
+            <div class="card-header"><span>Zylinderkopf</span><span id="kosoChtZone">KOSO A1</span></div>
+            <div id="kosoChtVal" class="card-value">--</div>
+            <div class="card-unit">°C (CHT KOSO)</div>
         </div>
     </div>
 
@@ -696,6 +719,94 @@
             <a href="/trips" class="btn-nav" style="color:#29b6f6; border-color:rgba(41,182,246,0.4);">🗺️ FAHRTEN</a>
             <a href="/tuning" class="btn-nav">🔧 VERGASER</a>
             <a href="/diagnostics" class="btn-nav" style="color:#00ffcc; border-color:rgba(0,255,204,0.4);">⚡ DIAGNOSE</a>
+        </div>
+    </div>
+
+    <!-- Interactive Sensor & System Configuration Modal -->
+    <div id="sensorModal" class="modal-overlay" onclick="closeSensorModalOnOutsideClick(event)">
+        <div class="modal-box fuel-modal-box">
+            <div class="modal-header-row">
+                <div>
+                    <div class="modal-title">⚙️ Sensor- & HUD-System</div>
+                    <div class="modal-subtitle">Aktive Sensoren wählen – HUD & Dyno passen sich automatisch an</div>
+                </div>
+                <button type="button" class="modal-x-btn" onclick="closeSensorModal()">✕</button>
+            </div>
+
+            <div class="fuel-form">
+                <!-- Core Fixed Sensors Info -->
+                <div style="background:#181822; border:1px solid #282836; border-radius:10px; padding:8px 10px; font-size:0.72rem; color:#a1a1aa; display:flex; justify-content:space-between; align-items:center;">
+                    <span>🔒 <b>Basis-Kanäle:</b> GPS Speed • RPM (D2) • Lambda AFR (A0)</span>
+                    <span style="color:#00e676; font-weight:800;">IMMER AKTIV</span>
+                </div>
+
+                <!-- 1. MAX6675 #1 (D4/D5/D6) - EGT -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label>🔥 KANAL 1: MAX6675 #1 (PINS D4/D5/D6)</label>
+                        <span class="form-hint">Abgassonde</span>
+                    </div>
+                    <div class="oil-selector-grid" style="grid-template-columns: 1fr 1fr;">
+                        <button type="button" class="btn-oil-option active" id="btnEgtOn" onclick="selectEgtEnabled(true)">
+                            <span class="oil-opt-title">🔥 EGT Aktiv</span>
+                            <span class="oil-opt-sub">Abgastemp (630°C Max)</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnEgtOff" onclick="selectEgtEnabled(false)">
+                            <span class="oil-opt-title">🚫 Ausblenden</span>
+                            <span class="oil-opt-sub">Nicht bestückt</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. MAX6675 #2 (D7/D8/D9) - IAT / CHT / OFF -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label>🌬️ KANAL 2: MAX6675 #2 (PINS D7/D8/D9)</label>
+                        <span class="form-hint">Typ-K Fühler</span>
+                    </div>
+                    <div class="oil-selector-grid" style="grid-template-columns: repeat(3, 1fr);">
+                        <button type="button" class="btn-oil-option active" id="btnTemp2IAT" onclick="selectTemp2Mode('IAT')">
+                            <span class="oil-opt-title">🌬️ IAT (Balg)</span>
+                            <span class="oil-opt-sub">Ansaugluft + DIN</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnTemp2CHT" onclick="selectTemp2Mode('CHT')">
+                            <span class="oil-opt-title">🌡️ CHT (Kopf)</span>
+                            <span class="oil-opt-sub">Zylinderkopf 170°C</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnTemp2OFF" onclick="selectTemp2Mode('OFF')">
+                            <span class="oil-opt-title">🚫 Aus</span>
+                            <span class="oil-opt-sub">Deaktiviert</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. Analog Pin A1 - KOSO NTC CHT (Prepared) -->
+                <div class="form-group">
+                    <div class="form-label-row">
+                        <label>🟠 KANAL 3: ANALOG PIN A1 (KOSO NTC)</label>
+                        <span class="form-hint" style="color:#ff9800;">Vorbereitet in Firmware</span>
+                    </div>
+                    <div class="oil-selector-grid" style="grid-template-columns: 1fr 1fr;">
+                        <button type="button" class="btn-oil-option active" id="btnKosoOff" onclick="selectKosoEnabled(false)">
+                            <span class="oil-opt-title">⏸️ Inaktiv (Standby)</span>
+                            <span class="oil-opt-sub">Bis KOSO verbaut ist</span>
+                        </button>
+                        <button type="button" class="btn-oil-option" id="btnKosoOn" onclick="selectKosoEnabled(true)">
+                            <span class="oil-opt-title">🟠 KOSO CHT Aktiv</span>
+                            <span class="oil-opt-sub">6. Kachel einblenden</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div style="background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.35); border-radius:10px; padding:8px 10px; font-size:0.72rem; color:#d4d4d8;" id="sensorModeHintBox">
+                    💡 <b>IAT-Modus aktiv:</b> Misst die Ansauglufttemperatur im Faltenbalg vor dem Vergaser, warnt bei Hitzestau unter der Backe (>38°C) und liefert reale Luftdichte-Werte für die DIN-70020-Dyno-Korrektur.
+                </div>
+
+                <div class="modal-actions-row">
+                    <button type="button" class="btn-submit-refuel" id="btnSaveSensors" onclick="saveSensorConfig()">💾 SENSOR-SETUP ÜBERNEHMEN</button>
+                    <button type="button" class="btn-cancel-modal" onclick="closeSensorModal()">Schließen</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1005,6 +1116,13 @@
         let prevIsLogging = false;
         let lastDangerAlarmTime = 0;
 
+        // --- Dynamic Sensor & HUD System Configuration ---
+        const sensorConfig = {
+            egtEnabled: {{ 'false' if (carb is defined and carb and carb.get('sensor_egt_enabled') == False) else 'true' }},
+            temp2Mode: "{{ (carb.get('sensor_temp2_mode', 'IAT') if (carb is defined and carb) else 'IAT') | upper }}",
+            kosoEnabled: {{ 'true' if (carb is defined and carb and carb.get('sensor_koso_cht_enabled') == True) else 'false' }}
+        };
+
         // --- Automotive Cockpit Display Damping (PT1 / Lerp) ---
         let targetRpm = 0.0;
         let targetSpeed = 0.0;
@@ -1127,7 +1245,7 @@
                     }
 
                     const cardEgt = document.getElementById('cardEgt');
-                    if (cardEgt) {
+                    if (cardEgt && sensorConfig.egtEnabled) {
                         if (targetEgt >= 630.0) {
                             cardEgt.classList.add('card-danger');
                             isDanger = true;
@@ -1138,27 +1256,47 @@
 
                     const cardCht = document.getElementById('cardCht');
                     const chtZone = document.getElementById('chtZone');
-                    if (cardCht) {
-                        const effCht = (displayCht > 0) ? displayCht : targetCht;
-                        if (targetCht >= 170.0) {
-                            cardCht.classList.add('card-danger');
-                            if (chtZone) chtZone.innerText = '🚨 HITZESTAU!';
-                            cardCht.style.borderColor = '#ff1744';
-                            isDanger = true;
-                        } else {
+                    if (cardCht && sensorConfig.temp2Mode !== 'OFF') {
+                        const effVal = (displayCht > 0) ? displayCht : targetCht;
+                        if (sensorConfig.temp2Mode === 'IAT') {
                             cardCht.classList.remove('card-danger');
-                            if (effCht >= 155.0) {
-                                if (chtZone) chtZone.innerText = '⚠️ HEISS!';
+                            if (effVal >= 48.0) {
+                                if (chtZone) chtZone.innerText = '🔥 HITZESTAU!';
+                                cardCht.style.borderColor = '#ff1744';
+                            } else if (effVal >= 38.0) {
+                                if (chtZone) chtZone.innerText = '⚠️ WARM (FETT)';
                                 cardCht.style.borderColor = '#ff9800';
-                            } else if (effCht >= 85.0) {
-                                if (chtZone) chtZone.innerText = '🟢 OPTIMAL';
+                            } else if (effVal >= 25.0) {
+                                if (chtZone) chtZone.innerText = '🔵 NORMAL';
+                                cardCht.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+                            } else if (effVal > 1.0) {
+                                if (chtZone) chtZone.innerText = '🟢 KÜHL (OPT)';
                                 cardCht.style.borderColor = 'rgba(0, 230, 118, 0.45)';
-                            } else if (effCht > 5.0) {
-                                if (chtZone) chtZone.innerText = '🔵 KALT';
-                                cardCht.style.borderColor = 'rgba(41, 182, 246, 0.35)';
                             } else {
-                                if (chtZone) chtZone.innerText = 'MAX 170°C';
+                                if (chtZone) chtZone.innerText = 'IAT BALG';
                                 cardCht.style.borderColor = 'rgba(255, 255, 255, 0.07)';
+                            }
+                        } else {
+                            if (targetCht >= 170.0) {
+                                cardCht.classList.add('card-danger');
+                                if (chtZone) chtZone.innerText = '🚨 HITZESTAU!';
+                                cardCht.style.borderColor = '#ff1744';
+                                isDanger = true;
+                            } else {
+                                cardCht.classList.remove('card-danger');
+                                if (effVal >= 155.0) {
+                                    if (chtZone) chtZone.innerText = '⚠️ HEISS!';
+                                    cardCht.style.borderColor = '#ff9800';
+                                } else if (effVal >= 85.0) {
+                                    if (chtZone) chtZone.innerText = '🟢 OPTIMAL';
+                                    cardCht.style.borderColor = 'rgba(0, 230, 118, 0.45)';
+                                } else if (effVal > 5.0) {
+                                    if (chtZone) chtZone.innerText = '🔵 KALT';
+                                    cardCht.style.borderColor = 'rgba(41, 182, 246, 0.35)';
+                                } else {
+                                    if (chtZone) chtZone.innerText = 'MAX 170°C';
+                                    cardCht.style.borderColor = 'rgba(255, 255, 255, 0.07)';
+                                }
                             }
                         }
                     }
@@ -1509,7 +1647,161 @@
             });
         }
 
-        // Initial fuel state fetch & 25s polling
+        // --- Dynamic Sensor Layout & Modal Controller ---
+        function applySensorLayout() {
+            const grid = document.getElementById('hudGrid');
+            const cardEgt = document.getElementById('cardEgt');
+            const cardCht = document.getElementById('cardCht');
+            const cardKoso = document.getElementById('cardKosoCht');
+            const temp2Title = document.getElementById('temp2Title');
+            const temp2Unit = document.getElementById('temp2Unit');
+            const chtZone = document.getElementById('chtZone');
+
+            let visibleCards = 3; // Speed, RPM, AFR always active
+
+            if (cardEgt) {
+                cardEgt.style.display = sensorConfig.egtEnabled ? 'flex' : 'none';
+                if (sensorConfig.egtEnabled) visibleCards++;
+            }
+
+            if (cardCht) {
+                if (sensorConfig.temp2Mode === 'OFF') {
+                    cardCht.style.display = 'none';
+                } else {
+                    cardCht.style.display = 'flex';
+                    visibleCards++;
+                    if (sensorConfig.temp2Mode === 'IAT') {
+                        cardCht.classList.remove('card-cht');
+                        cardCht.classList.add('card-iat');
+                        if (temp2Title) temp2Title.innerText = 'Ansaugluft';
+                        if (temp2Unit) temp2Unit.innerText = '°C (IAT)';
+                        if (chtZone && targetCht <= 1.0) chtZone.innerText = 'IAT BALG';
+                    } else {
+                        cardCht.classList.remove('card-iat');
+                        cardCht.classList.add('card-cht');
+                        if (temp2Title) temp2Title.innerText = 'Zylinderkopf';
+                        if (temp2Unit) temp2Unit.innerText = '°C (CHT)';
+                        if (chtZone && targetCht <= 5.0) chtZone.innerText = 'MAX 170°C';
+                    }
+                }
+            }
+
+            if (cardKoso) {
+                cardKoso.style.display = sensorConfig.kosoEnabled ? 'flex' : 'none';
+                if (sensorConfig.kosoEnabled) visibleCards++;
+            }
+
+            if (grid) {
+                grid.classList.remove('cards-3', 'cards-4', 'cards-5', 'cards-6');
+                grid.classList.add('cards-' + visibleCards);
+            }
+        }
+
+        function syncSensorModalButtons() {
+            const bEgtOn = document.getElementById('btnEgtOn');
+            const bEgtOff = document.getElementById('btnEgtOff');
+            if (bEgtOn && bEgtOff) {
+                bEgtOn.classList.toggle('active', !!sensorConfig.egtEnabled);
+                bEgtOff.classList.toggle('active', !sensorConfig.egtEnabled);
+            }
+
+            ['IAT', 'CHT', 'OFF'].forEach(mode => {
+                const b = document.getElementById('btnTemp2' + mode);
+                if (b) b.classList.toggle('active', sensorConfig.temp2Mode === mode);
+            });
+
+            const bKosoOff = document.getElementById('btnKosoOff');
+            const bKosoOn = document.getElementById('btnKosoOn');
+            if (bKosoOff && bKosoOn) {
+                bKosoOff.classList.toggle('active', !sensorConfig.kosoEnabled);
+                bKosoOn.classList.toggle('active', !!sensorConfig.kosoEnabled);
+            }
+
+            const hintBox = document.getElementById('sensorModeHintBox');
+            if (hintBox) {
+                if (sensorConfig.temp2Mode === 'IAT') {
+                    hintBox.innerHTML = '💡 <b>IAT-Modus aktiv:</b> Misst die Ansauglufttemperatur im Faltenbalg vor dem Vergaser, warnt bei Hitzestau unter der Backe (>38°C) und liefert reale Luftdichte-Werte für die DIN-70020-Dyno-Korrektur.';
+                } else if (sensorConfig.temp2Mode === 'CHT') {
+                    hintBox.innerHTML = '🌡️ <b>CHT-Modus aktiv:</b> Überwacht die Zylinderkopftemperatur über MAX6675 #2 (Optimal 85–155°C, Alarm ab 170°C für VMC 187cc Grauguss).';
+                } else {
+                    hintBox.innerHTML = '🚫 <b>Kanal 2 ausgeblendet:</b> Das HUD schaltet automatisch auf das kompakte 4-Kachel-Cockpit um.';
+                }
+            }
+        }
+
+        function openSensorModal() {
+            getAudioContext();
+            syncSensorModalButtons();
+            const m = document.getElementById('sensorModal');
+            if (m) m.classList.add('open');
+        }
+
+        function closeSensorModal() {
+            const m = document.getElementById('sensorModal');
+            if (m) m.classList.remove('open');
+        }
+
+        function closeSensorModalOnOutsideClick(e) {
+            if (e.target.id === 'sensorModal') closeSensorModal();
+        }
+
+        function selectEgtEnabled(enabled) {
+            sensorConfig.egtEnabled = enabled;
+            syncSensorModalButtons();
+            applySensorLayout();
+        }
+
+        function selectTemp2Mode(mode) {
+            sensorConfig.temp2Mode = mode;
+            syncSensorModalButtons();
+            applySensorLayout();
+        }
+
+        function selectKosoEnabled(enabled) {
+            sensorConfig.kosoEnabled = enabled;
+            syncSensorModalButtons();
+            applySensorLayout();
+        }
+
+        function saveSensorConfig() {
+            const btn = document.getElementById('btnSaveSensors');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Speichere...';
+            }
+            const payload = {
+                sensor_egt_enabled: sensorConfig.egtEnabled,
+                sensor_temp2_mode: sensorConfig.temp2Mode,
+                sensor_koso_cht_enabled: sensorConfig.kosoEnabled
+            };
+            fetch('/api/update_carb_setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = '💾 SENSOR-SETUP ÜBERNEHMEN';
+                }
+                applySensorLayout();
+                playTone(880, 'sine', 80, 0.0);
+                playTone(1174, 'triangle', 140, 0.09);
+                closeSensorModal();
+            })
+            .catch(err => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = '💾 SENSOR-SETUP ÜBERNEHMEN';
+                }
+                applySensorLayout();
+                closeSensorModal();
+            });
+        }
+
+        // Initial layout & fuel state fetch & 25s polling
+        applySensorLayout();
         updateFuelStatusBar();
         setInterval(updateFuelStatusBar, 25000);
     </script>
